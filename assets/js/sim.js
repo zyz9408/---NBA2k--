@@ -1446,7 +1446,7 @@ function llmSystemPrompt() {
   只输出JSON对象（不要Markdown）：
   {
     "posts": [
-      { "author": "用户名", "persona": "人设标签", "text": "推文内容", "likes": "点赞数(带k/w)", "reposts": "转发数", "comments": [ ... ] }
+      { "author": "用户名", "persona": "人设标签", "text": "推文内容", "likes": "点赞数(带k/w)", "reposts": "转发数", "comments": [ {"author":"评论者网名","text":"评论内容","likes":数字} ] }
     ]
   }
   确保 posts 数组包含 5-8 条高质量推文。`;
@@ -2286,7 +2286,7 @@ function normalizeDailySocialPosts(parsed) {
       author: String(c?.author || pick(SOCIAL_COMMENTERS)),
       persona: String(c?.persona || '中立型'),
       tone: String(c?.tone || 'neutral'),
-      text: sanitizeSocialGeneratedText(c?.text || ''),
+      text: sanitizeSocialGeneratedText(c?.text || c?.content || c?.body || ''),
       likes: clamp(parseNum(c?.likes, rng(1, 80)), 0, 999999)
     }))
   })).filter(p => p.text.length >= 8);
