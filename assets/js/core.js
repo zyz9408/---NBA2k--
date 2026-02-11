@@ -912,7 +912,7 @@ async function clearSavedRootHandle() {
   } catch (e) { }
 }
 async function getRootHandle(autoOnly = true, forcePick = false) {
-  if (!isFileMode() || !canUseFS()) return null;
+  if (!canUseFS()) return null;
   if (forcePick) {
     const picked = await window.showDirectoryPicker({ mode: 'read' });
     if (!picked) return null;

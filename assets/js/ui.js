@@ -2068,20 +2068,56 @@ function getSaveFilename() {
 
 function renderSave() {
   const lastSaveTime = G._lastSaveTime ? new Date(G._lastSaveTime).toLocaleString('zh-CN') : '暂无';
+  let saveListHtml = '<div class="tc t-2 fs-sm">正在读取存档列表...</div>';
+
+  if (G._saveHandle) {
+    // If handle exists, list files
+    if (!G._saveFiles) {
+      refreshSaveFiles(); // Trigger async refresh
+    } else if (G._saveFiles.length === 0) {
+      saveListHtml = '<div class="tc t-2 fs-sm">该文件夹下没有 .json 存档</div>';
+    } else {
+      saveListHtml = G._saveFiles.map(f => `
+         <div class="save-item flex-row justify-between align-center p-8 bg-black-2 mb-4 rounded border-1 border-white-1">
+           <div class="flex-1 tl mr-10" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+             <div class="t-1 fs-sm">${f.name}</div>
+             <div class="t-3 fs-xs">${new Date(f.lastModified).toLocaleString()}</div>
+           </div>
+           <button class="btn btn-sm btn-pri" onclick="loadSaveDirect('${f.name}')">读取</button>
+         </div>
+       `).join('');
+    }
+  }
+
   $('savePage').innerHTML = `
   <div class="card">
     <div class="card-title">💾 存档管理</div>
     <div class="tc p-16">
       <div class="mb-16">当前进度: ${G.year}赛季 第${G.season}年 | ${G.player.name} | 第${G.dayNum + 1}天</div>
+      
+      <!-- Auto Save Folder UI -->
+      <div class="mb-16 p-12 bg-black-3 rounded border-1 border-gold-2">
+        <div class="flex-row justify-between align-center mb-8">
+            <div class="t-1 fw-bold">📂 自动存档目录</div>
+             <button class="btn btn-sm btn-gold" onclick="bindSaveDirectory()">
+               ${G._saveHandle ? '切换目录' : '📁 绑定 "Save" 文件夹'}
+             </button>
+        </div>
+        ${G._saveHandle
+      ? `<div class="t-2 fs-xs mb-8">已绑定: ${G._saveHandle.name} <span class="t-green">(点击保存直接写入)</span></div>`
+      : '<div class="t-3 fs-xs mb-8">绑定后可一键保存/读取，无需每次选择文件。建议绑定根目录下的 Save 文件夹。</div>'}
+        
+        ${G._saveHandle ? `<div class="save-list" style="max-height:200px;overflow-y:auto;border:1px solid #333;padding:4px">${saveListHtml}</div>` : ''}
+      </div>
+
       <div class="t-2 fs-sm mb-16">上次保存: ${lastSaveTime}</div>
       <div class="grid g2" style="gap:12px;max-width:500px;margin:0 auto">
         <button class="btn btn-gold" onclick="autoSaveToFile()" style="padding:14px 20px;font-size:16px">💾 保存存档</button>
         <div style="position:relative">
-          <button class="btn btn-pri" style="padding:14px 20px;font-size:16px;width:100%">📂 读取存档</button>
+          <button class="btn btn-pri" style="padding:14px 20px;font-size:16px;width:100%">📂 读取本地文件</button>
           <input type="file" accept=".json" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer" onchange="loadSaveFromFile(this)">
         </div>
       </div>
-      <div class="t-2 mt-16 fs-sm">保存时会弹出文件选择器，建议保存到项目 Save 文件夹。<br>读取时选择之前保存的 .json 文件即可。</div>
     </div>
   </div>
   <div class="card">
@@ -2089,9 +2125,100 @@ function renderSave() {
     <div class="tc p-16">
       <button class="btn btn-cyan" onclick="quickSaveLocalStorage()" style="padding:10px 20px">💾 临时存档（浏览器缓存）</button>
       <button class="btn btn-pri mt-12" onclick="quickLoadLocalStorage()" style="padding:10px 20px">📂 读取临时存档</button>
-      <div class="t-2 mt-12 fs-xs">临时存档保存在浏览器中，清除缓存会丢失。建议用上方文件存档。</div>
     </div>
   </div>`;
+
+  // Try to load handle on first render if missing
+  if (!G._saveHandleChecked) {
+    G._saveHandleChecked = true;
+    loadSavedHandle().then(h => {
+      if (h) {
+        G._saveHandle = h;
+        refreshSaveFiles();
+      }
+    });
+  }
+}
+
+// === Save Folder Automation ===
+const DB_SAVE_CFG = { name: 'nba_save_db', store: 'config', key: 'save_handle' }; // Separate DB for safety
+async function openSaveDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_SAVE_CFG.name, 1);
+    req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(DB_SAVE_CFG.store)) req.result.createObjectStore(DB_SAVE_CFG.store); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function loadSavedHandle() {
+  try {
+    const db = await openSaveDB();
+    return await new Promise(resolve => {
+      const tx = db.transaction(DB_SAVE_CFG.store, 'readonly');
+      const req = tx.objectStore(DB_SAVE_CFG.store).get(DB_SAVE_CFG.key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch (e) { return null; }
+}
+
+async function bindSaveDirectory() {
+  try {
+    const handle = await window.showDirectoryPicker({ id: 'nba_save_dir', mode: 'readwrite' });
+    if (handle) {
+      // Verify permission
+      if ((await handle.queryPermission({ mode: 'readwrite' })) !== 'granted') {
+        if ((await handle.requestPermission({ mode: 'readwrite' })) !== 'granted') return;
+      }
+      G._saveHandle = handle;
+      // Save to DB
+      const db = await openSaveDB();
+      const tx = db.transaction(DB_SAVE_CFG.store, 'readwrite');
+      tx.objectStore(DB_SAVE_CFG.store).put(handle, DB_SAVE_CFG.key);
+
+      refreshSaveFiles();
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') alert('绑定失败: ' + e.message);
+  }
+}
+
+async function refreshSaveFiles() {
+  if (!G._saveHandle) return;
+  try {
+    const files = [];
+    for await (const entry of G._saveHandle.values()) {
+      if (entry.kind === 'file' && entry.name.endsWith('.json')) {
+        const file = await entry.getFile();
+        files.push({ name: entry.name, lastModified: file.lastModified, handle: entry });
+      }
+    }
+    // Sort by time desc
+    files.sort((a, b) => b.lastModified - a.lastModified);
+    G._saveFiles = files;
+    if ($('savePage').classList.contains('active')) renderSave();
+  } catch (e) {
+    console.warn('Listing failed', e);
+    // Maybe permission lost?
+    G._saveHandle = null;
+    renderSave();
+  }
+}
+
+async function loadSaveDirect(filename) {
+  if (!G._saveFiles) return;
+  const target = G._saveFiles.find(f => f.name === filename);
+  if (!target) return;
+  try {
+    const file = await target.handle.getFile();
+    const text = await file.text();
+    const data = JSON.parse(text);
+    applySaveData(data);
+    alert('读取成功: ' + filename);
+  } catch (e) {
+    alert('读取失败: ' + e.message);
+  }
 }
 
 async function autoSaveToFile() {
@@ -2099,6 +2226,28 @@ async function autoSaveToFile() {
     const saveObj = buildSaveObj();
     const json = JSON.stringify(saveObj, null, 2);
     const filename = getSaveFilename();
+
+    if (G._saveHandle) {
+      // Direct Write Mode
+      try {
+        // Check permission
+        if ((await G._saveHandle.queryPermission({ mode: 'readwrite' })) !== 'granted') {
+          if ((await G._saveHandle.requestPermission({ mode: 'readwrite' })) !== 'granted') throw new Error('Permission denied');
+        }
+        const fileHandle = await G._saveHandle.getFileHandle(filename, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(json);
+        await writable.close();
+        G._lastSaveTime = Date.now();
+        try { localStorage.setItem('nba_save_auto', json); } catch (e) { }
+        alert(`存档已保存到: ${G._saveHandle.name}/${filename}`);
+        refreshSaveFiles(); // Update list
+        if ($('savePage').classList.contains('active')) renderSave();
+        return;
+      } catch (e) {
+        console.warn('Direct save failed, falling back', e);
+      }
+    }
 
     if (window.showSaveFilePicker) {
       try {
