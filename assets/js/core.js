@@ -725,7 +725,7 @@ function normalizeRotationMinutes(rotation, target = 240) {
   let guard = 0;
   while (total > target && guard < 700) {
     const idx = cutOrder().find(i => rotation[i].minutes > 6);
-    if (idx < 0) break;
+    if (idx == null) break;
     rotation[idx].minutes--;
     total--;
     guard++;
@@ -733,7 +733,7 @@ function normalizeRotationMinutes(rotation, target = 240) {
   guard = 0;
   while (total < target && guard < 700) {
     const idx = addOrder().find(i => rotation[i].minutes < 40);
-    if (idx < 0) break;
+    if (idx == null) break;
     rotation[idx].minutes++;
     total++;
     guard++;
@@ -1251,17 +1251,8 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
       });
     });
 
-    // Also shift rookie catalog years if necessary?
-    // User says "Because roster year and player start year are different...".
-    // If the whole DB is 1 year behind, then proper draft classes are also 1 year behind in the file.
-    // e.g. 2004 class is labeled 2003 in file.
-    // So we must increment yearsLeague for rookieCatalog too.
-    LEAGUE.rookieCatalog.forEach(p => {
-      const y = parseNum(p.yearsLeague, 0);
-      if (y >= 1900) {
-        p.yearsLeague = y + 1;
-      }
-    });
+    // Rookie catalog years are already correct in the file (e.g. 2005 class = yearsLeague 2005).
+    // Do NOT shift them — the roster file already contains previous draft picks as active players.
 
     normalizeLeagueSalaryUnits({ includeUser: false });
     Object.values(LEAGUE.teams).forEach(t => {
@@ -2113,42 +2104,55 @@ function generateDraftClass64() {
 async function injectSeasonRookies() {
   if (!LEAGUE.loaded) return;
   try {
-    const draftClass = generateDraftClass64();
-    LEAGUE.rookiesBySeason[G.year] = draftClass.players;
-    const teamIds = Object.keys(LEAGUE.teams).map(Number).filter(id => id >= 1 && id <= 30);
-    if (!teamIds.length) return;
-    const draftOrder = [...teamIds].sort((a, b) => getTeamStrength(a) - getTeamStrength(b));
-    const assign = [];
-    draftOrder.forEach(id => assign.push(id));
-    while (assign.length < 64) assign.push(teamIds[rng(0, teamIds.length - 1)]);
-    draftClass.players.forEach((rk, i) => {
-      // Fix: Respect historical draft team if available (e.g. "ORL" or teamId)
-      // If the rookie has a specific team assigned in the file, use it.
-      let targetTeamId = 0;
-      if (rk.teamId) targetTeamId = parseNum(rk.teamId, 0);
-      else if (rk.draftTeam) {
-        // Try to find team by abbreviation
-        const abbr = String(rk.draftTeam).trim().toUpperCase();
-        const found = Object.values(LEAGUE.teams).find(t => t.a === abbr || t.n.toUpperCase() === abbr);
-        if (found) targetTeamId = found.id;
-      }
+    const board = G.draftBoard;
+    const stored = Array.isArray(board?._pickResults) ? board._pickResults : [];
 
-      // Fallback to draft order if no specific team or specific team not found
-      if (!targetTeamId || !LEAGUE.teams[targetTeamId]) {
-        targetTeamId = assign[i];
-      }
+    // Use draft results from simulateDraft if available (first season)
+    if (stored.length) {
+      const injected = [];
+      stored.forEach(r => {
+        if (!r.player || r.player.id === 'USER_PROSPECT') return;
+        const tid = parseNum(r.teamId, 0);
+        const t = LEAGUE.teams[tid];
+        if (!t) return;
+        t.players.push({ ...r.player, teamId: tid });
+        injected.push(r.player);
+      });
+      if (!LEAGUE.rookiesBySeason) LEAGUE.rookiesBySeason = {};
+      LEAGUE.rookiesBySeason[G.year] = injected;
+    } else {
+      // Fallback for subsequent seasons: generate fresh draft class
+      const draftClass = generateDraftClass64();
+      if (!LEAGUE.rookiesBySeason) LEAGUE.rookiesBySeason = {};
+      LEAGUE.rookiesBySeason[G.year] = draftClass.players;
+      const teamIds = Object.keys(LEAGUE.teams).map(Number).filter(id => id >= 1 && id <= 30);
+      if (!teamIds.length) return;
+      const draftOrder = [...teamIds].sort((a, b) => getTeamStrength(a) - getTeamStrength(b));
+      const assign = [];
+      draftOrder.forEach(id => assign.push(id));
+      while (assign.length < 64) assign.push(teamIds[rng(0, teamIds.length - 1)]);
+      draftClass.players.forEach((rk, i) => {
+        let targetTeamId = 0;
+        if (rk.teamId) targetTeamId = parseNum(rk.teamId, 0);
+        else if (rk.draftTeam) {
+          const abbr = String(rk.draftTeam).trim().toUpperCase();
+          const found = Object.values(LEAGUE.teams).find(t => t.a === abbr || t.n.toUpperCase() === abbr);
+          if (found) targetTeamId = found.id;
+        }
+        if (!targetTeamId || !LEAGUE.teams[targetTeamId]) targetTeamId = assign[i];
+        const t = LEAGUE.teams[targetTeamId];
+        if (!t) return;
+        t.players.push({ ...rk, teamId: targetTeamId });
+      });
+      const top = draftClass.players[0];
+      const tierText = draftClass.tier === 'big' ? '大年' : (draftClass.tier === 'weak' ? '小年' : '正常年');
+      addNews(`🎓 ${G.year}届选秀完成（${tierText}）：状元 ${top.name} OVR ${top.rating} POT ${top.potential}`, 'neu');
+    }
 
-      const t = LEAGUE.teams[targetTeamId];
-      if (!t) return;
-      t.players.push({ ...rk, teamId: targetTeamId });
-    });
     Object.values(LEAGUE.teams).forEach(t => {
       t.rotation = toRotation(t.players);
       t.strength = calcTeamStrength(t);
     });
-    const top = draftClass.players[0];
-    const tierText = draftClass.tier === 'big' ? '大年' : (draftClass.tier === 'weak' ? '小年' : '正常年');
-    addNews(`🎓 ${G.year}届选秀完成（${tierText}）：状元 ${top.name} OVR ${top.rating} POT ${top.potential}`, 'neu');
   } catch (e) {
     console.warn('Rookie injection failed', e);
   }

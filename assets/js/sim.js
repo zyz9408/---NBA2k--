@@ -416,6 +416,7 @@ function simulateDraft() {
     tier: draftClass.tier,
     year: draftClass.year,
     classSize: pickResults.length,
+    _pickResults: pickResults.map(r => ({ teamId: r.teamId, player: r.player })),
     top: pickResults.slice(0, 10).map(r => ({
       pick: r.pick,
       team: getTeam(r.teamId)?.a || '--',
@@ -1428,20 +1429,29 @@ function buildLLMRequestConfig(baseUrl, apiKey, url, { jsonBody = false } = {}) 
 }
 function llmSystemPrompt() {
   return `你是NBA社媒运营助手。必须使用简体中文，语气真实自然，模仿Twitter/Reddit/虎扑网友风格。
-  
+
+  【最高优先级：只用提供的数据】
+  ⚠️ 这是一个模拟游戏，不是真实NBA历史。你必须：
+  - **只使用 context 中提供的球员名字、球队战绩、数据统计**，不要用你记忆中的真实NBA历史数据
+  - 提到球员数据时，**必须引用 context.league 中的真实数据**（得分榜、助攻榜、篮板榜、球队战绩）
+  - **严禁**把不同届的球员混为同届，球员的选秀届别以 context.draft 为准
+  - **严禁**编造 context 中不存在的球员数据（如得分、助攻、篮板等具体数字）
+  - 如果 context 中没有某球员的数据，就不要提他的具体表现数字
+
   【核心原则】
-  1. **严格遵守时间线**：根据 context.year (当前年份) 融入当时的流行文化、电影音乐、社会大事件、科技产品（如90年代提乔丹/公牛/大哥大，2010年代提詹姆斯/智能手机/复联）。
-  2. **内容极度多样化**：
-     - 不要只盯着选秀或新秀！必须自行编造合理的NBA周边新闻：重磅交易流言、球星伤病、强队连胜/连败、宿敌对决预热、更衣室矛盾、教练下课危机等。
-     - 必须包含**非篮球内容的年代感推文**（约占20%）：例如“刚看了《泰坦尼克号》，太震撼了”、“周杰伦的新歌绝了”、“听说苹果要出手机了？”。
-  3. **角色扮演**：使用不同身份（激进粉丝、理智分析帝、吃瓜路人、甚至愤怒的赌狗）。
-  
+  1. **严格遵守时间线**：根据 context.year 融入当时的流行文化、电影音乐、社会大事件、科技产品。
+  2. **内容多样化**：
+     - 基于 context.league.top5/bot3 讨论强队弱队、战绩排名
+     - 基于 context.league.scorers/assisters/rebounders 讨论球星表现
+     - 包含非篮球内容的年代感推文（约占20%）
+  3. **角色扮演**：使用不同身份（激进粉丝、理智分析帝、吃瓜路人等）。
+
   【严格禁令】
-  - 🚫 **绝对禁止**出现 OVR, POT, 能力值, 评分, 潜力值 等游戏术语。
-  - 🚫 **严禁**擅自编造历史不存在的超级巨星名字（除非是 context 中提到的）。
-   - 🚫 **严禁**出现时间错乱的人物。
-  - 🚫 **严禁**在非选秀期间疯狂刷屏“选秀”关键词。
-  
+  - 🚫 **绝对禁止**出现 OVR, POT, 能力值, 评分, 潜力值 等游戏术语
+  - 🚫 **严禁**编造 context 中不存在的球员名字或数据
+  - 🚫 **严禁**出现时间错乱的人物
+  - 🚫 **严禁**在非选秀期间疯狂刷屏"选秀"关键词
+
   【输出格式】
   只输出JSON对象（不要Markdown）：
   {
@@ -1877,6 +1887,26 @@ function getSocialPostById(postId) {
   ensureSocialState();
   return (G.social.posts || []).find(p => String(p.id) === String(postId)) || null;
 }
+function buildLeagueSnapshotForLLM() {
+  ensureLeagueStateShape();
+  const records = G.leagueSeason.teamRecords || {};
+  const standings = TEAMS.map(t => {
+    const r = records[t.id] || { w: 0, l: 0 };
+    return { name: t.z, abbr: t.a, w: r.w, l: r.l };
+  }).sort((a, b) => b.w - a.w || a.l - b.l);
+  const top5 = standings.slice(0, 5).map(t => `${t.name}(${t.w}-${t.l})`);
+  const bot3 = standings.slice(-3).map(t => `${t.name}(${t.w}-${t.l})`);
+
+  const ps = G.leagueSeason.playerStats || {};
+  const leaders = Object.values(ps)
+    .filter(p => p.gp >= 3)
+    .map(p => ({ name: p.name, team: TEAMS.find(t => t.id === p.teamId)?.z || '', gp: p.gp, ppg: +(p.pts / p.gp).toFixed(1), apg: +(p.ast / p.gp).toFixed(1), rpg: +(p.reb / p.gp).toFixed(1) }));
+  const scorers = [...leaders].sort((a, b) => b.ppg - a.ppg).slice(0, 5).map(p => `${p.name}(${p.team}) ${p.ppg}分`);
+  const assisters = [...leaders].sort((a, b) => b.apg - a.apg).slice(0, 3).map(p => `${p.name}(${p.team}) ${p.apg}助`);
+  const rebounders = [...leaders].sort((a, b) => b.rpg - a.rpg).slice(0, 3).map(p => `${p.name}(${p.team}) ${p.rpg}板`);
+
+  return { top5, bot3, scorers, assisters, rebounders };
+}
 function buildDailySocialContext(dayResult) {
   const res = dayResult || {};
   const gameRes = res.gameResult || null;
@@ -1920,7 +1950,8 @@ function buildDailySocialContext(dayResult) {
       blk: parseNum(gameRes.st?.blk, 0),
       grade: parseNum(gameRes.grade, 0)
     } : null,
-    hotNews: (G.news || []).slice(0, 6).map(n => n.text)
+    hotNews: (G.news || []).slice(0, 6).map(n => n.text),
+    league: buildLeagueSnapshotForLLM()
   };
 }
 function personaHandle(key) {
