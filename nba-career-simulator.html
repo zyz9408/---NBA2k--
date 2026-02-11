@@ -1,0 +1,57 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NBA球员生涯模拟器 | NBA Career Simulator</title>
+  <link rel="stylesheet" href="assets/css/app.css">
+</head>
+
+<body>
+  <header class="header">
+    <div class="logo">
+      <div class="logo-icon">🏀</div><span>NBA Career Sim</span>
+    </div>
+    <div class="header-info" id="hdrInfo">
+      <span id="hdrSeason">赛季: --</span>
+      <span id="hdrTeam">球队: --</span>
+      <span id="hdrOvr">OVR: --</span>
+    </div>
+  </header>
+  <nav class="nav" id="mainNav" style="display:none">
+    <button class="nav-btn active" data-p="home">主页</button>
+    <button class="nav-btn" data-p="game">比赛</button>
+    <button class="nav-btn" data-p="matches">比赛中心</button>
+    <button class="nav-btn" data-p="stats">数据</button>
+    <button class="nav-btn" data-p="roster">阵容</button>
+    <button class="nav-btn" data-p="upgrade">加点</button>
+    <button class="nav-btn" data-p="trade">交易</button>
+    <button class="nav-btn" data-p="awards">荣誉</button>
+    <button class="nav-btn" data-p="phone">手机</button>
+    <button class="nav-btn" data-p="save">存档</button>
+  </nav>
+  <div class="container">
+    <div class="page active" id="mainMenuPage"></div>
+    <div class="page" id="createPage"></div>
+    <div class="page" id="homePage"></div>
+    <div class="page" id="gamePage"></div>
+    <div class="page" id="matchesPage"></div>
+    <div class="page" id="statsPage"></div>
+    <div class="page" id="rosterPage"></div>
+    <div class="page" id="upgradePage"></div>
+    <div class="page" id="tradePage"></div>
+    <div class="page" id="awardsPage"></div>
+    <div class="page" id="phonePage"></div>
+    <div class="page" id="savePage"></div>
+  </div>
+  <div class="modal-bg" id="modalBg">
+    <div class="modal" id="modalBox"></div>
+  </div>
+
+  <script src="assets/js/core.js"></script>
+  <script src="assets/js/sim.js"></script>
+  <script src="assets/js/ui.js"></script>
+</body>
+
+</html>
