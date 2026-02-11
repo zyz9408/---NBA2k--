@@ -79,11 +79,13 @@ function handleAvatarUpload(input) {
       canvas.width = 128;
       canvas.height = 128;
       const ctx = canvas.getContext('2d');
-      // 居中裁切
-      const size = Math.min(img.width, img.height);
-      const sx = (img.width - size) / 2;
-      const sy = (img.height - size) / 2;
-      ctx.drawImage(img, sx, sy, size, size, 0, 0, 128, 128);
+      // 等比缩放，整张图放入128x128
+      const scale = Math.min(128 / img.width, 128 / img.height);
+      const dw = Math.round(img.width * scale);
+      const dh = Math.round(img.height * scale);
+      const dx = Math.round((128 - dw) / 2);
+      const dy = Math.round((128 - dh) / 2);
+      ctx.drawImage(img, 0, 0, img.width, img.height, dx, dy, dw, dh);
       G.player.avatar = canvas.toDataURL('image/jpeg', 0.8);
       G.player.photo = G.player.avatar;
       // 更新预览
@@ -455,7 +457,7 @@ function showLeagueGameDetailModal(gameId) {
     <div class="card game-detail-score" style="margin-bottom:12px">
       <div class="flex fb">
         <div class="fw-b">${away.z || away.n || '客队'} (${away.a || '--'})</div>
-        <div class="fw-b ${homeWin ? 't-ok' : 't-no'}">${parseNum(game.homeScore, 0)} - ${parseNum(game.awayScore, 0)}</div>
+        <div class="fw-b ${homeWin ? 't-ok' : 't-no'}">${parseNum(game.awayScore, 0)} - ${parseNum(game.homeScore, 0)}</div>
         <div class="fw-b">${home.z || home.n || '主队'} (${home.a || '--'})</div>
       </div>
       <div class="tc mt-12">
@@ -742,8 +744,8 @@ async function doSimulateDay() {
     renderGame();
     if ($('phonePage').classList.contains('active')) renderPhone();
 
-    // 后台非阻塞生成推文，不等待 LLM 响应
-    if (typeof generateDailySocialTweets === 'function') {
+    // 后台非阻塞生成推文，仅比赛日生成，休息日不生成
+    if (typeof generateDailySocialTweets === 'function' && result.isGame) {
       generateDailySocialTweets(result).then(() => {
         if ($('phonePage').classList.contains('active')) renderPhone();
       }).catch(e => {
@@ -1141,7 +1143,7 @@ function renderStats() {
       : `<button class="player-link" onclick="showTeamPlayerModal(${selectedTeamId},${p.id})">${p.name}</button>`;
     return `<tr>
           <td>${i + 1}</td>
-          <td>${nameCell}</td>
+          <td>${nameCell}${p.injury?.active ? ` <span class="badge b-no">🩹 ${p.injury.type} 缺${p.injury.games}场</span>` : ''}</td>
           <td>${posLabel(p.pos)}${p.pos2 ? `/${posLabel(p.pos2)}` : ''}</td>
           <td>${p.rating || 0}</td>
           <td>${p.potential || 0}</td>
@@ -1305,6 +1307,12 @@ function renderRoster() {
   const coach = getTeamCoach(G.teamId);
   const coachFx = getCoachEffects(G.teamId);
   const rotationSet = new Set(rotation.map(r => String(r.id)));
+  const injuryMap = new Map();
+  roster.forEach(p => { if (p.injury?.active) injuryMap.set(String(p.id || (p.isSelf ? 'USER_SELF' : '')), p.injury); });
+  function injBadge(id, isSelf) {
+    const inj = injuryMap.get(String(id)) || (isSelf ? injuryMap.get('USER_SELF') : null);
+    return inj ? `<span class="badge b-no">🩹 ${inj.type} 缺${inj.games}场</span>` : '';
+  }
   const usageContext = typeof buildTeamUsageContext === 'function'
     ? buildTeamUsageContext(G.teamId, roster, rotation)
     : null;
@@ -1365,7 +1373,8 @@ function renderRoster() {
         <td>${i + 1}</td>
         <td>
           ${rp.isSelf ? `<button class="player-link" onclick="showMyPlayerModal()">${rp.name}</button> <span class="badge b-gold">你</span>` : `<button class="player-link" onclick="showTeamPlayerModal(${G.teamId},${rp.id})">${rp.name}</button>`}
-          <span class="badge b-pri">${getRotationRoleLabel(rp.rotationRole)}</span>
+          <span class="badge b-pri">${getRotationRoleLabel(rp.rotationRole, rp)}</span>
+          ${injBadge(rp.id, rp.isSelf)}
         </td>
         <td>${getRotationPositionDisplay(rp, i)}</td>
         <td>${rp.rating}</td>
@@ -1388,6 +1397,7 @@ function renderRoster() {
           ${pl.isSelf ? `<button class="player-link" onclick="showMyPlayerModal()">${pl.name}</button> <span class="badge b-gold">你</span>` : `<button class="player-link" onclick="showTeamPlayerModal(${G.teamId},${pl.id})">${pl.name}</button>`}
           ${pl.rookie ? '<span class="badge b-cyan">新秀</span>' : ''}
           ${rotationSet.has(String(pl.id)) ? '<span class="badge b-pri">轮换</span>' : ''}
+          ${pl.injury?.active ? `<span class="badge b-no">🩹 ${pl.injury.type} 缺${pl.injury.games}场</span>` : ''}
         </td>
         <td>${posLabel(pl.pos)}${pl.pos2 ? `/${posLabel(pl.pos2)}` : ''}</td>
         <td>${pl.rating}</td>

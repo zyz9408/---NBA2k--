@@ -49,6 +49,19 @@ function usagePlayerPass(player) {
   const attrs = usagePlayerAttrs(player);
   return parseNum(attrs.pass, 55);
 }
+
+// ============ 7层球队角色体系 ============
+const TEAM_TIERS = [
+  { id: 'alpha',       name: '当家球星',     usageMod: 0.18, astMod: 0.8, minTarget: 36, minRange: [33, 40] },
+  { id: 'second',      name: '二当家',       usageMod: 0.10, astMod: 0.4, minTarget: 34, minRange: [31, 37] },
+  { id: 'third',       name: '三当家',       usageMod: 0.04, astMod: 0.2, minTarget: 31, minRange: [28, 34] },
+  { id: 'sixthman',    name: '第六人',       usageMod: 0.02, astMod: 0.1, minTarget: 25, minRange: [22, 28] },
+  { id: 'rolestarter', name: '首发蓝领',     usageMod:-0.06, astMod: 0,   minTarget: 32, minRange: [28, 35] },
+  { id: 'bench',       name: '替补轮换',     usageMod:-0.08, astMod: 0,   minTarget: 17, minRange: [13, 22] },
+  { id: 'end',         name: '饮水机管理员', usageMod:-0.12, astMod: 0,   minTarget: 4,  minRange: [0, 8] }
+];
+function getTierDef(tierId) { return TEAM_TIERS.find(t => t.id === tierId) || TEAM_TIERS[6]; }
+
 function buildTeamUsageContext(teamId = 0, roster = null, rotation = null) {
   const tid = parseNum(teamId, 0);
   const includeUser = tid > 0 && tid === parseNum(G?.teamId, 0);
@@ -79,58 +92,50 @@ function buildTeamUsageContext(teamId = 0, roster = null, rotation = null) {
     if (key && !byKey.has(key)) byKey.set(key, p);
   });
 
-  const starterKeys = [];
-  rotationPool.forEach((p, idx) => {
-    if (starterKeys.length >= 5) return;
-    const role = p?.rotationRole || (idx < 5 ? 'starter' : 'role');
-    if (role !== 'starter') return;
-    const key = usagePlayerKey(p);
-    if (!key || starterKeys.includes(key)) return;
-    starterKeys.push(key);
-  });
-  if (starterKeys.length < 5) {
-    const fallback = [...rosterPool]
-      .sort((a, b) => usagePlayerRating(b) - usagePlayerRating(a))
-      .map(p => usagePlayerKey(p))
-      .filter(Boolean);
-    fallback.forEach(key => {
-      if (starterKeys.length >= 5) return;
-      if (!starterKeys.includes(key)) starterKeys.push(key);
-    });
-  }
+  // 按评分排序所有轮换球员
+  const rotationByRating = rotationPool
+    .map((p, idx) => ({ player: p, key: usagePlayerKey(p), rating: usagePlayerRating(p), idx }))
+    .filter(x => x.key)
+    .sort((a, b) => b.rating - a.rating || usagePlayerPass(b.player) - usagePlayerPass(a.player));
 
-  const starters = starterKeys.map(key => byKey.get(key)).filter(Boolean);
-  const byRating = [...starters].sort((a, b) =>
-    usagePlayerRating(b) - usagePlayerRating(a) ||
-    usagePlayerPass(b) - usagePlayerPass(a)
-  );
-  const byPass = [...starters].sort((a, b) =>
-    usagePlayerPass(b) - usagePlayerPass(a) ||
-    usagePlayerRating(b) - usagePlayerRating(a)
-  );
+  // 分配7层角色
+  const tierMap = new Map();
+  const topTiers = ['alpha', 'second', 'third'];
+  const assignedKeys = new Set();
+  // 前3名按评分 → 当家/二当家/三当家
+  rotationByRating.slice(0, 3).forEach((entry, i) => {
+    tierMap.set(entry.key, topTiers[i]);
+    assignedKeys.add(entry.key);
+  });
+  // 剩余按轮换位置分配
+  rotationPool.forEach((p, idx) => {
+    const key = usagePlayerKey(p);
+    if (!key || assignedKeys.has(key)) return;
+    assignedKeys.add(key);
+    const role = p?.rotationRole || (idx < 5 ? 'starter' : (idx === 5 ? 'sixth' : 'role'));
+    if (role === 'starter' || idx < 5) {
+      tierMap.set(key, 'rolestarter');
+    } else if (role === 'sixth' || idx === 5) {
+      tierMap.set(key, 'sixthman');
+    } else if (idx <= 8) {
+      tierMap.set(key, 'bench');
+    } else {
+      tierMap.set(key, 'end');
+    }
+  });
 
   return {
     teamId: tid,
     roster: rosterPool,
     rotation: rotationPool,
     byKey,
-    starterKeys: new Set(starterKeys),
-    starOneKey: byRating[0] ? usagePlayerKey(byRating[0]) : '',
-    starTwoKey: byRating[1] ? usagePlayerKey(byRating[1]) : '',
-    starThreeKey: byPass[0] ? usagePlayerKey(byPass[0]) : ''
+    tierMap
   };
 }
-function getPlayerStarTier(player, usageContext) {
+function getPlayerTier(player, usageContext) {
   const key = usagePlayerKey(player);
-  if (!key || !usageContext) return '';
-  const isStarOne = key === usageContext.starOneKey;
-  const isStarTwo = key === usageContext.starTwoKey;
-  const isCore = key === usageContext.starThreeKey;
-  if ((isStarOne || isStarTwo) && isCore) return 'owner';
-  if (isStarOne) return 'star1';
-  if (isStarTwo) return 'star2';
-  if (isCore) return 'core';
-  return '';
+  if (!key || !usageContext?.tierMap) return 'end';
+  return usageContext.tierMap.get(key) || 'end';
 }
 function collectRoleEffects(roles = []) {
   return (roles || []).reduce((acc, role) => {
@@ -138,33 +143,25 @@ function collectRoleEffects(roles = []) {
     acc.astMod += parseNum(role?.astMod, 0);
     acc.threeMod += parseNum(role?.threeMod, 0);
     acc.insideMod += parseNum(role?.insideMod, 0);
-    acc.staminaMod += parseNum(role?.staminaMod, 0);
+    if (role?.minRange) { acc.minRange = role.minRange; acc.minTarget = parseNum(role.minTarget, acc.minTarget); }
     return acc;
-  }, { usageMod: 0, astMod: 0, threeMod: 0, insideMod: 0, staminaMod: 0 });
+  }, { usageMod: 0, astMod: 0, threeMod: 0, insideMod: 0, minTarget: 17, minRange: null });
 }
 
-// ============ 球员角色计算 (基于教练风格) ============
+// ============ 球员角色计算 (7层体系 + 技能附加) ============
 function getPlayerRole(player, roster, coachFx, usageContext = null) {
   const attrs = usagePlayerAttrs(player);
-  const rating = parseNum(player.rating, ovr(attrs));
   const pos = parseNum(player.pos, 3);
   const roles = [];
   const teamIdFallback = String(player?.id) === 'USER_SELF'
     ? parseNum(G?.teamId, 0)
     : parseNum(player?.teamId, 0);
   const ctx = usageContext || buildTeamUsageContext(teamIdFallback, roster);
-  const starTier = getPlayerStarTier(player, ctx);
+  const tier = getPlayerTier(player, ctx);
+  const tierDef = getTierDef(tier);
 
-  if (starTier === 'owner') roles.push({ type: 'owner', name: '大当家', usageMod: 0.16, astMod: 1.2 });
-  else if (starTier === 'star1') roles.push({ type: 'star', name: '当家球星', usageMod: 0.14 });
-  else if (starTier === 'star2') roles.push({ type: 'costar', name: '二当家', usageMod: 0.08 });
-  else if (starTier === 'core') roles.push({ type: 'core', name: '发牌手', astMod: 2.2, usageMod: -0.06 });
-
-  // 发牌手（附加）：高传控外线，但不覆盖主星位
-  const pass = parseNum(attrs.pass, 55);
-  if (pass >= 75 && pos <= 2 && starTier !== 'owner' && starTier !== 'core') {
-    roles.push({ type: 'playmaker', name: '发牌手', astMod: 1.4, usageMod: -0.04 });
-  }
+  // 主角色：7层体系
+  roles.push({ ...tierDef, type: tier });
 
   // 三分炮台：三分好且教练三分倾向高
   const shotExt = parseNum(attrs.shotExt, 55);
@@ -179,10 +176,7 @@ function getPlayerRole(player, roster, coachFx, usageContext = null) {
   // 防守悍将：防守数据好且教练防守倾向高
   const stl = parseNum(attrs.stl, 55), blk = parseNum(attrs.blk, 55);
   const defBias = parseNum(coachFx?.defensiveBias, 0);
-  if (stl + blk >= 130 && defBias >= 0) roles.push({ type: 'defender', name: '防守悍将', minsMod: 0.12 + defBias });
-
-  // 蓝领工人：普通球员但稳定
-  if (roles.length === 0 && rating < 78) roles.push({ type: 'worker', name: '蓝领工人', staminaMod: -0.20 });
+  if (stl + blk >= 130 && defBias >= 0) roles.push({ type: 'defender', name: '防守悍将' });
 
   return roles;
 }
@@ -198,6 +192,14 @@ function recoverStamina(options = {}) {
   const phyBonus = Math.max(0, Math.round((physique - 60) / 8));
 
   G.player.stamina = clamp(G.player.stamina + base + regen + phyBonus, 0, 100);
+}
+
+// 获取玩家当前角色效果（供simGameStats使用）
+function getUserRoleFx() {
+  const ctx = buildTeamUsageContext(parseNum(G?.teamId, 0));
+  const self = typeof createUserRosterSnapshot === 'function' ? createUserRosterSnapshot() : G.player;
+  const coachFx = typeof getCoachEffects === 'function' ? getCoachEffects(parseNum(G?.teamId, 0)) : {};
+  return collectRoleEffects(getPlayerRole(self, ctx.roster, coachFx, ctx));
 }
 
 function templateScoreForAttr(attrKey, pos, tpl, bt) {
@@ -790,9 +792,15 @@ function getBadgeEffects(player) {
     // 战斗特定
     heatUpRate: 1.0, // 微波炉
     clutchBoost: 0.0, // 关键时刻
-    highlightBoost: 0.0, //由于高光表现
+    highlightBoost: 0.0, // 高光表现
     contestResist: 0.0, // 抗干扰
-    tovMult: 1.0 // 失误倍率
+    tovMult: 1.0, // 失误倍率
+    // X天赋专用
+    attrPct: 0, // 全属性百分比加成
+    varianceRange: 6, // 表现波动范围(默认6)
+    underdogBoost: 0, // 落后时属性加成
+    usageBoost: 0, // 使用率/得分加成
+    rookieBoost: 0 // 新秀赛季加成
   };
   if (!player) return fx;
 
@@ -852,9 +860,14 @@ function getBadgeEffects(player) {
 }
 
 function mergeEffects(target, source) {
-  if (source.fgPct) target.fgPctBonus = (target.fgPctBonus || 0) + source.fgPct; // 兼容写法
+  if (source.fgPct) target.fgPctBonus = (target.fgPctBonus || 0) + source.fgPct;
   if (source.fgPctBonus) target.fgPctBonus += source.fgPctBonus;
   if (source.tpPctBonus) target.tpPctBonus += source.tpPctBonus;
+  if (source.ftPctBonus) target.ftPctBonus += source.ftPctBonus;
+  if (source.staminaRegen) target.staminaRegen += source.staminaRegen;
+  if (source.xpMult && source.xpMult !== 1) target.xpMult *= source.xpMult;
+  if (source.highlightBoost) target.highlightBoost += source.highlightBoost;
+  if (source.contestResist) target.contestResist += source.contestResist;
   if (source.deep3) target.tpPctBonus += source.deep3; // 无限射程归入三分
   if (source.corner3) target.tpPctBonus += source.corner3 * 0.3; // 简化底角加成到整体三分
   if (source.staminaCostMult) target.staminaCostMult *= source.staminaCostMult;
@@ -903,6 +916,21 @@ function mergeEffects(target, source) {
       target.attrBoost[k] = (target.attrBoost[k] || 0) + source.attrBoost[k];
     }
   }
+  // 全属性加成（玻璃人等）
+  if (source.attrBonus) {
+    const allKeys = ['pass', 'shotInt', 'shotExt', 'shotFree', 'speed', 'strength', 'reb', 'blk', 'stl'];
+    allKeys.forEach(k => { target.attrBoost[k] = (target.attrBoost[k] || 0) + source.attrBonus; });
+  }
+  // 全属性百分比加成（双向统治等）
+  if (source.attrPct) target.attrPct += source.attrPct;
+  // 表现波动范围（情绪化/冷静心态）
+  if (source.varianceRange !== undefined) target.varianceRange = source.varianceRange;
+  // 落后时属性加成（逆境之王）
+  if (source.underdogBoost) target.underdogBoost += source.underdogBoost;
+  // 使用率/得分加成（微波炉/毒瘤）
+  if (source.usageBoost) target.usageBoost += source.usageBoost;
+  // 新秀赛季加成（天才新秀）
+  if (source.rookieBoost) target.rookieBoost += source.rookieBoost;
 }
 
 function getEffectiveAttr(key) {
@@ -940,11 +968,20 @@ function simGameStats(oppRating) {
     const boost = parseNum(evMod.attrPctBoost, 0);
     Object.keys(attrs).forEach(k => { attrs[k] = clamp(Math.round(attrs[k] * (1 + boost)), 20, 99); });
   }
+  // X天赋: 全属性百分比加成（双向统治）
+  if (fx.attrPct) {
+    Object.keys(attrs).forEach(k => { attrs[k] = clamp(Math.round(attrs[k] * (1 + fx.attrPct)), 20, 99); });
+  }
+  // X天赋: 逆境之王 — 落后时属性加成
+  if (fx.underdogBoost && G.seasonStats.losses > G.seasonStats.wins) {
+    Object.keys(attrs).forEach(k => { attrs[k] = clamp(Math.round(attrs[k] * (1 + fx.underdogBoost)), 20, 99); });
+  }
 
   const ovrVal = ovr(attrs);
   const diff = ovrVal - oppRating;
   const pos = parseNum(G.player.pos, 3);
-  const minsRaw = clamp(32 + rng(-2, 2), 24, 38);
+  const roleFx = getUserRoleFx();
+  const minsRaw = clamp(parseNum(G._currentRoleMinutes, 32) + rng(-2, 2), 14, 42);
   const mins = clamp(minsRaw + parseNum(evMod.minsPenalty, 0), 10, 42);
 
   // 倾向值 (内线/中投/外线)
@@ -957,25 +994,29 @@ function simGameStats(oppRating) {
   const effortMult = effortCfg.attrMult || 1;
 
   // === 出手分配 (APK风格: 倾向控制出手量, 技能控制命中率) ===
-  const usage = clamp(0.27 + ((ovrVal - 70) * 0.003) + (diff / 80), 0.18, 0.48) * posUsageFactor(pos);
-  const fga = clamp(Math.round(mins * usage * effortMult) + rng(-2, 2), 4, 26);
+  const usageExtra = parseNum(fx.usageBoost, 0);
+  const usage = clamp(0.27 + ((ovrVal - 70) * 0.003) + (diff / 80) + usageExtra + roleFx.usageMod, 0.18, 0.52) * posUsageFactor(pos);
+  const fga = clamp(Math.round(mins * usage * effortMult) + rng(-2, 2), 4, 28);
 
-  // 三分出手率: 受倾向ex + 三分技能 + 位置偏好
-  const threeRate = clamp(0.08 + parseNum(attrs.shotExt, 55) / 260 + (tendencyEx - 50) / 500 + posThreeBias(pos), 0.04, 0.58);
+  // 三分出手率: 受倾向ex + 三分技能 + 位置偏好 + 角色加成
+  const threeRate = clamp(0.08 + parseNum(attrs.shotExt, 55) / 260 + (tendencyEx - 50) / 500 + posThreeBias(pos) + roleFx.threeMod, 0.04, 0.58);
   const tpa = clamp(Math.round(fga * threeRate) + rng(-1, 1), 0, Math.min(14, fga));
   const nonThree = Math.max(0, fga - tpa);
 
-  // 内线出手比例: 受倾向in + 内线技能, 中投倾向mid降低内线比例
-  const inShare = clamp(0.32 + parseNum(attrs.shotInt, 55) / 290 + (tendencyIn - 50) / 500 - (tendencyMid - 50) / 550 - (threeRate * 0.18), 0.22, 0.76);
+  // 内线出手比例: 受倾向in + 内线技能, 中投倾向mid降低内线比例 + 角色加成
+  const inShare = clamp(0.32 + parseNum(attrs.shotInt, 55) / 290 + (tendencyIn - 50) / 500 - (tendencyMid - 50) / 550 - (threeRate * 0.18) + roleFx.insideMod, 0.22, 0.76);
   const shotsIn = clamp(Math.round(nonThree * inShare), 0, nonThree);
   const shotsDo = Math.max(0, nonThree - shotsIn); // 中距离
 
   // === 命中率 (技能决定 + 事件加成) ===
   const insidePctBonus = parseNum(fx.fgPctBonus, 0) + parseNum(fx.insidePctBonus, 0);
-  const evFgBoost = parseNum(evMod.fgPctBoost, 0) * 100; // 事件命中率加成 (0.12 → 12)
-  const inPct = clamp(Math.round(shotPctByType('in', attrs, ovrVal, oppRating) + insidePctBonus * 100 + evFgBoost), 40, 80);
-  const doPct = clamp(Math.round(shotPctByType('do', attrs, ovrVal, oppRating) + insidePctBonus * 80 + evFgBoost), 32, 60);
-  const exPct = clamp(Math.round(shotPctByType('ex', attrs, ovrVal, oppRating) + parseNum(fx.tpPctBonus, 0) * 100 + evFgBoost), 22, 48);
+  const evFgBoost = parseNum(evMod.fgPctBoost, 0) * 100;
+  const contestBonus = parseNum(fx.contestResist, 0) * 100; // 抗干扰命中率加成
+  // 关键时刻加成：赛季末段或季后赛时命中率提升
+  const clutchPct = (fx.clutchBoost > 0 && (G.gameNum > 75 || G.phase === 'playoffs')) ? fx.clutchBoost * 100 : 0;
+  const inPct = clamp(Math.round(shotPctByType('in', attrs, ovrVal, oppRating) + insidePctBonus * 100 + evFgBoost + contestBonus + clutchPct), 40, 80);
+  const doPct = clamp(Math.round(shotPctByType('do', attrs, ovrVal, oppRating) + insidePctBonus * 80 + evFgBoost + contestBonus + clutchPct), 32, 60);
+  const exPct = clamp(Math.round(shotPctByType('ex', attrs, ovrVal, oppRating) + parseNum(fx.tpPctBonus, 0) * 100 + evFgBoost + contestBonus * 0.5 + clutchPct), 22, 48);
   const frPct = clamp(Math.round(shotPctByType('fr', attrs, ovrVal, oppRating) + parseNum(fx.ftPctBonus, 0) * 100), 40, 95);
 
   // === 投篮结果 ===
@@ -1002,15 +1043,57 @@ function simGameStats(oppRating) {
   const rebBase = (mins / 36) * (1.1 + parseNum(attrs.reb, 55) / 18) * posRebFactor(pos);
   const stlBase = (mins / 36) * (parseNum(attrs.stl, 55) / 48) * posStlFactor(pos);
   const blkBase = (mins / 36) * (parseNum(attrs.blk, 55) / 48) * posBlkFactor(pos);
-  const tovBase = (mins / 36) * (1 + fga / 8 + (pos <= 2 ? 0.65 : 0.25) - parseNum(attrs.pass, 55) / 95);
+  const tovBase = (mins / 36) * (1 + fga / 8 + (pos <= 2 ? 0.65 : 0.25) - parseNum(attrs.pass, 55) / 95 - roleFx.astMod * 0.08);
 
-  const ast = clamp(Math.round(astBase + parseNum(fx.astFlat, 0)) + rng(-2, 2), 0, 14);
+  const ast = clamp(Math.round(astBase + roleFx.astMod + parseNum(fx.astFlat, 0)) + rng(-2, 2), 0, 14);
   const reb = clamp(Math.round(rebBase + parseNum(fx.rebFlat, 0)) + rng(-1, 2), 0, 20);
   const stl = clamp(Math.round(stlBase + parseNum(fx.stlFlat, 0)) + rng(0, 1) + parseNum(evMod.stl, 0), 0, 8);
   const blk = clamp(Math.round(blkBase + parseNum(fx.blkFlat, 0)) + rng(0, 1) + parseNum(evMod.blk, 0), 0, 8);
   const tov = clamp(Math.round(tovBase * clamp(parseNum(fx.tovMult, 1), 0.55, 1.8)) + rng(0, 2) + parseNum(evMod.extraTOV, 0), 0, 10);
 
   let line = clampLineStats({ mins, reb, ast, stl, blk, tov, fgm, fga: totalFga, tpm: exOk, tpa, ftm, fta, pts: 0 });
+
+  // X天赋: 表现波动（情绪化=±12, 冷静心态=±2, 默认=±6）
+  // 注意：所有得分修正必须通过投篮数据实现，不能直接改pts，否则pts与fgm/tpm/ftm不一致
+  const variance = parseNum(fx.varianceRange, 6);
+  if (variance > 0) {
+    const swing = rng(-variance, variance);
+    if (swing > 0) {
+      const addFgm = Math.floor(swing / 2);
+      const addFt = swing - addFgm * 2;
+      line.fgm += addFgm; line.fga += addFgm + rng(0, 1);
+      if (addFt > 0) { line.ftm += addFt; line.fta += addFt; }
+    } else if (swing < 0) {
+      let rem = Math.abs(swing);
+      const canRm2 = Math.max(0, line.fgm - line.tpm);
+      const rm2 = Math.min(Math.floor(rem / 2), canRm2);
+      line.fgm -= rm2; rem -= rm2 * 2;
+      if (rem > 0) { const rmFt = Math.min(rem, line.ftm); line.ftm -= rmFt; }
+    }
+  }
+  // X天赋: 新秀赛季加成（天才新秀）
+  if (fx.rookieBoost && parseNum(G.season, 1) === 1) {
+    const boost = fx.rookieBoost;
+    const addFgm = Math.max(0, Math.round((line.fgm - line.tpm) * boost));
+    const addTpm = Math.max(0, Math.round(line.tpm * boost));
+    const addFtm = Math.max(0, Math.round(line.ftm * boost));
+    line.fgm += addFgm + addTpm; line.fga += addFgm + addTpm + rng(0, 1);
+    line.tpm += addTpm; line.tpa += addTpm;
+    line.ftm += addFtm; line.fta += addFtm + rng(0, 1);
+    line.ast = Math.min(14, Math.round(line.ast * (1 + boost * 0.5)));
+    line.reb = Math.min(20, Math.round(line.reb * (1 + boost * 0.5)));
+  }
+  // X天赋: 高光表现（花式大师）— 随机触发额外得分
+  if (fx.highlightBoost && Math.random() < fx.highlightBoost) {
+    const extraPts = rng(3, 8);
+    const addFgm = Math.floor(extraPts / 2);
+    const addFt = extraPts - addFgm * 2;
+    line.fgm += addFgm; line.fga += addFgm + rng(0, 1);
+    if (addFt > 0) { line.ftm += addFt; line.fta += addFt; }
+    line.ast = Math.min(14, line.ast + rng(1, 2));
+  }
+  // 重新校验所有数据，pts从投篮数据重新计算
+  line = clampLineStats(line);
 
   // 体力消耗
   let staminaCost = rng(10, 20) + Math.round(parseNum(line.mins, 24) / 6);
@@ -1321,13 +1404,33 @@ const SOCIAL_PERSONAS = {
   casual: {
     type: '吃瓜型',
     handles: ['@刚看NBA三天', '@女朋友让我看球', '@隔壁老王聊球', '@上班摸鱼看比分', '@啥也不懂但我爱看']
+  },
+  hupu_toxic: {
+    type: '虎扑毒舌',
+    handles: ['@步行街扛把子', '@虎扑JR真话哥', '@只说实话不怕喷', '@虎扑鉴球大师', '@直播间毒奶王', '@评分只给59']
+  },
+  oldhead: {
+    type: '老球迷',
+    handles: ['@看球20年老炮', '@乔丹时代过来人', '@科比门徒', '@老派篮球信徒', '@当年的禅师']
+  },
+  tactical: {
+    type: '战术分析',
+    handles: ['@挡拆实验室', '@半场战术板', '@防守端观察', '@转换进攻研究所', '@回合效率分析']
+  },
+  emotional: {
+    type: '情绪球迷',
+    handles: ['@看球气到住院', '@赢球就封神输球就交易', '@心态已崩', '@又在骂教练了', '@血压已经220了']
   }
 };
 const SOCIAL_COMMENTERS = [
   '@篮圈路人', '@冷静分析', '@主队铁粉', '@客队球迷', '@数字派',
   '@看热闹不嫌事大', '@理性发言', '@今日话题', '@吃瓜群众甲',
   '@懂球帝本帝', '@评论区战神', '@我就看看不说话', '@杠就完了',
-  '@前排出售瓜子', '@这也能吵起来', '@纯路人不站队'
+  '@前排出售瓜子', '@这也能吵起来', '@纯路人不站队',
+  '@虎扑步行街来的', '@JR代表发言', '@球盲鉴定完毕', '@反转了家人们',
+  '@教练下课吧求你了', '@这球我能吹一年', '@防守端看哭了',
+  '@选秀眼光帝', '@伤病满员出发', '@替补席观察员', '@垃圾时间之王',
+  '@赛后复盘师', '@更衣室消息灵通人士', '@技术统计狂魔'
 ];
 
 function ensureEconomyState() {
@@ -1437,20 +1540,29 @@ function llmSystemPrompt() {
   - **严禁**把不同届的球员混为同届，球员的选秀届别以 context.draft 为准
   - **严禁**编造 context 中不存在的球员数据（如得分、助攻、篮板等具体数字）
   - 如果 context 中没有某球员的数据，就不要提他的具体表现数字
+  - **提到球员荣誉时，必须且只能引用 context.player.honors**，严禁编造不存在的MVP、冠军、全明星等成就
+  - context.player.seasonYear 表示球员第几个赛季，评论必须符合球员实际资历
 
   【核心原则】
-  1. **严格遵守时间线**：根据 context.year 融入当时的流行文化、电影音乐、社会大事件、科技产品。
-  2. **内容多样化**：
-     - 基于 context.league.top5/bot3 讨论强队弱队、战绩排名
-     - 基于 context.league.scorers/assisters/rebounders 讨论球星表现
-     - 包含非篮球内容的年代感推文（约占20%）
-  3. **角色扮演**：使用不同身份（激进粉丝、理智分析帝、吃瓜路人等）。
+  1. **严格遵守时间线**：根据 context.year 融入当时的流行文化元素，但仅作为点缀。
+  2. **篮球为主（95%以上）**：
+     - 基于 context.league.top5/bot3 讨论强队弱队、战绩排名、季后赛形势
+     - 基于 context.league.scorers/assisters/rebounders 讨论球星表现、数据对比
+     - 讨论战术体系、球队化学反应、交易传闻、伤病影响、新秀成长
+     - 讨论比赛关键回合、教练决策、轮换阵容、防守策略
+     - 非篮球内容最多1条（约5%），且必须与年代背景相关
+  3. **角色多样化**：使用不同身份——虎扑毒舌、老球迷、战术分析师、情绪球迷、数据流、串子哥、粉丝、黑子、吃瓜路人等。每次生成的推文必须覆盖至少4种不同角色。
+  4. **语言不重复**：
+     - 每条推文的句式、开头、表达方式必须不同，严禁出现相似句式
+     - 禁止连续多条推文用相同的感叹词、语气词开头（如"太"、"真的"、"说实话"）
+     - 评论区回复风格要有差异：有的毒舌、有的理性、有的抬杠、有的玩梗
 
   【严格禁令】
   - 🚫 **绝对禁止**出现 OVR, POT, 能力值, 评分, 潜力值 等游戏术语
   - 🚫 **严禁**编造 context 中不存在的球员名字或数据
   - 🚫 **严禁**出现时间错乱的人物
   - 🚫 **严禁**在非选秀期间疯狂刷屏"选秀"关键词
+  - 🚫 **严禁**大量讨论数码产品、歌手明星、娱乐八卦等非篮球话题
 
   【输出格式】
   只输出JSON对象（不要Markdown）：
@@ -1907,6 +2019,20 @@ function buildLeagueSnapshotForLLM() {
 
   return { top5, bot3, scorers, assisters, rebounders };
 }
+function buildPlayerHonorsSummary() {
+  const c = typeof collectUserHonorCounterFromHistory === 'function' ? collectUserHonorCounterFromHistory() : {};
+  const parts = [];
+  if (c.rings) parts.push(`${c.rings}次总冠军`);
+  if (c.mvp) parts.push(`${c.mvp}次MVP`);
+  if (c.fmvp) parts.push(`${c.fmvp}次FMVP`);
+  if (c.dpoy) parts.push(`${c.dpoy}次DPOY`);
+  if (c.allStar) parts.push(`${c.allStar}次全明星`);
+  if (c.allNba1) parts.push(`${c.allNba1}次最佳一阵`);
+  if (c.scoring) parts.push(`${c.scoring}次得分王`);
+  if (c.assist) parts.push(`${c.assist}次助攻王`);
+  if (c.rebound) parts.push(`${c.rebound}次篮板王`);
+  return parts.length ? parts.join('、') : '暂无荣誉';
+}
 function buildDailySocialContext(dayResult) {
   const res = dayResult || {};
   const gameRes = res.gameResult || null;
@@ -1926,9 +2052,11 @@ function buildDailySocialContext(dayResult) {
       ppg: +(parseNum(G.seasonStats.pts, 0) / gp).toFixed(1),
       apg: +(parseNum(G.seasonStats.ast, 0) / gp).toFixed(1),
       rpg: +(parseNum(G.seasonStats.reb, 0) / gp).toFixed(1),
+      seasonYear: parseNum(G.season, 1),
       rookieSeason: parseNum(G.season, 1) === 1,
       fame: parseNum(G.player.fame, 10),
-      trust: parseNum(G.player.trust, 50)
+      trust: parseNum(G.player.trust, 50),
+      honors: buildPlayerHonorsSummary()
     },
     draft: {
       classYear: draftYear,
@@ -2499,9 +2627,16 @@ function tweetEvalSystemPrompt() {
 3. 回复要像真实中文互联网评论，可以有梗、抬杠、玩梗、阴阳怪气
 4. 给出一个简短的舆论标签label（如"正向反馈"/"引发争议"/"被群嘲"/"圈粉发言"等）
 
+【重要：荣誉数据规则】
+⚠️ 这是模拟游戏，不是真实NBA。回复中提到球员荣誉时，必须且只能引用 context.honors 中的实际荣誉。
+- context.seasonYear 表示球员第几个赛季，context.honors 是球员实际获得的所有荣誉
+- 如果 honors 为"暂无荣誉"，严禁提及任何MVP、冠军、全明星等成就
+- 严禁用真实NBA球星的荣誉数据套用到该球员身上
+- 黑子/数据帝吐槽时也必须基于实际数据，比如"才第2年就想跑？"而不是编造不存在的荣誉
+
 输出严格JSON格式：
 {"fame":数字,"trust":数字,"label":"舆论标签","comments":[{"author":"网名","persona":"类型","text":"评论内容","likes":数字}]}
-persona可选：粉丝型/黑子型/串子型/吃瓜型/数据流/热评型/野生UP主/中立型
+persona可选：粉丝型/黑子型/串子型/吃瓜型/数据流/热评型/野生UP主/中立型/虎扑毒舌/老球迷/战术分析/情绪球迷
 禁止输出Markdown，只输出JSON。`;
 }
 
@@ -2515,7 +2650,9 @@ function buildTweetEvalPayload(tweetText, context) {
       record: `${c.record.wins}-${c.record.losses}`,
       ppg: c.player.ppg, rpg: c.player.rpg, apg: c.player.apg,
       fame: c.player.fame, trust: c.player.trust,
+      seasonYear: c.player.seasonYear,
       rookieSeason: c.player.rookieSeason,
+      honors: c.player.honors,
       lastGame: c.gameResult
         ? `${c.gameResult.win ? '赢' : '输'} ${c.gameResult.pts}分${c.gameResult.reb}板${c.gameResult.ast}助`
         : '今日无比赛'
@@ -3345,9 +3482,10 @@ function simulateAIPlayerLine(player, minutes, teamRating, oppRating, opponentSa
   let exPct = getPlayerShotPercentByType(player, opponent, 'ex', { playerTeamId, opponentTeamId, lineupPos: pos, minutes: mins });
   let frPct = getPlayerShotPercentByType(player, opponent, 'fr', { playerTeamId, opponentTeamId, lineupPos: pos, minutes: mins });
   const insidePctBonus = parseNum(badgeFx.fgPctBonus, 0) + parseNum(badgeFx.insidePctBonus, 0);
-  inPct = clamp(Math.round(inPct + insidePctBonus * 100), 40, 88);
-  doPct = clamp(Math.round(doPct + insidePctBonus * 80), 32, 68);
-  exPct = clamp(Math.round(exPct + parseNum(badgeFx.tpPctBonus, 0) * 100), 22, 58);
+  const aiClutch = (badgeFx.clutchBoost > 0 && G.phase === 'playoffs') ? badgeFx.clutchBoost * 100 : 0;
+  inPct = clamp(Math.round(inPct + insidePctBonus * 100 + aiClutch), 40, 88);
+  doPct = clamp(Math.round(doPct + insidePctBonus * 80 + aiClutch), 32, 68);
+  exPct = clamp(Math.round(exPct + parseNum(badgeFx.tpPctBonus, 0) * 100 + aiClutch), 22, 58);
   frPct = clamp(Math.round(frPct + parseNum(badgeFx.ftPctBonus, 0) * 100), 40, 98);
 
   const inOk = shotInResult(inPct, shotsIn);
@@ -3647,10 +3785,13 @@ function generateHighlightNews(rows, homeId, awayId) {
   });
 }
 function estimateUserTeamScore(win, playerPts, myStrength, oppStrength) {
-  let my = Math.round(estimateLeagueTeamScore(myStrength, oppStrength) + parseNum(playerPts, 0) * 0.08 + rng(-4, 4));
-  let opp = Math.round(estimateLeagueTeamScore(oppStrength, myStrength) + rng(-4, 4));
-  my = clamp(my, 72, 145);
-  opp = clamp(opp, 72, 145);
+  const pPts = parseNum(playerPts, 0);
+  const baseTeam = estimateLeagueTeamScore(myStrength, oppStrength);
+  // 队友得分 = 基础估算 × (1 - 玩家占比)，玩家得分越高队友占比越低
+  const teammatePct = clamp(0.78 - pPts / 350, 0.55, 0.82);
+  const restPts = Math.round(baseTeam * teammatePct + rng(-4, 4));
+  let my = clamp(restPts + pPts, 72, 145);
+  let opp = clamp(Math.round(estimateLeagueTeamScore(oppStrength, myStrength) + rng(-4, 4)), 72, 145);
   if (win && my <= opp) my = Math.min(145, opp + rng(1, 7));
   if (!win && opp <= my) opp = Math.min(145, my + rng(1, 7));
   if (my === opp) {
@@ -3723,8 +3864,8 @@ function simulateLeagueRound(userGame) {
   const playerPts = userGame.st ? parseNum(userGame.st.pts, 0) : 0;
   const score = estimateUserTeamScore(!!userGame.win, playerPts, myStrength, oppStrength);
   let userBox = {
-    myScore: userHome ? score.my : score.opp,
-    oppScore: userHome ? score.opp : score.my,
+    myScore: score.my,
+    oppScore: score.opp,
     gameId: ''
   };
 
@@ -3849,8 +3990,9 @@ function playGame(idx) {
   const trustAdj = Math.round((parseNum(G.player.trust, 50) - 50) / 16);
   const moodAdj = Math.round((parseNum(G.player.mood, 50) - 50) / 35);
   let minuteFloor = 8;
-  if (selfSlot?.rotationRole === 'starter') minuteFloor = 24;
-  else if (selfSlot?.rotationRole === 'sixth') minuteFloor = 16;
+  const selfTier = selfSlot?.teamTier || 'end';
+  const selfTierDef = getTierDef(selfTier);
+  minuteFloor = selfTierDef.minRange[0];
   if (parseNum(selfSlot?.rating, ovr(G.player.attrs || {})) >= 84) minuteFloor = Math.max(minuteFloor, 32);
   G._currentRoleMinutes = clamp(Math.max(baseMin + trustAdj + moodAdj, minuteFloor), 8, 40);
   if (G.player.injury.active) {
@@ -3907,7 +4049,8 @@ function playGame(idx) {
   ['pts', 'reb', 'ast', 'stl', 'blk', 'tov', 'mins', 'fgm', 'fga', 'tpm', 'tpa', 'ftm', 'fta'].forEach(k => G.seasonStats[k] += st[k]);
 
   const effortCfg = getEffortMode(G._effortMode);
-  const xpGain = addPlayerXP((10 + grade / 5 + st.pts / 3) * effortCfg.xpMult);
+  const badgeFx = getBadgeEffects(G.player);
+  const xpGain = addPlayerXP((10 + grade / 5 + st.pts / 3) * effortCfg.xpMult * parseNum(badgeFx.xpMult, 1));
   const box = simulateLeagueRound({ round: idx, oppId: opp.id, win, st });
 
   G.results.push({
@@ -4057,7 +4200,7 @@ function playPlayoffGame() {
   if (win) s.myWins++; else s.oppWins++;
   s.games.push({ ...st, grade, win, teamPts: myScore, oppPts: oppScore, gameId });
   G.player.stamina = clamp(G.player.stamina - 5, 0, 100);
-  const xpGain = addPlayerXP(15 + grade / 4 + st.pts / 2);
+  const xpGain = addPlayerXP((15 + grade / 4 + st.pts / 2) * parseNum(getBadgeEffects(G.player).xpMult, 1));
   applyPostGameSocialEffects({ win, grade, stats: st, injured: false, playoff: true });
   return { st: { ...st, teamPts: myScore, oppPts: oppScore }, grade, win, opp, xp: xpGain, myWins: s.myWins, oppWins: s.oppWins, gameId };
 }
@@ -4161,7 +4304,7 @@ function buildUserAwardsFromLeague(leagueAward, { includeFinals = true } = {}) {
   if (leagueAward.roy?.isSelf) tags.push('ROY');
   if (leagueAward.mvp?.isSelf) tags.push('MVP');
   if (leagueAward.dpoy?.isSelf) tags.push('DPOY');
-  if (includeFinals && leagueAward.fmvp?.isSelf) tags.push('FMVP');
+  if (includeFinals && leagueAward.fmvp?.isSelf && !!G.playoffs?.champion) tags.push('FMVP');
   if (leagueAward.scoring?.isSelf) tags.push('得分王');
   if (leagueAward.rebound?.isSelf) tags.push('篮板王');
   if (leagueAward.assist?.isSelf) tags.push('助攻王');
@@ -4346,9 +4489,13 @@ function resolveFinalsMvpAward(leagueAward) {
       };
     }
   }
-  if (leagueAward?.mvp) return { ...leagueAward.mvp, isSelf: !!leagueAward.mvp.isSelf };
-  if (leagueAward?.scoring) return { ...leagueAward.scoring, isSelf: !!leagueAward.scoring.isSelf };
-  const fallback = getLeaguePlayerSeasonRows().filter(r => parseNum(r.gp, 0) >= 20).sort((a, b) => parseNum(b.ppg, 0) - parseNum(a.ppg, 0))[0];
+  // 玩家没夺冠 → FMVP 必须来自其他球队（冠军队），排除玩家球队
+  const notMyTeam = r => parseNum(r?.teamId, 0) !== G.teamId;
+  if (leagueAward?.mvp && notMyTeam(leagueAward.mvp)) return { ...leagueAward.mvp, isSelf: false };
+  if (leagueAward?.scoring && notMyTeam(leagueAward.scoring)) return { ...leagueAward.scoring, isSelf: false };
+  const fallback = getLeaguePlayerSeasonRows()
+    .filter(r => parseNum(r.gp, 0) >= 20 && notMyTeam(r))
+    .sort((a, b) => parseNum(b.ppg, 0) - parseNum(a.ppg, 0))[0];
   return awardWinnerFromRow(fallback, { ppg: fallback?.ppg });
 }
 function finalizeFinalsAwardsForSeason() {

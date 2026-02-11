@@ -527,6 +527,23 @@ function toRotation(players) {
     avatar: p.avatar || '',
     image: p.image
   }));
+  // 分配7层角色并用角色目标分钟覆盖模板
+  const byRat2 = [...rotation].sort((a, b) => b.rating - a.rating);
+  const topIds2 = ['alpha', 'second', 'third'];
+  const done2 = new Set();
+  byRat2.slice(0, 3).forEach((p, i) => { p.teamTier = topIds2[i]; done2.add(p.id); });
+  rotation.forEach((p, idx) => {
+    if (done2.has(p.id)) return;
+    const role = p.rotationRole || (idx < 5 ? 'starter' : (idx === 5 ? 'sixth' : 'role'));
+    if (role === 'starter' || idx < 5) p.teamTier = 'rolestarter';
+    else if (role === 'sixth' || idx === 5) p.teamTier = 'sixthman';
+    else if (idx <= 8) p.teamTier = 'bench';
+    else p.teamTier = 'end';
+  });
+  rotation.forEach(p => {
+    const td = typeof getTierDef === 'function' ? getTierDef(p.teamTier) : null;
+    if (td) p.minutes = clamp(td.minTarget, Math.max(td.minRange[0], 0), td.minRange[1]);
+  });
   normalizeRotationMinutes(rotation, 240);
   return rotation;
 }
@@ -600,21 +617,29 @@ function buildOrderedRotationCandidates(candidates, maxPlayers = 10) {
   });
   return ordered;
 }
-function getRotationRoleLabel(role) {
+function getRotationRoleLabel(role, player) {
+  // 优先使用7层角色名
+  if (player?.teamTier && typeof getTierDef === 'function') {
+    const td = getTierDef(player.teamTier);
+    if (td) return td.name;
+  }
   if (role === 'starter') return '首发';
   if (role === 'sixth') return '第六人';
   return '角色球员';
 }
 function getRotationPositionDisplay(player, index = 0) {
+  const tier = player?.teamTier;
+  const posStr = posLabel(parseNum(player?.pos, 3));
+  if (tier && typeof getTierDef === 'function') {
+    const td = getTierDef(tier);
+    if (td) return `${td.name} (${posStr})`;
+  }
   const role = player?.rotationRole || (index < 5 ? 'starter' : (index === 5 ? 'sixth' : 'role'));
   const slotPos = parseNum(player?.slotPos, 0);
   if (role === 'starter') {
-    return slotPos > 0 ? posLabel(slotPos) : posLabel(parseNum(player?.pos, 3));
+    return slotPos > 0 ? posLabel(slotPos) : posStr;
   }
-  if (role === 'sixth') {
-    return `第六人 (${posLabel(parseNum(player?.pos, 3))})`;
-  }
-  return `角色 (${posLabel(parseNum(player?.pos, 3))})`;
+  return `角色 (${posStr})`;
 }
 function parseDraftPickValue(v) {
   const n = parseNum(v, 0);
@@ -666,39 +691,32 @@ function adjustUserMinutesByTrust(rotation) {
   if (!self) return;
   const trust = clamp(parseNum(G.player?.trust, 50), 0, 100);
   const mood = clamp(parseNum(G.player?.mood, 50), 0, 100);
-  const role = self.rotationRole || 'role';
   const rating = parseNum(self.rating, ovr(G.player?.attrs || {}));
   const sortedRatings = (rotation || []).map(r => parseNum(r?.rating, 65)).sort((a, b) => b - a);
-  const top = parseNum(sortedRatings[0], rating);
-  const second = parseNum(sortedRatings[1], top);
-  const isPrimaryStar = rating >= top - 1 || (role === 'starter' && rating >= second - 1);
-  const isTopCore = rating >= top - 3 || role === 'starter';
+  const second = parseNum(sortedRatings[1], rating);
 
-  let min = 10, max = 22;
-  if (role === 'starter') { min = 28; max = 38; }
-  else if (role === 'sixth') { min = 20; max = 30; }
-  if (isTopCore) { min = Math.max(min, 24); max = Math.max(max, 34); }
-  if (isPrimaryStar || rating >= 84) {
-    min = Math.max(min, 33);
-    max = 40;
-  }
+  // 用7层角色的分钟范围
+  const tier = self.teamTier || 'bench';
+  const td = typeof getTierDef === 'function' ? getTierDef(tier) : null;
+  let min = td ? td.minRange[0] : 10, max = td ? td.minRange[1] : 22;
+  if (rating >= 84) { min = Math.max(min, 33); max = Math.max(max, 40); }
 
   const current = clamp(Math.round(parseNum(self.minutes, 22)), 6, 40);
-  const trustAdj = Math.round((trust - 50) / 16); // -3 ~ +3
-  const moodAdj = Math.round((mood - 50) / 35); // -1 ~ +1
-  const ratingAdj = Math.round((rating - Math.max(70, second)) / 5); // 大当家轻微上调
+  const trustAdj = Math.round((trust - 50) / 16);
+  const moodAdj = Math.round((mood - 50) / 35);
+  const ratingAdj = Math.round((rating - Math.max(70, second)) / 5);
   const target = current + trustAdj + moodAdj + ratingAdj;
-  const stableFloor = role === 'starter' ? 24 : (role === 'sixth' ? 16 : 8);
-  self.minutes = clamp(Math.max(target, stableFloor), min, max);
+  self.minutes = clamp(Math.max(target, min), min, max);
 }
 function normalizeRotationMinutes(rotation, target = 240) {
-  rotation.forEach(r => r.minutes = clamp(Math.round(parseNum(r.minutes, 0)), 6, 40));
+  rotation.forEach(r => r.minutes = clamp(Math.round(parseNum(r.minutes, 0)), 0, 40));
   let total = rotation.reduce((s, r) => s + r.minutes, 0);
+  // 角色优先级: end=0, bench=1, sixthman=2, rolestarter=3, third=4, second=5, alpha=6
+  const tierPri = { end: 0, bench: 1, sixthman: 2, rolestarter: 3, third: 4, second: 5, alpha: 6 };
   const cutOrder = () => {
     const arr = [];
     for (let i = 0; i < rotation.length; i++) {
-      const role = rotation[i].rotationRole || (i < 5 ? 'starter' : (i === 5 ? 'sixth' : 'role'));
-      const pri = role === 'role' ? 0 : (role === 'sixth' ? 1 : 2);
+      const pri = tierPri[rotation[i].teamTier] ?? 1;
       arr.push({ i, pri });
     }
     arr.sort((a, b) =>
@@ -711,8 +729,7 @@ function normalizeRotationMinutes(rotation, target = 240) {
   const addOrder = () => {
     const arr = [];
     for (let i = 0; i < rotation.length; i++) {
-      const role = rotation[i].rotationRole || (i < 5 ? 'starter' : (i === 5 ? 'sixth' : 'role'));
-      const pri = role === 'starter' ? 2 : (role === 'sixth' ? 1 : 0);
+      const pri = tierPri[rotation[i].teamTier] ?? 1;
       arr.push({ i, pri });
     }
     arr.sort((a, b) =>
@@ -724,7 +741,7 @@ function normalizeRotationMinutes(rotation, target = 240) {
   };
   let guard = 0;
   while (total > target && guard < 700) {
-    const idx = cutOrder().find(i => rotation[i].minutes > 6);
+    const idx = cutOrder().find(i => rotation[i].minutes > 0);
     if (idx == null) break;
     rotation[idx].minutes--;
     total--;
@@ -757,6 +774,24 @@ function buildDynamicTeamRotation(teamId, { includeUser = false } = {}) {
     rating: parseNum(p.rating, 65), photo: p.photo, avatar: p.avatar || '', image: p.image, isSelf: !!p.isSelf,
     minutes: clamp((template[i] || 10) + rng(-1, 1), 8, 40), roleScore: p.roleScore, rookie: !!p.rookie, draftPick: p.draftPick, draft: p.draft, yearsLeague: p.yearsLeague
   }));
+
+  // 分配7层角色并用角色目标分钟覆盖模板
+  const byRat = [...rotation].sort((a, b) => b.rating - a.rating);
+  const topTierIds = ['alpha', 'second', 'third'];
+  const assignedIds = new Set();
+  byRat.slice(0, 3).forEach((p, i) => { p.teamTier = topTierIds[i]; assignedIds.add(p.id); });
+  rotation.forEach((p, idx) => {
+    if (assignedIds.has(p.id)) return;
+    const role = p.rotationRole || (idx < 5 ? 'starter' : (idx === 5 ? 'sixth' : 'role'));
+    if (role === 'starter' || idx < 5) p.teamTier = 'rolestarter';
+    else if (role === 'sixth' || idx === 5) p.teamTier = 'sixthman';
+    else if (idx <= 8) p.teamTier = 'bench';
+    else p.teamTier = 'end';
+  });
+  rotation.forEach(p => {
+    const td = typeof getTierDef === 'function' ? getTierDef(p.teamTier) : null;
+    if (td) p.minutes = clamp(td.minTarget + rng(-1, 1), Math.max(td.minRange[0], 0), td.minRange[1]);
+  });
 
   const firstRoundRookies = ranked.filter(p => isFirstRoundRookiePlayer(p));
   firstRoundRookies.forEach(rk => {
@@ -1582,18 +1617,18 @@ function getApkNpcYearDelta(player, coach) {
   const devValue = getApkPlayerDevelopmentValue(player, coach);
   let delta = 0;
   if (age <= 22) {
-    if (devValue <= 20) delta = rng(4, 7);
-    else if (devValue <= 60) delta = rng(2, 5);
-    else if (devValue <= 105) delta = rng(1, 3);
+    if (devValue <= 90) delta = rng(4, 7);
+    else if (devValue <= 125) delta = rng(2, 5);
+    else if (devValue <= 165) delta = rng(1, 3);
     else delta = rng(-1, 2);
   } else if (age <= 26) {
-    if (devValue <= 30) delta = rng(2, 5);
-    else if (devValue <= 75) delta = rng(1, 3);
-    else if (devValue <= 125) delta = rng(0, 2);
+    if (devValue <= 110) delta = rng(2, 5);
+    else if (devValue <= 155) delta = rng(1, 3);
+    else if (devValue <= 200) delta = rng(0, 2);
     else delta = rng(-2, 1);
   } else if (age <= 30) {
-    if (devValue <= 55) delta = rng(1, 2);
-    else if (devValue <= 115) delta = rng(0, 2);
+    if (devValue <= 140) delta = rng(1, 2);
+    else if (devValue <= 200) delta = rng(0, 2);
     else delta = rng(-2, 1);
   } else if (age <= 33) {
     delta = rng(-2, 1);
@@ -2341,6 +2376,7 @@ function openPlayerDetailModal(player, teamMeta = null, title = '球员详情') 
             ${player.altName ? `<div class="t-2 fs-sm">${player.altName}</div>` : ''}
             <div class="t-2 fs-sm mt-12">${teamText}</div>
             <div class="mt-12"><span class="badge b-pri">${p1}${p2}</span> <span class="badge b-gold">OVR ${player.rating || 0}</span> <span class="badge b-cyan">POT ${player.potential || 0}</span></div>
+            ${player.injury?.active ? `<div class="mt-12"><span class="badge b-no">🩹 ${player.injury.type}（缺阵${player.injury.games}场）</span></div>` : ''}
           </div>
         </div>
         ${badgeHtml ? `<div class="mb-16"><div class="fw-b mb-8" style="font-size:13px">徽章</div><div style="display:flex;flex-wrap:wrap">${badgeHtml}</div></div>` : ''}
