@@ -378,6 +378,7 @@ function renderHome() {
         <div class="flex fb fs-sm"><span class="t-2">心情</span><span>${p.mood > 70 ? '😊 良好' : p.mood > 40 ? '😐 一般' : '😞 低落'}</span></div>
         <div class="flex fb fs-sm mt-12"><span class="t-2">声望</span><span>${p.fame}</span></div>
         <div class="flex fb fs-sm mt-12"><span class="t-2">信任</span><span>${p.trust}</span></div>
+        <div class="flex fb fs-sm mt-12"><span class="t-2">士气</span><span>${(() => { const m = parseNum(G.teamMorale, 50); const s = parseNum(G.winStreak, 0); const icon = m > 65 ? '🔥' : m < 40 ? '💧' : '⚖️'; const streak = Math.abs(s) >= 2 ? ` (${s > 0 ? s + '连胜' : Math.abs(s) + '连败'})` : ''; return icon + ' ' + m + streak; })()}</span></div>
         ${p.injury.active ? `<div class="mt-12" style="color:var(--danger)">🩹 ${p.injury.type} (缺阵${p.injury.games}场)</div>` : ''}
       </div>
     </div>
@@ -658,6 +659,7 @@ function renderGame() {
     <div class="tc" style="padding:8px;background:rgba(0,0,0,.2);border-radius:6px">
       <span>${staminaStatus.icon || '💪'} 体力: ${parseNum(G.player.stamina, 0)}</span> <span class="t-2">(${staminaStatus.name || '正常'})</span>
       ${injured ? `<span style="color:var(--danger);margin-left:12px">🩹 ${G.player.injury.type} 剩${G.player.injury.games}场</span>` : ''}
+      <span style="margin-left:12px">${(() => { const m = parseNum(G.teamMorale, 50), s = parseNum(G.winStreak, 0), icon = m > 65 ? '🔥' : m < 40 ? '💧' : '⚖️', streak = Math.abs(s) >= 2 ? ' (' + (s > 0 ? s + '连胜' : Math.abs(s) + '连败') + ')' : ''; return icon + ' 士气: ' + m + streak; })()}</span>
     </div>
   </div>
   
@@ -856,6 +858,7 @@ function renderPlayoffGame() {
     <div class="card-title">🏆 季后赛 - ${roundNames[G.playoffs.round]}</div>
     <div class="tc" style="padding:8px;background:rgba(0,0,0,.2);border-radius:6px;margin-bottom:12px">
       <span>${staminaStatus.icon || '💪'} 体力: ${parseNum(G.player.stamina, 0)}</span> <span class="t-2">(${staminaStatus.name || '正常'})</span>
+      <span style="margin-left:12px">${(() => { const m = parseNum(G.teamMorale, 50), s = parseNum(G.winStreak, 0), icon = m > 65 ? '🔥' : m < 40 ? '💧' : '⚖️', streak = Math.abs(s) >= 2 ? ' (' + (s > 0 ? s + '连胜' : Math.abs(s) + '连败') + ')' : ''; return icon + ' 士气: ' + m + streak; })()}</span>
     </div>
     <div class="mb-16"><span class="t-2 fs-sm">体力</span>
       <div class="stamina-bar mt-12"><div class="stamina-fill" style="width:${G.player.stamina}%"></div></div>
@@ -938,12 +941,150 @@ function doPlayoffGame() {
 }
 
 async function goToOffseason() {
-  await endSeason();
+  const alpha = isPlayerAlpha();
+  if (!alpha) {
+    await endSeason();
+    _offseasonContinue();
+    return;
+  }
+  await endSeason({ staged: true });
+  const renewRes = runOffseasonStaged_renewals();
+  const draftState = createOffseasonDraftState();
+  const pickIdx = getTeamFirstRoundPick(G.teamId);
+  if (pickIdx >= 0 && draftState.pool.length > 0) {
+    const start = Math.max(0, pickIdx - 2);
+    const prospects = draftState.pool.slice(start, start + 6);
+    showDraftDecisionModal(pickIdx, prospects, renewRes, draftState);
+  } else {
+    _offseasonAfterDraft(renewRes, null, draftState);
+  }
+}
+function _offseasonAfterDraft(renewRes, draftPref, draftState) {
+  const summary = [];
+  summary.push(`续约阶段：续约 ${renewRes.renewed} 人，进入自由市场 ${renewRes.released.length} 人`);
+  G.offseasonStage = 228;
+  const round1 = processDraftRoundStage(draftState, 1, draftPref || null, G.teamId);
+  summary.push(`选秀首轮：完成 ${round1.length} 个签位`);
+  G.offseasonStage = 229;
+  const round2 = processDraftRoundStage(draftState, 2, draftPref || null, G.teamId);
+  summary.push(`选秀次轮：完成 ${round2.length} 个签位`);
+  if (draftPref) {
+    const picked = draftState.results.find(r => r.teamId === G.teamId);
+    if (picked && String(picked.player?.id || picked.player?.name) === String(draftPref)) {
+      summary.push(`✅ 球队采纳了你的选秀建议！`);
+    } else {
+      summary.push(`❌ 球队最终没有选择你推荐的球员`);
+    }
+  }
+  G._offseasonDraftState = draftState;
+  G._offseasonRenewRes = renewRes;
+  G._offseasonDraftSummary = summary;
+  if (isPlayerAlpha()) {
+    const freePool = processDraftFinishStage(draftState, renewRes.released);
+    const affordable = getAffordableFreeAgents(G.teamId, freePool, 8);
+    if (affordable.length > 0) {
+      showFAInviteModal(affordable, freePool);
+      return;
+    }
+  }
+  _offseasonFinishPipeline(null);
+}
+function _offseasonFinishPipeline(faPref) {
+  const draftState = G._offseasonDraftState;
+  const renewRes = G._offseasonRenewRes;
+  const draftSummary = G._offseasonDraftSummary || [];
+  const faSummary = runOffseasonStaged_fa(draftState, renewRes, faPref);
+  G.offseasonSummary = [...draftSummary, ...faSummary];
+  endSeasonPostPipeline();
+  delete G._offseasonDraftState;
+  delete G._offseasonRenewRes;
+  delete G._offseasonDraftSummary;
+  _offseasonContinue();
+}
+function _offseasonContinue() {
   if (G.player.contractYears <= 0) {
     showFreeAgencyModal();
   } else {
     showOffseasonModal();
   }
+}
+function showDraftDecisionModal(pickIdx, prospects, renewRes, draftState) {
+  const pickNo = pickIdx + 1;
+  const team = getTeam(G.teamId) || {};
+  G._draftProspects = prospects;
+  G._draftRenewRes = renewRes;
+  G._draftState = draftState;
+  G._offseasonModalDismiss = () => selectDraftProspect(-1);
+  showModal(`
+    <div class="modal-hd"><h3>🎓 选秀建议</h3><button class="modal-x" onclick="selectDraftProspect(-1)">✕</button></div>
+    <div class="mb-16 t-2">作为球队当家球星，管理层希望听取你的选秀意见。</div>
+    <div class="mb-16"><span class="fw-b">${team.z} ${team.n}</span> 持有第 <span class="t-gold fw-b">${pickNo}</span> 顺位</div>
+    <div class="mb-16 fw-b">预计顺位附近的新秀：</div>
+    ${prospects.map((p, i) => {
+      const posText = posLabel(p.pos) + (parseNum(p.pos2, 0) ? '/' + posLabel(p.pos2) : '');
+      const rating = parseNum(p.rating, 70);
+      const pot = parseNum(p.potential, rating);
+      return `<div class="choice-card mb-16" style="text-align:left;cursor:pointer" onclick="selectDraftProspect(${i})">
+        <div class="flex fb">
+          <div>
+            <span class="fw-b">${p.name}</span>
+            <span class="badge b-pri">${posText}</span>
+          </div>
+          <button class="btn btn-sm btn-ok" onclick="event.stopPropagation();selectDraftProspect(${i})">推荐</button>
+        </div>
+        <div class="t-2 fs-sm mt-12">能力 ${rating} | 潜力 ${pot} | 球探评分 ${p.scoutScore?.toFixed(1) || '-'}</div>
+      </div>`;
+    }).join('')}
+    <button class="btn btn-sm" onclick="selectDraftProspect(-1)" style="width:100%;margin-top:8px;opacity:.7">不干预，交给管理层</button>
+  `);
+}
+function selectDraftProspect(idx) {
+  const prospects = G._draftProspects || [];
+  const renewRes = G._draftRenewRes;
+  const draftState = G._draftState;
+  const pref = idx >= 0 && prospects[idx] ? String(prospects[idx].id) : null;
+  delete G._draftProspects;
+  delete G._draftRenewRes;
+  delete G._draftState;
+  delete G._offseasonModalDismiss;
+  hideModal();
+  _offseasonAfterDraft(renewRes, pref, draftState);
+}
+function showFAInviteModal(affordable, fullPool) {
+  G._faInvitePool = fullPool;
+  G._offseasonModalDismiss = () => selectFAInvite(-1);
+  showModal(`
+    <div class="modal-hd"><h3>📋 自由球员邀约</h3><button class="modal-x" onclick="selectFAInvite(-1)">✕</button></div>
+    <div class="mb-16 t-2">作为当家球星，你可以向管理层推荐一名自由球员。</div>
+    <div class="mb-16 t-2 fs-sm">薪资空间: $${formatSalaryM(LEAGUE_SALARY_CAP_M * 1.18 - teamPayrollMillion(G.teamId))}M</div>
+    ${affordable.map((p, i) => {
+      const posText = posLabel(p.pos) + (parseNum(p.pos2, 0) ? '/' + posLabel(p.pos2) : '');
+      const rating = parseNum(p.rating, 70);
+      const age = parseNum(p.age, 25);
+      const c = npcFreeAgentContract(p);
+      return `<div class="choice-card mb-16" style="text-align:left;cursor:pointer" onclick="selectFAInvite(${i})">
+        <div class="flex fb">
+          <div>
+            <span class="fw-b">${p.name}</span>
+            <span class="badge b-pri">${posText}</span>
+          </div>
+          <button class="btn btn-sm btn-ok" onclick="event.stopPropagation();selectFAInvite(${i})">邀请</button>
+        </div>
+        <div class="t-2 fs-sm mt-12">能力 ${rating} | 年龄 ${age} | 预估合同 ${c.years}年 $${formatSalaryM(c.salary)}M/年</div>
+      </div>`;
+    }).join('')}
+    <button class="btn btn-sm" onclick="selectFAInvite(-1)" style="width:100%;margin-top:8px;opacity:.7">不干预，交给管理层</button>
+  `);
+  G._faInviteAffordable = affordable;
+}
+function selectFAInvite(idx) {
+  const affordable = G._faInviteAffordable || [];
+  const pref = idx >= 0 && affordable[idx] ? String(affordable[idx].id) : null;
+  delete G._faInviteAffordable;
+  delete G._faInvitePool;
+  delete G._offseasonModalDismiss;
+  hideModal();
+  _offseasonFinishPipeline(pref);
 }
 
 function showOffseasonModal() {
@@ -1019,6 +1160,7 @@ function startNewSeason() {
   G._pendingRegularSeasonAwardsModal = false;
   G._latestDayResult = null;
   G._phoneTab = 'feed';
+  delete G._nextDraftPreview;
   if (typeof ensureEconomyState === 'function') ensureEconomyState();
   if (typeof ensureSocialState === 'function') ensureSocialState();
   if (typeof applySeasonSalaryPayout === 'function') applySeasonSalaryPayout({ force: false, reason: '新赛季薪资发放' });

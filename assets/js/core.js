@@ -197,6 +197,7 @@ let G = {
     rivalId: 0, mood: 50
   },
   team: null, teamId: 0,
+  teamMorale: 50, winStreak: 0, // 士气系统
   season: 1, year: 2025, startYear: 2025, gameNum: 0, totalGames: 82,
   dayNum: 0, seasonDays: 180, gameDays: [], // 天数模拟系统
   trades: [], pendingTrade: null, pendingUserTrade: null, // 交易系统
@@ -2418,7 +2419,12 @@ function hideModal() {
   box.innerHTML = '';
   $('modalBg').classList.remove('active');
 }
-$('modalBg').addEventListener('click', e => { if (e.target === $('modalBg')) hideModal() });
+$('modalBg').addEventListener('click', e => {
+  if (e.target === $('modalBg')) {
+    if (typeof G !== 'undefined' && G._offseasonModalDismiss) { G._offseasonModalDismiss(); return; }
+    hideModal();
+  }
+});
 function posLabel(pos) {
   const p = getPos(parseNum(pos, 0));
   return p ? p.n : (pos || '-');

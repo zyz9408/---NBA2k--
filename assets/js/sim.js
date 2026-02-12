@@ -344,17 +344,25 @@ function getTeamDraftNeedWeights(teamId) {
   }
   return need;
 }
-function chooseDraftCandidateForTeam(pool, teamId) {
+function chooseDraftCandidateForTeam(pool, teamId, preferredId) {
   if (!pool.length) return null;
   const top = Math.max(1, Math.min(3, pool.length));
   const candidates = pool.slice(0, top);
+  if (preferredId) {
+    const prefIdx = pool.findIndex(p => String(p.id) === String(preferredId));
+    if (prefIdx >= 0 && !candidates.some(p => String(p.id) === String(preferredId))) {
+      candidates.push(pool[prefIdx]);
+    }
+  }
   const need = getTeamDraftNeedWeights(teamId);
   const scored = candidates.map(p => {
     const p1 = clamp(parseNum(p.pos, 3), 1, 5);
     const p2 = parseNum(p.pos2, 0);
     let fit = (need[p1] || 0) * 5;
     if (p2 >= 1 && p2 <= 5) fit = Math.max(fit, (need[p2] || 0) * 3.5);
-    return { p, score: p.scoutScore + fit + rng(-6, 6) * 0.08 };
+    let score = p.scoutScore + fit + rng(-6, 6) * 0.08;
+    if (preferredId && String(p.id) === String(preferredId)) score += 12;
+    return { p, score };
   }).sort((a, b) => b.score - a.score);
   if (scored.length === 1) return scored[0].p;
   const roll = Math.random();
@@ -1247,11 +1255,33 @@ function simulatePreDraftSeason() {
   console.log(`[Pre-Draft] 选秀前赛季模拟完成，年份推进到 ${G.year}`);
 }
 
+// ============ 士气系统 ============
+function updateTeamMorale(win) {
+  // 更新连胜/连败
+  if (win) G.winStreak = G.winStreak > 0 ? G.winStreak + 1 : 1;
+  else G.winStreak = G.winStreak < 0 ? G.winStreak - 1 : -1;
+  const streak = G.winStreak;
+  const abs = Math.abs(streak);
+  // 基础：赢+2 输-2，连胜/连败额外加成（上限±4）
+  let delta = win ? 2 : -2;
+  delta += (win ? 1 : -1) * Math.min(abs - 1, 4);
+  // 信任拉动
+  delta += (parseNum(G.player.trust, 50) - 50) * 0.04;
+  // 自然回归50
+  const cur = parseNum(G.teamMorale, 50);
+  delta -= (cur - 50) * 0.05;
+  G.teamMorale = clamp(Math.round(cur + delta), 0, 100);
+}
+function getMoraleMult() {
+  return 1 + (parseNum(G.teamMorale, 50) - 50) * 0.001;
+}
+
 function generateSchedule() {
   G.schedule = []; G.results = []; G.gameNum = 0;
   G.dayNum = 0;
   G.gameDays = [];
   G._latestDayResult = null;
+  G.teamMorale = 50; G.winStreak = 0;
   if (G.social && typeof G.social === 'object') {
     G.social.lastGeneratedDay = -1;
     G.social.pendingRequiredDay = -1;
@@ -1631,6 +1661,7 @@ function llmSystemPrompt() {
      - 伤病/轮换阵容讨论（替补表现、球员负荷管理、伤病对线影响）
      - 赛程/季后赛形势（剩余赛程强度、附加赛争夺、种子位之争）
      - 新秀/年轻球员发展（新秀墙、角色球员突破、潜力兑现）
+     - 下届选秀前瞻（如果 context.nextDraft 存在，可讨论下一届新秀的球探报告、模拟选秀排名、球队摆烂形势，引用 nextDraft.prospects 中的真实名字和简介）
      - 教练组/管理层决策（換帅传闻、轮换争议、战术调整、阵容实验）
      - 文化/球迷日常（球鞋文化、看球习惯、球迷之间抬杠、球场饮食）
      - 赌球/串子讨论（盘口分析、大小分、让分、连黑连红）
@@ -1653,6 +1684,7 @@ function llmSystemPrompt() {
      - 基于 context.league.top5/bot3 讨论强队弱队、战绩排名、季后赛形势
      - 基于 context.league.scorers/assisters/rebounders 讨论球星表现、数据对比
      - 讨论战术体系、球队化学反应、交易传闻、伤病影响、新秀成长
+     - 如果 context.nextDraft 存在，可以偶尔（1-2条）讨论下届选秀新秀，必须使用 nextDraft.prospects 中的名字和信息
      - 讨论比赛关键回合、教练决策、轮换阵容、防守策略
      - 非篮球内容最多1条（约5%），且必须与年代背景相关
 
@@ -2133,6 +2165,19 @@ function buildPlayerHonorsSummary() {
   if (c.rebound) parts.push(`${c.rebound}次篮板王`);
   return parts.length ? parts.join('、') : '暂无荣誉';
 }
+function getNextDraftClassPreview() {
+  const nextYear = G.year + 1;
+  if (G._nextDraftPreview && G._nextDraftPreview.year === nextYear) return G._nextDraftPreview;
+  try {
+    const dc = generateDraftClass(20, { targetYear: nextYear });
+    const sorted = dc.players
+      .map(p => ({ name: p.name, pos: posLabel(p.pos), age: parseNum(p.age, 19), info: String(p.info || '').slice(0, 60) }))
+      .slice(0, 8);
+    const tier = dc.tier === 'big' ? '大年' : dc.tier === 'weak' ? '小年' : '正常年';
+    G._nextDraftPreview = { year: nextYear, tier, prospects: sorted };
+    return G._nextDraftPreview;
+  } catch (e) { return null; }
+}
 function buildDailySocialContext(dayResult) {
   const res = dayResult || {};
   const gameRes = res.gameResult || null;
@@ -2179,7 +2224,8 @@ function buildDailySocialContext(dayResult) {
       grade: parseNum(gameRes.grade, 0)
     } : null,
     hotNews: (G.news || []).slice(0, 6).map(n => n.text),
-    league: buildLeagueSnapshotForLLM()
+    league: buildLeagueSnapshotForLLM(),
+    nextDraft: parseNum(G.seasonStats?.gp, 0) >= 40 ? getNextDraftClassPreview() : null
   };
 }
 function personaHandle(key) {
@@ -3550,7 +3596,7 @@ function normalizeTeamLinesToScore(lines, targetScore, { minTarget = 60, maxTarg
   const maxT = clamp(Math.round(parseNum(maxTarget, 145)), minT, 145);
   const target = clamp(Math.round(parseNum(targetScore, 0)), minT, maxT);
   if (!Array.isArray(lines) || !lines.length) return target;
-  const pointCap = 42;
+  const pointCap = Infinity;
   lines.forEach(row => clampLineStats(row.stats));
   const rawTotal = lines.reduce((sum, row) => sum + parseNum(row.stats.pts, 0), 0);
   const scale = rawTotal > 0 ? target / rawTotal : 1;
@@ -3681,9 +3727,8 @@ function simulateAIPlayerLine(player, minutes, teamRating, oppRating, opponentSa
   const roles = getPlayerRole(player, usageContext?.roster || options?.roster, coachFx, usageContext);
   const roleFx = collectRoleEffects(roles);
 
-  const usageCore = 0.27 + ((rating - 70) * 0.0022) + ((mins - 24) / 230);
-  const usageMult = clamp(1 + roleFx.usageMod, 0.72, 1.35);
-  const usage = clamp(usageCore * posUsageFactor(pos) * usageMult, 0.14, 0.56);
+  const diff = rating - parseNum(oppRating, 75);
+  const usage = clamp(0.27 + ((rating - 70) * 0.003) + (diff / 80) + roleFx.usageMod, 0.18, 0.52) * posUsageFactor(pos);
   const fga = clamp(Math.round(mins * usage) + rng(-2, 2), 2, 29);
 
   // 三分出手率受教练三分倾向影响
@@ -3729,13 +3774,6 @@ function simulateAIPlayerLine(player, minutes, teamRating, oppRating, opponentSa
   const tov = clamp(Math.round(tovBase * clamp(parseNum(badgeFx.tovMult, 1), 0.55, 1.8)) + rng(0, 2), 0, 7);
 
   const line = clampLineStats({ mins, reb, ast, stl, blk, tov, fgm, fga, tpm: exOk, tpa, ftm, fta, pts: 0 });
-  let guard = 0;
-  while (line.pts > 42 && guard < 90) {
-    guard++;
-    const diff = line.pts - 42;
-    if (!removeOnePointFromLine(line, Math.min(3, diff))) break;
-    clampLineStats(line);
-  }
   return line;
 }
 function estimateLeagueTeamScore(teamRating, oppRating) {
@@ -4246,6 +4284,7 @@ function playGame(idx) {
       xp: 0
     });
     applyPostGameSocialEffects({ win: teamWin, grade: 50, stats: null, injured: true, playoff: false });
+    updateTeamMorale(teamWin);
     G.gameNum++;
     return null;
   }
@@ -4264,12 +4303,13 @@ function playGame(idx) {
 
   const teamBoost = xfFx.teamBoost || 0;
   const toxicPenalty = xfFx.toxicAura ? Math.round(st.pts / 5) : 0;
-  const teamStr = getTeamStrength(G.teamId) + teamBoost - toxicPenalty + Math.round((grade - 50) / 8);
+  const teamStr = Math.round((getTeamStrength(G.teamId) + teamBoost - toxicPenalty + Math.round((grade - 50) / 8)) * getMoraleMult());
   const winRateBoost = parseNum(evMod2.winRateBoost, 0);
   const winChance = clamp(teamStr / (teamStr + oppStr) + winRateBoost, 0.2, 0.95);
   const win = Math.random() < winChance;
 
   if (win) G.seasonStats.wins++; else G.seasonStats.losses++;
+  updateTeamMorale(win);
   G.seasonStats.gp++;
   ['pts', 'reb', 'ast', 'stl', 'blk', 'tov', 'mins', 'fgm', 'fga', 'tpm', 'tpa', 'ftm', 'fta'].forEach(k => G.seasonStats[k] += st[k]);
 
@@ -4359,7 +4399,7 @@ function playPlayoffGame() {
   const xfFx = getPlayerXFactorEffect(G.player);
   const teamBoost = xfFx.teamBoost || 0;
   const toxicPenalty = xfFx.toxicAura ? Math.round(st.pts / 6) : 0;
-  const teamStr = getTeamStrength(G.teamId) + teamBoost - toxicPenalty + Math.round((grade - 50) / 6);
+  const teamStr = Math.round((getTeamStrength(G.teamId) + teamBoost - toxicPenalty + Math.round((grade - 50) / 6)) * getMoraleMult());
   const winChance = clamp(teamStr / (teamStr + oppStr + 5), 0.25, 0.75);
   const win = Math.random() < winChance;
   const score = estimateUserTeamScore(win, parseNum(st.pts, 0), getTeamStrength(G.teamId), oppStr + 5);
@@ -4423,6 +4463,7 @@ function playPlayoffGame() {
   });
 
   if (win) s.myWins++; else s.oppWins++;
+  updateTeamMorale(win);
   s.games.push({ ...st, grade, win, teamPts: myScore, oppPts: oppScore, gameId });
   // 季后赛体力系统：根据努力模式计算体力消耗
   const effortCfg = getEffortMode(G._effortMode);
@@ -5581,14 +5622,15 @@ function applyDraftPickToTeam(teamId, rookie, pickNo) {
   teamObj.players.push(player);
   return player;
 }
-function processDraftRoundStage(draftState, round) {
+function processDraftRoundStage(draftState, round, preferredId, preferTeamId) {
   if (!draftState) return [];
   const start = round === 1 ? 0 : 30;
   const end = round === 1 ? 30 : 60;
   const picks = [];
   for (let i = start; i < end && draftState.pool.length; i++) {
     const teamId = draftState.order[i] || TEAMS[rng(0, TEAMS.length - 1)].id;
-    const chosen = chooseDraftCandidateForTeam(draftState.pool, teamId) || draftState.pool[0];
+    const pref = (preferredId && teamId === preferTeamId) ? preferredId : null;
+    const chosen = chooseDraftCandidateForTeam(draftState.pool, teamId, pref) || draftState.pool[0];
     const idx = draftState.pool.findIndex(p => String(p.id) === String(chosen.id));
     if (idx >= 0) draftState.pool.splice(idx, 1);
     const pickNo = i + 1;
@@ -5604,7 +5646,7 @@ function processDraftFinishStage(draftState, released) {
   const undrafted = (draftState?.pool || []).map(p => ({ ...p, teamId: 0, contractYears: 0, salary: 0, rookie: true, yearsLeague: 0 }));
   return [...(released || []), ...undrafted];
 }
-function processLeagueFreeAgencyStage(freeAgents) {
+function processLeagueFreeAgencyStage(freeAgents, faPreferredId, faPreferTeamId) {
   if (!LEAGUE.loaded) return { signed: 0, remain: freeAgents?.length || 0 };
   const pool = [...(freeAgents || [])].sort((a, b) => scoutScoreProspect(b) - scoutScoreProspect(a));
   let signed = 0;
@@ -5614,6 +5656,12 @@ function processLeagueFreeAgencyStage(freeAgents) {
     if (!t) return;
     while ((t.players || []).length < 13 && pool.length) {
       const top = pool.slice(0, Math.min(20, pool.length));
+      if (faPreferredId && teamId === faPreferTeamId) {
+        const prefInPool = pool.findIndex(p => String(p.id) === String(faPreferredId));
+        if (prefInPool >= 0 && !top.some(p => String(p.id) === String(faPreferredId))) {
+          top.push(pool[prefInPool]);
+        }
+      }
       let bestIdx = 0, bestScore = -1e9;
       top.forEach((p, i) => {
         const need = getTeamDraftNeedWeights(teamId);
@@ -5621,7 +5669,8 @@ function processLeagueFreeAgencyStage(freeAgents) {
         const pos2 = parseNum(p.pos2, 0);
         let fit = (need[pos1] || 0) * 5;
         if (pos2 >= 1 && pos2 <= 5) fit = Math.max(fit, (need[pos2] || 0) * 3);
-        const score = scoutScoreProspect(p) + fit + rng(-8, 8) * 0.08;
+        let score = scoutScoreProspect(p) + fit + rng(-8, 8) * 0.08;
+        if (faPreferredId && teamId === faPreferTeamId && String(p.id) === String(faPreferredId)) score += 15;
         if (score > bestScore) { bestScore = score; bestIdx = i; }
       });
       const chosen = top[bestIdx];
@@ -5752,23 +5801,24 @@ function evaluateLeagueAwardsFromSeason() {
   syncUserAwardsFromLeague(merged, { includeFinals: !!merged.finalsIssued });
   return merged;
 }
-function runApkOffseasonPipeline() {
+function runApkOffseasonPipeline(opts) {
+  const { draftPref, faPref } = opts || {};
   const summary = [];
   G.offseasonStage = 227;
   const renewRes = processLeagueRenewalsStage();
   summary.push(`续约阶段：续约 ${renewRes.renewed} 人，进入自由市场 ${renewRes.released.length} 人`);
   G.offseasonStage = 228;
   const draftState = createOffseasonDraftState();
-  const round1 = processDraftRoundStage(draftState, 1);
+  const round1 = processDraftRoundStage(draftState, 1, draftPref || null, G.teamId);
   summary.push(`选秀首轮：完成 ${round1.length} 个签位`);
   G.offseasonStage = 229;
-  const round2 = processDraftRoundStage(draftState, 2);
+  const round2 = processDraftRoundStage(draftState, 2, draftPref || null, G.teamId);
   summary.push(`选秀次轮：完成 ${round2.length} 个签位`);
   G.offseasonStage = 230;
   const freePool = processDraftFinishStage(draftState, renewRes.released);
   summary.push(`选秀收尾：未签约球员池 ${freePool.length} 人`);
   G.offseasonStage = 231;
-  const faRes = processLeagueFreeAgencyStage(freePool);
+  const faRes = processLeagueFreeAgencyStage(freePool, faPref || null, G.teamId);
   summary.push(`自由市场：签约 ${faRes.signed} 人，剩余自由球员 ${faRes.remain} 人`);
   const trimmed = enforceLeagueRosterCap(15);
   if (trimmed > 0) summary.push(`阵容整理：裁掉 ${trimmed} 人（每队最多15人）`);
@@ -5782,6 +5832,82 @@ function runApkOffseasonPipeline() {
     addNews(`🎓 ${G.year}届选秀状元：${top.player.name} (${getTeam(top.teamId)?.a || '--'})`, 'neu');
   }
   return summary;
+}
+// ---- 大当家休赛期决策辅助 ----
+function isPlayerAlpha() {
+  try {
+    const ctx = buildTeamUsageContext(G.teamId);
+    const self = typeof createUserRosterSnapshot === 'function' ? createUserRosterSnapshot() : null;
+    if (!self) return false;
+    return ctx.tierMap.get(usagePlayerKey(self)) === 'alpha';
+  } catch (e) { return false; }
+}
+function runOffseasonStaged_renewals() {
+  G.offseasonStage = 227;
+  return processLeagueRenewalsStage();
+}
+function runOffseasonStaged_draft(renewRes, draftPref) {
+  const summary = [];
+  summary.push(`续约阶段：续约 ${renewRes.renewed} 人，进入自由市场 ${renewRes.released.length} 人`);
+  G.offseasonStage = 228;
+  const draftState = createOffseasonDraftState();
+  const round1 = processDraftRoundStage(draftState, 1, draftPref || null, G.teamId);
+  summary.push(`选秀首轮：完成 ${round1.length} 个签位`);
+  G.offseasonStage = 229;
+  const round2 = processDraftRoundStage(draftState, 2, draftPref || null, G.teamId);
+  summary.push(`选秀次轮：完成 ${round2.length} 个签位`);
+  return { draftState, summary };
+}
+function runOffseasonStaged_fa(draftState, renewRes, faPref) {
+  const summary = [];
+  G.offseasonStage = 230;
+  const freePool = processDraftFinishStage(draftState, renewRes.released);
+  summary.push(`选秀收尾：未签约球员池 ${freePool.length} 人`);
+  G.offseasonStage = 231;
+  const faRes = processLeagueFreeAgencyStage(freePool, faPref || null, G.teamId);
+  summary.push(`自由市场：签约 ${faRes.signed} 人，剩余自由球员 ${faRes.remain} 人`);
+  const trimmed = enforceLeagueRosterCap(15);
+  if (trimmed > 0) summary.push(`阵容整理：裁掉 ${trimmed} 人（每队最多15人）`);
+  G.offseasonStage = 232;
+  Object.values(LEAGUE.teams).forEach(t => {
+    t.rotation = toRotation(t.players || []);
+    t.strength = calcTeamStrength(t);
+  });
+  const top = draftState.results[0];
+  if (top) addNews(`🎓 ${G.year}届选秀状元：${top.player.name} (${getTeam(top.teamId)?.a || '--'})`, 'neu');
+  return summary;
+}
+function getTeamFirstRoundPick(teamId) {
+  const order = buildDraftOrder60();
+  for (let i = 0; i < 30; i++) {
+    if (order[i] === teamId) return i;
+  }
+  return -1;
+}
+function previewDraftProspects(pickIndex, count) {
+  const dc = generateDraftClass(60, { targetYear: G.year });
+  const pool = dc.players.map(p => ({ ...p, scoutScore: scoutScoreProspect(p) }))
+    .sort((a, b) => b.scoutScore - a.scoutScore || parseNum(b.potential, 0) - parseNum(a.potential, 0));
+  const start = Math.max(0, pickIndex - 2);
+  const end = Math.min(pool.length, start + count);
+  return pool.slice(start, end);
+}
+function getAffordableFreeAgents(teamId, pool, limit) {
+  limit = limit || 8;
+  const payroll = teamPayrollMillion(teamId);
+  const room = LEAGUE_SALARY_CAP_M * 1.18 - payroll;
+  if (room <= 0) return [];
+  return pool.filter(p => {
+    const c = npcFreeAgentContract(p);
+    return c.salary <= room;
+  }).sort((a, b) => scoutScoreProspect(b) - scoutScoreProspect(a)).slice(0, limit);
+}
+function endSeasonPostPipeline() {
+  G.player.stamina = 100;
+  G.player.mood = clamp(G.player.mood + rng(-5, 10), 10, 100);
+  recalcPlayerTradeValue();
+  G.playoffs = { active: false, round: 0, series: [], eliminated: false };
+  G.season++; G.year++;
 }
 function freeAgency() {
   const o = ovr(G.player.attrs);
@@ -5811,6 +5937,7 @@ function signContract(teamId, salary, years) {
     G.teamId = teamId; G.team = getTeam(teamId);
     G.player.teamsPlayed.push(teamId);
     G.player.trust = 45;
+    G.teamMorale = 45; G.winStreak = 0;
     if (G.player.xfactor === 'nomad') {
       const nomadBoost = parseNum(getPlayerXFactorEffect(G.player).nomadBoost, 3);
       G.nomadCount++;
@@ -5824,7 +5951,7 @@ function signContract(teamId, salary, years) {
 }
 
 // ============ SEASON END & EVENTS ============
-async function endSeason() {
+async function endSeason(opts) {
   const s = G.seasonStats, gp = Math.max(s.gp, 1);
   G.careerStats.push({
     season: G.season, year: G.year, team: G.teamId, gp: s.gp,
@@ -5864,12 +5991,9 @@ async function endSeason() {
   progressLeaguePlayers();
   G.player.contractYears = Math.max(0, parseNum(G.player.contractYears, 0) - 1);
   normalizeLeagueContractYears();
+  if (opts && opts.staged) return;
   G.offseasonSummary = runApkOffseasonPipeline();
-  G.player.stamina = 100;
-  G.player.mood = clamp(G.player.mood + rng(-5, 10), 10, 100);
-  recalcPlayerTradeValue();
-  G.playoffs = { active: false, round: 0, series: [], eliminated: false };
-  G.season++; G.year++;
+  endSeasonPostPipeline();
 }
 
 // 随机事件函数已移除
