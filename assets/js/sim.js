@@ -1167,6 +1167,86 @@ function checkInjury() {
 }
 
 // ============ SEASON MANAGEMENT ============
+// ============ 选秀前赛季模拟：让NPC球员在用户进入前已经打过一个赛季 ============
+function simulatePreDraftSeason() {
+  if (!LEAGUE.loaded) return;
+  console.log('[Pre-Draft] 模拟选秀前赛季...');
+
+  // 1. 初始化联赛赛季状态（临时）
+  ensureLeagueStateShape();
+  const teamRecords = {};
+  const playerStats = {};
+  TEAMS.forEach(t => { teamRecords[t.id] = makeTeamRecord(); });
+  if (LEAGUE.loaded) {
+    Object.values(LEAGUE.teams).forEach(t => {
+      const tid = t.meta?.id || 0;
+      (t.players || []).forEach(p => {
+        if (!p.injury) p.injury = { active: false, games: 0, type: "" };
+        const key = leaguePlayerKey(tid, p.id, false);
+        playerStats[key] = emptySeasonLine(tid, p.id, p.name, p.pos, false);
+      });
+    });
+  }
+  G.leagueSeason = { round: 0, teamRecords, playerStats, roundSchedule: [], teamGameLogs: {}, gameDetails: [] };
+  TEAMS.forEach(t => { G.leagueSeason.teamGameLogs[t.id] = []; });
+
+  // 2. 生成NPC-only比赛配对（82轮）— 只模拟比赛数据，不做增量成长
+  const teamIds = TEAMS.map(t => t.id);
+  const totalRounds = 82;
+
+  for (let round = 0; round < totalRounds; round++) {
+    const shuffled = [...teamIds].sort(() => Math.random() - 0.5);
+    for (let i = 0; i < shuffled.length - 1; i += 2) {
+      simulateLeagueMatchup(shuffled[i], shuffled[i + 1], { roundIndex: round });
+    }
+    tickLeagueInjuries();
+  }
+
+  // 3. 保存NPC赛季数据到 careerHistory
+  if (G.leagueSeason?.playerStats) {
+    Object.values(G.leagueSeason.playerStats).forEach(ps => {
+      if (ps.isSelf || !ps.playerId || ps.gp <= 0) return;
+      const teamObj = LEAGUE.teams?.[ps.teamId];
+      if (!teamObj) return;
+      const playerObj = (teamObj.players || []).find(p => String(p.id) === String(ps.playerId));
+      if (!playerObj) return;
+      if (!Array.isArray(playerObj.careerHistory)) playerObj.careerHistory = [];
+      const ngp = Math.max(ps.gp, 1);
+      playerObj.careerHistory.push({
+        season: 0, year: G.year, team: ps.teamId, gp: ps.gp,
+        ppg: +(ps.pts / ngp).toFixed(1), apg: +(ps.ast / ngp).toFixed(1), rpg: +(ps.reb / ngp).toFixed(1),
+        spg: +(ps.stl / ngp).toFixed(1), bpg: +(ps.blk / ngp).toFixed(1),
+        fgPct: ps.fga > 0 ? +(ps.fgm / ps.fga * 100).toFixed(1) : 0,
+        tpPct: ps.tpa > 0 ? +(ps.tpm / ps.tpa * 100).toFixed(1) : 0,
+        ftPct: ps.fta > 0 ? +(ps.ftm / ps.fta * 100).toFixed(1) : 0
+      });
+    });
+  }
+
+  // 4. 直接对每个NPC球员应用完整赛季成长（属性+年龄+1）
+  Object.values(LEAGUE.teams).forEach(t => {
+    const coach = t.coach || null;
+    (t.players || []).forEach(p => {
+      applyNpcSeasonDevelopment(p, coach);
+      delete p._seasonDevApplied; // 清理标志，不影响后续赛季
+    });
+    t.rotation = toRotation(t.players);
+    t.strength = calcTeamStrength(t);
+  });
+
+  // 5. 年份递增（选秀年已过）
+  G.year++;
+
+  // 6. 清理伤病，准备下赛季
+  Object.values(LEAGUE.teams).forEach(t => {
+    (t.players || []).forEach(p => {
+      if (p.injury) { p.injury.active = false; p.injury.games = 0; }
+    });
+  });
+
+  console.log(`[Pre-Draft] 选秀前赛季模拟完成，年份推进到 ${G.year}`);
+}
+
 function generateSchedule() {
   G.schedule = []; G.results = []; G.gameNum = 0;
   G.dayNum = 0;

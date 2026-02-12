@@ -457,7 +457,13 @@ function parsePlayerAttrs(row) {
 function normalizePotentialValue(v, rating = 70) {
   const n = parseNum(v, 0);
   if (n <= 0) return clamp(rating + rng(5, 14), 58, 95);
-  if (n <= 20) return clamp(55 + n * 2 + rng(-3, 3), 55, 95);
+  // CSV potential字段使用6~11的小整数等级
+  // 11→99（历史级）, 10→95（超巨）, 9→88（全明星）, 8→82（首发）, 7→75（角色）, 6→68（板凳）, ≤5→60
+  if (n <= 11) {
+    const potMap = { 11: 99, 10: 95, 9: 88, 8: 82, 7: 75, 6: 68, 5: 62, 4: 58, 3: 55, 2: 55, 1: 55 };
+    const base = potMap[n] || 55;
+    return clamp(base + rng(-1, 1), 55, 99);
+  }
   if (n <= 120) return clamp(Math.round(n), 55, 99);
   return clamp(rating + rng(4, 12), 58, 95);
 }
@@ -1614,37 +1620,53 @@ function getApkPlayerDevelopmentValue(player, coach) {
 function getApkNpcYearDelta(player, coach) {
   const rating = parseNum(player?.rating, 70);
   const age = parseNum(player?.age, 24);
-  const potential = clamp(parseNum(player?.potential, 75), 50, 99);
+  const potential = clamp(parseNum(player?.potential, 75), 55, 99);
   const potGap = potential - rating; // 潜力差距
 
-  // 规则1: 总评≥潜力 → 不再提升（潜力即天花板）
+  // ── 已达到或超过潜力天花板：只做老化 ──
   if (potGap <= 0) {
-    // 老化：30岁以上开始下降
-    if (age >= 36) return rng(-5, -1);
-    if (age >= 34) return rng(-3, 0);
-    if (age >= 31) return rng(-2, 1);
+    // 最高潜力(≥95)：老化极慢——可以打到很晚
+    if (potential >= 95) {
+      if (age >= 39) return rng(-3, -1);
+      if (age >= 37) return rng(-2, 0);
+      if (age >= 34) return rng(-1, 0);
+      return 0;
+    }
+    // 高潜力(≥88)：老化较慢
+    if (potential >= 88) {
+      if (age >= 37) return rng(-4, -1);
+      if (age >= 34) return rng(-2, 0);
+      if (age >= 31) return rng(-1, 0);
+      return 0;
+    }
+    // 中等潜力(≥80)
+    if (potential >= 80) {
+      if (age >= 36) return rng(-4, -1);
+      if (age >= 33) return rng(-2, 0);
+      if (age >= 30) return rng(-1, 0);
+      return 0;
+    }
+    // 低潜力：正常老化
+    if (age >= 34) return rng(-5, -1);
+    if (age >= 31) return rng(-3, 0);
+    if (age >= 29) return rng(-1, 0);
     return 0;
   }
 
+  // ── 未达到潜力天花板：成长期 ──
   let delta = 0;
 
-  // 规则2: 根据潜力值和潜力差距决定成长幅度
   if (age <= 26) {
-    // 成长期
+    // 黄金成长期
     if (potential >= 95 && potGap >= 10) {
-      // 极高潜力+大量空间 → 7~10
       delta = rng(7, 10);
     } else if (potential >= 95) {
-      // 极高潜力+较少空间 → 5~7
       delta = rng(5, 7);
     } else if (potential >= 88) {
-      // 高潜力 → 3~5
       delta = rng(3, 5);
     } else if (potential >= 80) {
-      // 中等潜力 → 1~3
       delta = rng(1, 3);
     } else {
-      // 低潜力 → 0~2
       delta = rng(0, 2);
     }
   } else if (age <= 30) {
@@ -1658,13 +1680,19 @@ function getApkNpcYearDelta(player, coach) {
     } else {
       delta = rng(0, 1);
     }
-  } else if (age <= 33) {
-    // 衰退前期：微量成长或下降
-    if (potGap >= 5) delta = rng(0, 2);
-    else delta = rng(-2, 1);
+  } else if (age <= 34) {
+    // 30+仍有潜力空间：最高潜力可继续微涨
+    if (potential >= 95 && potGap >= 3) {
+      delta = rng(1, 3);
+    } else if (potGap >= 5) {
+      delta = rng(0, 2);
+    } else {
+      delta = rng(-1, 1);
+    }
   } else {
-    // 衰退期
-    delta = rng(-4, 0);
+    // 34+衰退期，但最高潜力衰退很慢
+    if (potential >= 95) delta = rng(-1, 1);
+    else delta = rng(-3, 0);
   }
 
   // 确保不超过潜力天花板
@@ -1908,30 +1936,36 @@ function getBadgeAttrBonuses(player) {
   return bonuses;
 }
 
-// 获取徽章加成后的属性
+// 获取徽章+X天赋加成后的属性
 function getEffectivePlayerAttrs(player) {
   const baseAttrs = (player?.attrs && Object.keys(player.attrs).length) ? { ...player.attrs } : parsePlayerAttrs(player || {});
-  if (!player.badges) return baseAttrs;
-
-  // Clone to avoid mutating original
   const effective = { ...baseAttrs };
 
-  Object.keys(player.badges).forEach(badgeId => {
-    const badge = badgeById(badgeId);
-    if (!badge || !badge.effect || !badge.effect.attrBoost) return;
+  // X-Factor 全属性加成（玻璃人等）
+  if (player?.xfactor) {
+    const xf = typeof XFACTORS !== 'undefined' && XFACTORS.find(x => x.id === player.xfactor);
+    if (xf && xf.effect && xf.effect.attrBonus) {
+      const allKeys = ['pass', 'shotInt', 'shotExt', 'shotFree', 'speed', 'strength', 'reb', 'blk', 'stl'];
+      allKeys.forEach(k => {
+        if (effective[k] !== undefined) effective[k] += xf.effect.attrBonus;
+      });
+    }
+  }
 
-    // Level is stored as 1, 2, 3, 4
-    const level = parseNum(player.badges[badgeId], 1);
-
-    Object.entries(badge.effect.attrBoost).forEach(([attrKey, boostVal]) => {
-      // Bonus = BaseBoost * Level
-      // e.g. Midrange Shooter Level 3 (Gold) -> ShotInt + (1 * 3), ShotExt + (2 * 3)
-      const bonus = boostVal * level;
-      if (effective[attrKey] !== undefined) {
-        effective[attrKey] += bonus;
-      }
+  // 徽章属性加成
+  if (player?.badges) {
+    Object.keys(player.badges).forEach(badgeId => {
+      const badge = badgeById(badgeId);
+      if (!badge || !badge.effect || !badge.effect.attrBoost) return;
+      const level = parseNum(player.badges[badgeId], 1);
+      Object.entries(badge.effect.attrBoost).forEach(([attrKey, boostVal]) => {
+        const bonus = boostVal * level;
+        if (effective[attrKey] !== undefined) {
+          effective[attrKey] += bonus;
+        }
+      });
     });
-  });
+  }
 
   return effective;
 }

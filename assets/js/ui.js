@@ -283,6 +283,11 @@ function startCareer() {
   if (typeof enforceLeagueRosterCap === 'function') enforceLeagueRosterCap(15);
   if (typeof enforceLeagueRosterCap === 'function') enforceLeagueRosterCap(15);
 
+  // 在用户进入NBA前，模拟一个完整的NPC赛季（属性成长+数据积累）
+  if (G.season === 1 && typeof simulatePreDraftSeason === 'function') {
+    simulatePreDraftSeason();
+  }
+
   // Fix: Ensure CPU rookies (from the current start year's draft class) are assigned to teams
   // The user reported that drafted players were missing from the NBA at start.
   if (typeof injectSeasonRookies === 'function') {
