@@ -845,21 +845,39 @@ function renderPlayoffGame() {
   const s = G.playoffs.series;
   const opp = getTeam(s.opp);
   const roundNames = ["", "首轮", "次轮", "分区决赛", "总决赛"];
+  const staminaStatus = getStaminaStatus(G.player.stamina);
   $('gamePage').innerHTML = `
   <div class="card">
     <div class="card-title">🏆 季后赛 - ${roundNames[G.playoffs.round]}</div>
+    <div class="tc" style="padding:8px;background:rgba(0,0,0,.2);border-radius:6px;margin-bottom:12px">
+      <span>${staminaStatus.icon || '💪'} 体力: ${parseNum(G.player.stamina, 0)}</span> <span class="t-2">(${staminaStatus.name || '正常'})</span>
+    </div>
+    <div class="mb-16"><span class="t-2 fs-sm">体力</span>
+      <div class="stamina-bar mt-12"><div class="stamina-fill" style="width:${G.player.stamina}%"></div></div>
+      <div class="t-2 fs-sm tc">${G.player.stamina}%</div>
+    </div>
     <div class="flex fc gap-16" style="padding:20px 0">
       <div class="tc">
         <div class="team-logo" style="background:${G.team.cl};margin:0 auto">${teamLogoMarkup(G.team, 50)}</div>
         <div class="fw-b mt-12">${G.team.z}</div>
         <div class="t-gold fs-lg fw-b">${s.myWins}</div>
       </div>
-      <div class="t-2 fs-lg">VS</div>
+      <div class="t-gold fs-lg fw-b">VS</div>
       <div class="tc">
         <div class="team-logo" style="background:${opp.cl};margin:0 auto">${teamLogoMarkup(opp, 50)}</div>
         <div class="fw-b mt-12">${opp.z}</div>
         <div class="t-2 fs-lg fw-b">${s.oppWins}</div>
       </div>
+    </div>
+    <div style="margin-top:12px;padding:10px;background:rgba(0,0,0,.25);border-radius:8px">
+      <div class="t-2 fs-sm" style="margin-bottom:8px;text-align:center">选择比赛强度：</div>
+      <div style="display:flex;gap:6px;justify-content:center">
+        ${EFFORT_MODES.map(m => {
+    const sel = (G._effortMode || 'normal') === m.id;
+    return `<button class="btn btn-sm" style="padding:8px 14px;border:2px solid ${m.color};background:${sel ? m.color : 'transparent'};color:${sel ? '#fff' : m.color};font-weight:bold;border-radius:8px;transition:all .2s" onclick="G._effortMode='${m.id}';renderPlayoffGame()" title="${m.desc}">${m.icon} ${m.n}</button>`;
+  }).join('')}
+      </div>
+      <div class="t-2 fs-xs tc" style="margin-top:6px">${getEffortMode(G._effortMode || 'normal').desc}</div>
     </div>
     <div class="tc mt-16">
       <button class="btn btn-gold" onclick="doPlayoffGame()">▶ 比赛</button>

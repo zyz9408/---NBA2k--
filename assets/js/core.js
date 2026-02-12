@@ -1614,35 +1614,71 @@ function getApkPlayerDevelopmentValue(player, coach) {
 function getApkNpcYearDelta(player, coach) {
   const rating = parseNum(player?.rating, 70);
   const age = parseNum(player?.age, 24);
-  const devValue = getApkPlayerDevelopmentValue(player, coach);
+  const potential = clamp(parseNum(player?.potential, 75), 50, 99);
+  const potGap = potential - rating; // 潜力差距
+
+  // 规则1: 总评≥潜力 → 不再提升（潜力即天花板）
+  if (potGap <= 0) {
+    // 老化：30岁以上开始下降
+    if (age >= 36) return rng(-5, -1);
+    if (age >= 34) return rng(-3, 0);
+    if (age >= 31) return rng(-2, 1);
+    return 0;
+  }
+
   let delta = 0;
-  if (age <= 22) {
-    if (devValue <= 90) delta = rng(4, 7);
-    else if (devValue <= 125) delta = rng(2, 5);
-    else if (devValue <= 165) delta = rng(1, 3);
-    else delta = rng(-1, 2);
-  } else if (age <= 26) {
-    if (devValue <= 110) delta = rng(2, 5);
-    else if (devValue <= 155) delta = rng(1, 3);
-    else if (devValue <= 200) delta = rng(0, 2);
-    else delta = rng(-2, 1);
+
+  // 规则2: 根据潜力值和潜力差距决定成长幅度
+  if (age <= 26) {
+    // 成长期
+    if (potential >= 95 && potGap >= 10) {
+      // 极高潜力+大量空间 → 7~10
+      delta = rng(7, 10);
+    } else if (potential >= 95) {
+      // 极高潜力+较少空间 → 5~7
+      delta = rng(5, 7);
+    } else if (potential >= 88) {
+      // 高潜力 → 3~5
+      delta = rng(3, 5);
+    } else if (potential >= 80) {
+      // 中等潜力 → 1~3
+      delta = rng(1, 3);
+    } else {
+      // 低潜力 → 0~2
+      delta = rng(0, 2);
+    }
   } else if (age <= 30) {
-    if (devValue <= 140) delta = rng(1, 2);
-    else if (devValue <= 200) delta = rng(0, 2);
-    else delta = rng(-2, 1);
+    // 巅峰期：成长放缓
+    if (potential >= 95 && potGap >= 5) {
+      delta = rng(3, 5);
+    } else if (potential >= 88) {
+      delta = rng(1, 3);
+    } else if (potential >= 80) {
+      delta = rng(0, 2);
+    } else {
+      delta = rng(0, 1);
+    }
   } else if (age <= 33) {
-    delta = rng(-2, 1);
+    // 衰退前期：微量成长或下降
+    if (potGap >= 5) delta = rng(0, 2);
+    else delta = rng(-2, 1);
   } else {
+    // 衰退期
     delta = rng(-4, 0);
   }
-  if (rating >= 88) delta = Math.min(delta, rng(0, 2));
-  if (rating <= 70 && potential99ToApkTier(parseNum(player?.potential, 75)) >= 10) delta = Math.max(delta, rng(3, 6));
-  return clamp(delta, -6, 8);
+
+  // 确保不超过潜力天花板
+  delta = Math.min(delta, potGap);
+  return clamp(delta, -6, 10);
 }
 function applyNpcSeasonDevelopment(player, coach) {
   const attrs = player.attrs && Object.keys(player.attrs).length ? { ...player.attrs } : parsePlayerAttrs(player);
+  const potential = clamp(parseNum(player.potential, 75), 50, 99);
+  const currentOvr = ovr(attrs);
   const delta = getApkNpcYearDelta(player, coach);
-  applyOvrDeltaToAttrs(attrs, delta, clamp(parseNum(player.potential, 75), 50, 99), parseNum(player.age, 24));
+  // 确保成长后不超过潜力天花板
+  const cappedDelta = currentOvr + delta > potential && delta > 0 ? Math.max(0, potential - currentOvr) : delta;
+  applyOvrDeltaToAttrs(attrs, cappedDelta, potential, parseNum(player.age, 24));
   player.attrs = attrs;
   player.rating = ovr(attrs);
   player.att = player.rating;
@@ -1650,6 +1686,28 @@ function applyNpcSeasonDevelopment(player, coach) {
   player.age = parseNum(player.age, 24) + 1;
   player.yearsLeague = Math.max(0, parseNum(player.yearsLeague, 0) + 1);
   player.rookie = false;
+}
+// 全年分散成长：每轮比赛有概率触发NPC属性微调（替代赛季末一次性成长）
+function applyNpcIncrementalGrowth(player, coach) {
+  // 每轮比赛约 1/20 概率触发一次属性变化
+  if (Math.random() > 0.05) return;
+  const potential = clamp(parseNum(player?.potential, 75), 50, 99);
+  const currentOvr = parseNum(player?.rating, ovr(player?.attrs || {}));
+  const yearDelta = getApkNpcYearDelta(player, coach);
+  // 方向与全年趋势一致
+  const direction = yearDelta >= 0 ? 1 : -1;
+  // 潜力天花板检查：正向成长时总评不得超过潜力
+  if (direction > 0 && currentOvr >= potential) return;
+  const attrs = player.attrs && Object.keys(player.attrs).length ? { ...player.attrs } : parsePlayerAttrs(player);
+  const attrKeys = Object.keys(attrs).filter(k => typeof attrs[k] === 'number');
+  if (!attrKeys.length) return;
+  const key = attrKeys[rng(0, attrKeys.length - 1)];
+  attrs[key] = clamp(attrs[key] + direction, 25, 99);
+  player.attrs = attrs;
+  player.rating = ovr(attrs);
+  player.att = player.rating;
+  player.def = player.rating;
+  player._seasonDevApplied = true;
 }
 function ageUserOneYear() {
   G.player.age = parseNum(G.player.age, 19) + 1;

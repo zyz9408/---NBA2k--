@@ -52,13 +52,13 @@ function usagePlayerPass(player) {
 
 // ============ 7层球队角色体系 ============
 const TEAM_TIERS = [
-  { id: 'alpha',       name: '当家球星',     usageMod: 0.18, astMod: 0.8, minTarget: 36, minRange: [33, 40] },
-  { id: 'second',      name: '二当家',       usageMod: 0.10, astMod: 0.4, minTarget: 34, minRange: [31, 37] },
-  { id: 'third',       name: '三当家',       usageMod: 0.04, astMod: 0.2, minTarget: 31, minRange: [28, 34] },
-  { id: 'sixthman',    name: '第六人',       usageMod: 0.02, astMod: 0.1, minTarget: 25, minRange: [22, 28] },
-  { id: 'rolestarter', name: '首发蓝领',     usageMod:-0.06, astMod: 0,   minTarget: 32, minRange: [28, 35] },
-  { id: 'bench',       name: '替补轮换',     usageMod:-0.08, astMod: 0,   minTarget: 17, minRange: [13, 22] },
-  { id: 'end',         name: '饮水机管理员', usageMod:-0.12, astMod: 0,   minTarget: 4,  minRange: [0, 8] }
+  { id: 'alpha', name: '当家球星', usageMod: 0.18, astMod: 0.8, minTarget: 36, minRange: [33, 40] },
+  { id: 'second', name: '二当家', usageMod: 0.10, astMod: 0.4, minTarget: 34, minRange: [31, 37] },
+  { id: 'third', name: '三当家', usageMod: 0.04, astMod: 0.2, minTarget: 31, minRange: [28, 34] },
+  { id: 'sixthman', name: '第六人', usageMod: 0.02, astMod: 0.1, minTarget: 25, minRange: [22, 28] },
+  { id: 'rolestarter', name: '首发蓝领', usageMod: -0.06, astMod: 0, minTarget: 32, minRange: [28, 35] },
+  { id: 'bench', name: '替补轮换', usageMod: -0.08, astMod: 0, minTarget: 17, minRange: [13, 22] },
+  { id: 'end', name: '饮水机管理员', usageMod: -0.12, astMod: 0, minTarget: 4, minRange: [0, 8] }
 ];
 function getTierDef(tierId) { return TEAM_TIERS.find(t => t.id === tierId) || TEAM_TIERS[6]; }
 
@@ -1543,19 +1543,38 @@ function llmSystemPrompt() {
   - **提到球员荣誉时，必须且只能引用 context.player.honors**，严禁编造不存在的MVP、冠军、全明星等成就
   - context.player.seasonYear 表示球员第几个赛季，评论必须符合球员实际资历
 
-  【核心原则】
-  1. **严格遵守时间线**：根据 context.year 融入当时的流行文化元素，但仅作为点缀。
-  2. **篮球为主（95%以上）**：
+  【核心原则：丰富度与多样性】
+  1. **主题必须覆盖至少5个不同类别**，从以下随机选取：
+     - 球队战术分析（挡拆效率、转换进攻、半场阵地战、联防策略）
+     - 球星对比/排名争论（历史地位辩论、同位置对比、数据对决）
+     - 交易流言/自由市场分析（薪资空间、选秀权交易、球队补强方向）
+     - 伤病/轮换阵容讨论（替补表现、球员负荷管理、伤病对线影响）
+     - 赛程/季后赛形势（剩余赛程强度、附加赛争夺、种子位之争）
+     - 新秀/年轻球员发展（新秀墙、角色球员突破、潜力兑现）
+     - 教练组/管理层决策（換帅传闻、轮换争议、战术调整、阵容实验）
+     - 文化/球迷日常（球鞋文化、看球习惯、球迷之间抬杠、球场饮食）
+     - 赌球/串子讨论（盘口分析、大小分、让分、连黑连红）
+     - 数据深挖（进阶数据、真实命中率、使用率、净效率值）
+  
+  2. **角色多样化**：每次生成**至少覆盖5种不同角色**——
+     虎扑JR、老球迷、战术分析师、情绪球迷、数据帝、串子哥、
+     粉丝、黑子、吃瓜路人、野生UP主、退役球员视角、球队记者、
+     相声型球迷、阴阳怪气达人、理中客、段子手
+  
+  3. **严格反重复规则**：
+     - 每条推文的句式、开头词、标点方式必须完全不同
+     - 禁止两条推文以相同的词语开头
+     - 禁止重复使用"太"、"真的"、"说实话"、"我觉得"等高频开头词
+     - 评论区回复不得超过8个字相同
+     - 鼓励使用：反问句、省略号、括号吐槽、引用数据、emoji混搭、对话体、截图体
+     - 语气风格变化：有的长分析、有的一句话暴论、有的数据流、有的纯段子、有的认真讨论
+  
+  4. **篮球为主（95%以上）**：
      - 基于 context.league.top5/bot3 讨论强队弱队、战绩排名、季后赛形势
      - 基于 context.league.scorers/assisters/rebounders 讨论球星表现、数据对比
      - 讨论战术体系、球队化学反应、交易传闻、伤病影响、新秀成长
      - 讨论比赛关键回合、教练决策、轮换阵容、防守策略
      - 非篮球内容最多1条（约5%），且必须与年代背景相关
-  3. **角色多样化**：使用不同身份——虎扑毒舌、老球迷、战术分析师、情绪球迷、数据流、串子哥、粉丝、黑子、吃瓜路人等。每次生成的推文必须覆盖至少4种不同角色。
-  4. **语言不重复**：
-     - 每条推文的句式、开头、表达方式必须不同，严禁出现相似句式
-     - 禁止连续多条推文用相同的感叹词、语气词开头（如"太"、"真的"、"说实话"）
-     - 评论区回复风格要有差异：有的毒舌、有的理性、有的抬杠、有的玩梗
 
   【严格禁令】
   - 🚫 **绝对禁止**出现 OVR, POT, 能力值, 评分, 潜力值 等游戏术语
@@ -1563,6 +1582,7 @@ function llmSystemPrompt() {
   - 🚫 **严禁**出现时间错乱的人物
   - 🚫 **严禁**在非选秀期间疯狂刷屏"选秀"关键词
   - 🚫 **严禁**大量讨论数码产品、歌手明星、娱乐八卦等非篮球话题
+  - 🚫 **严禁**连续使用相同句式结构
 
   【输出格式】
   只输出JSON对象（不要Markdown）：
@@ -1571,7 +1591,7 @@ function llmSystemPrompt() {
       { "author": "用户名", "persona": "人设标签", "text": "推文内容", "likes": "点赞数(带k/w)", "reposts": "转发数", "comments": [ {"author":"评论者网名","text":"评论内容","likes":数字} ] }
     ]
   }
-  确保 posts 数组包含 5-8 条高质量推文。`;
+  确保 posts 数组包含 5-8 条高质量推文，主题互不重复。`;
 }
 function llmUserPromptPayload(context, count) {
   return JSON.stringify({
@@ -2111,6 +2131,7 @@ function generateInternetPosts(context) {
   const [tA, tB] = pickTwoTeams(c.team.id);
   const sA = rng(88, 128), sB = rng(85, 125);
   const winner = sA > sB ? tA : tB;
+  const loser = sA > sB ? tB : tA;
   pool.push({
     persona: 'news', tone: 'neutral',
     text: `【昨日战报】${tA.z} ${sA}-${sB} ${tB.z}，${winner.z}取得胜利。${pick([
@@ -2129,6 +2150,15 @@ function generateInternetPosts(context) {
       `连黑五天了，今天反着买，${tB.z}客场赢盘，不接受反驳。`,
       `兄弟们我研究了一套模型，胜率72%，昨天…昨天那场不算。`,
       `${pickRandomPlayer()}伤停消息一出，盘口直接动了3个点，庄家比我们先知道一切。`,
+      `${tA.z}vs${tB.z}初盘让${rng(3, 6)}.5，信我反买赢到退休。`,
+      `又爆冷！${loser.z}输球串子直接断了，这个月泡面都得省着吃。`,
+      `发现一个规律：${tA.z}客场胜率离谱，紧跟我下一波就对了。`,
+      `赢了一单就加仓，加了就黑。追、加、梭三大定律我全犯了。`,
+      `今天${rng(2, 4)}串1全红！截图为证！（别问昨天）`,
+      `有消息说${pick([tA, tB]).z}今晚主力轮休，赶紧调仓。`,
+      `盘口在动！${tA.z}让分从${rng(3, 5)}变${rng(6, 8)}，这里面有故事。`,
+      `比赛不看只看比分，这就是串子的修养。`,
+      `模型说今天全买大分，上次它说的时候…算了不提。`,
     ]),
     likes: rng(50, 600), reposts: rng(5, 80)
   });
@@ -2143,6 +2173,15 @@ function generateInternetPosts(context) {
       `【万字长文】我用AI预测了本赛季MVP，结果出乎所有人意料…点赞过万出下期`,
       `【独家爆料】某队内线和教练发生冲突？知情人士透露更多细节（来源：我编的）`,
       `兄弟们新视频被限流了，求三连救一下，这期真的用心做了（虽然数据全是百度的）`,
+      `【${pick([tA, tB]).z}赛季复盘】10分钟看完争冠到乐透的全过程→`,
+      `【合集】${pickRandomPlayer()}本赛季最佳${rng(15, 30)}球！最后一个看了10遍`,
+      `花了3天做${pick([tA, tB]).z}战术分解视频，阅读量还没我猫视频高。`,
+      `【预测】联盟未来五年格局大胆猜想，最后一个成真我倒立洗头。`,
+      `${pickRandomPlayer()}在场和不在场净效率差多少？数据让人倒吸凉气。`,
+      `【球鞋盘点】${pickRandomPlayer()}本赛季上脚鞋款，最贵那双要好几千！`,
+      `有一说一${pick([tA, tB]).z}转换进攻真是联盟最帅的，没有之一，合集已剪。`,
+      `UP主觉悟：数据不够就凑、论点不行就吼、标题必须党。我全做到了。`,
+      `【选秀回顾】当年${pick([tA, tB]).z}选了谁？放今天值不值？数据说话→`,
     ]),
     likes: rng(100, 1800), reposts: rng(20, 200)
   });
@@ -2158,6 +2197,15 @@ function generateInternetPosts(context) {
       `${hateTarget}拿那个合同简直是抢钱，换我上我也能场均15+（在2K里）。`,
       `又有人吹${hateTarget}了？数据是好看，但你看看他对手都是谁。`,
       `${hateTarget}粉丝别急，我说的都是事实，数据自己去查。`,
+      `${hateTarget}防守的时候像散步你们看不见吗？`,
+      `每次看${hateTarget}打球就想关电视，节奏太慢，磨死人。`,
+      `${hateTarget}这种球员放2004年连首发都进不了。`,
+      `有人统计过没？${hateTarget}关键时刻命中率惨不忍睹。`,
+      `${hateTarget}运球三秒半→急停打铁→摊手要犯规。经典。`,
+      `说真的${hateTarget}就是吃了联盟红利，换个年代角色球员。`,
+      `每次看有人神话${hateTarget}，建议先去看看录像。`,
+      `${hateTarget}又刷了组好看数据，可惜球队又输了。蛮好的。`,
+      `${hateTarget}那合同够买整支G联赛球队了。性价比感人。`,
     ]),
     likes: rng(200, 3000), reposts: rng(30, 400)
   });
@@ -2180,6 +2228,17 @@ function generateInternetPostsExtra(context) {
       `十年后回头看，这个赛季会是联盟转折点，信不信由你。`,
       `为什么NBA收视率下降？因为比赛太多了，82场谁看得完？`,
       `选秀就是开盲盒，状元签翻车的概率比你想象的高多了。`,
+      `罚球不进就应该扣钱。两罚不中罚款一万，保证命中率暴涨。`,
+      `现在的球员真缺乏忠诚度。一不开心就申请交易，以前球星可不这样。`,
+      `如果让我当总裁，第一件事就是赛季缩短到60场，质量比数量重要。`,
+      `${pickRandomPlayer()}和${pickRandomPlayer()}谁强？两个都不在我前十。`,
+      `这赛季裁判吹罚尺度简直是薛定谔的哨子。同样动作两个判罚。`,
+      `教练挑战该改了。一场就一次机会，还有30%维持原判，纯浪费暂停。`,
+      `NBA应该搞升降级。摆烂的队降到G联赛，看谁还敢摆。`,
+      `负荷管理就是变相偷懒，你见过乔丹轮休吗？`,
+      `每年休赛期交易流言最精彩。常规赛反而没那么好看。`,
+      `为什么现在的年轻球员都不打无球了？全是持球单打，看着累。`,
+      `不管你服不服，小球时代让中锋成了最尴尬的位置。`,
     ]),
     likes: rng(400, 5000), reposts: rng(60, 600)
   });
@@ -2195,6 +2254,14 @@ function generateInternetPostsExtra(context) {
       `昨晚熬夜看球今天上班困死了，这就是篮球的代价吗。`,
       `同事说他能防住${pickRandomPlayer()}，我选择微笑不说话。`,
       `第一次去现场看球，才发现球员真的好高，电视上看不出来。`,
+      `球员的手真的好大，篮球在他们手里跟橘子一样。`,
+      `请问NBA暂停为什么这么多？感觉一半时间都在看广告。`,
+      `我爸看球30年了，每次罚球不进都要骂电视。遗传了。`,
+      `问个傻问题：场均三双到底是很强还是特别强？`,
+      `每次看完NBA去打野球，才知道理想和现实的差距。`,
+      `NBA球员退役后怎么还会破产？年薪那么高。`,
+      `食堂大叔说他年轻时能扣篮，大叔身高165。`,
+      `刚买了件球衣，穿上感觉自己也能如入无人之境（在地铁上）。`,
     ]),
     likes: rng(300, 4000), reposts: rng(30, 500)
   });
@@ -2207,6 +2274,13 @@ function generateInternetPostsExtra(context) {
       `【交易流言】据消息人士透露，${rA.z}正在与${rB.z}讨论一笔涉及多名球员的交易方案，目前谈判仍在进行中。`,
       `有报道称${rA.z}对${rB.z}阵中一名年轻球员表达了兴趣，但对方要价过高，短期内难以达成。`,
       `休赛期还没到，${rA.z}管理层已经开始为下赛季布局，据悉他们的目标是补强${pick(['后卫线', '锋线', '内线', '板凳深度'])}。`,
+      `多方消息源确认：${rA.z}正在积极寻求一名${pick(['全明星得分手', '老将控卫', '3D侧翼', '护筐内线'])}。`,
+      `${rB.z}管理层否认了交易传闻，但消息人士表示谈判仍在暗中进行。`,
+      `据悉${rA.z}愿意用首轮签加年轻球员换取${rB.z}核心后卫，但对方要求两个不受保护首轮签。`,
+      `两队谈判已冷却，分歧在于第三名球员估值。但消息说"门没完全关上"。`,
+      `${rA.z}交易截止日策略逐渐清晰：清理老将合同、囤积选秀权、备战自由市场。`,
+      `经纪人圈传出消息：${rB.z}某核心球员已通过经纪人转达交易意愿，管理层开始评估报价。`,
+      `${rA.z}和${rB.z}去年就差点成交，当时因体检问题告吹。这次能成功吗？`,
     ]),
     likes: rng(500, 3000), reposts: rng(80, 500)
   });
@@ -2216,10 +2290,18 @@ function generateInternetPostsExtra(context) {
   pool.push({
     persona: 'data', tone: 'neutral',
     text: pick([
-      `${dataTarget}本月真实命中率(TS%)下降了4.2个百分点，使用率却上升了3.1%，效率堪忧。`,
-      `有意思的数据：${dataTarget}在第四节的PER值是全联盟前五，但前三节只排第28，典型的关键先生。`,
-      `统计了一下，${dataTarget}今年挡拆后中距离命中率52.3%，联盟第${rng(2, 8)}，这个武器被严重低估了。`,
-      `本赛季至今，联盟场均三分出手数已达${rng(34, 40)}.${rng(0, 9)}次，又创新高，中距离真的要灭绝了吗？`,
+      `${dataTarget}本月真实命中率(TS%)下降了${rng(2, 5)}.${rng(1, 9)}个百分点，使用率却上升3.1%，效率堪忧。`,
+      `有意思的数据：${dataTarget}第四节PER值全联盟前五，前三节只排第28，典型关键先生。`,
+      `统计了一下，${dataTarget}挡拆后中距离命中率${rng(48, 56)}.${rng(0, 9)}%，联盟第${rng(2, 8)}，被严重低估。`,
+      `本赛季联盟场均三分出手已达${rng(34, 40)}.${rng(0, 9)}次，又创新高，中距离要灭绝了。`,
+      `${dataTarget}受助攻得分比例只有${rng(22, 38)}%，自主进攻能力确实顶级。`,
+      `翻了${dataTarget}近${rng(10, 20)}场数据：场均${rng(2, 6)}次失误，被得分数字掩盖了。`,
+      `空位三分命中率：${dataTarget}只有${rng(38, 46)}.${rng(0, 9)}%排联盟第${rng(15, 40)}，没你想的那么准。`,
+      `${dataTarget}在场百回合净胜${rng(2, 12)}.${rng(0, 9)}分，不在场净负${rng(1, 8)}.${rng(0, 9)}分。差距说明一切。`,
+      `${dataTarget}回合占有率${rng(28, 35)}.${rng(0, 9)}%却只有中游效率。吃球权但不够高效。`,
+      `拆解${dataTarget}投篮热图，${pick(['左侧中距离', '底角三分', '左翼突破', '背身单打'])}是明显短板。`,
+      `冷知识：${dataTarget}罚球命中率${rng(68, 88)}%，但最后两分钟仅${rng(50, 72)}%。`,
+      `数据不说谎：${dataTarget}对阵前8球队场均比对后10少了${rng(4, 9)}分。强弱分明。`,
     ]),
     likes: rng(200, 1500), reposts: rng(30, 200)
   });
@@ -2231,20 +2313,35 @@ function makeFallbackComments(seedText, mood = 'neutral', baseCount = 3) {
   const count = clamp(parseNum(baseCount, 3), 2, 5);
   const positive = [
     '这球看得舒服。', '今天真顶。', '状态稳住就好。', '这条说到点子上了。',
-    '冲就完了！', '终于等到这一天。', '我直接吹爆。', '赢麻了家人们。'
+    '冲就完了！', '终于等到这一天。', '我直接吹爆。', '赢麻了家人们。',
+    '继续加油！', '太帅了！', '起飞了起飞了！', '就该这么打。',
+    '硬气！', '球星该有的表现。', '鸡皮疙瘩起来了。', '成熟了不少。',
+    '防守也很卖力。', '带这状态去季后赛。', '技术越来越全面了。', '教科书级别操作。'
   ];
   const negative = [
     '先把失误压下来吧。', '话可以少一点。', '表现和发言要统一。', '这波不太买账。',
-    '就这？', '别尬吹了行吗。', '清醒一点吧。', '评论区比正文好看。'
+    '就这？', '别尬吹了行吗。', '清醒一点吧。', '评论区比正文好看。',
+    '什么水平心里没数吗？', '又开始了…', '防守呢？选择性无视？', '关键球又拉了。',
+    '这成绩还好意思发言？', '场上拿表现说话。', '建议少刷手机多练球。',
+    '顶薪打这水平，球迷不答应。', '嘴炮一流实力二流。', '教练都看不下去了。',
+    '希望下场少犯低级失误。', '看完想关电视。'
   ];
   const neutral = [
     '继续观察。', '有一说一，信息量可以。', '理性看球。', '这条有讨论价值。',
     '马克一下回头看。', '前排占座。', '说得好像有道理。', '不懂但大受震撼。',
-    '笑死，评论区人才辈出。', '这楼要歪了。', '坐等打脸。', '截图保存，年底来验证。'
+    '笑死，评论区人才辈出。', '这楼要歪了。', '坐等打脸。', '截图保存，年底验证。',
+    '沙发。', '客观来说还行。', '太能引战了。', '呵呵不评价。',
+    '话没错但也不全对。', '各位冷静，理性讨论。', '居然有点被说服了。',
+    '这层盖到几楼了？', '典型幸存者偏差。', '年底来看这预测。',
+    '歪个楼问今天谁打谁？', '评论比正文精彩。', '这条明显钓鱼。'
   ];
   const templates = mood === 'positive' ? positive : mood === 'negative' ? negative : neutral;
   const comments = [];
+  const used = new Set();
   for (let i = 0; i < count; i++) {
+    let t; let att = 0;
+    do { t = pick(templates); att++; } while (used.has(t) && att < 10);
+    used.add(t);
     comments.push({
       author: pick(SOCIAL_COMMENTERS),
       persona: pick([SOCIAL_PERSONAS.fan.type, SOCIAL_PERSONAS.hater.type, SOCIAL_PERSONAS.neutral.type, SOCIAL_PERSONAS.casual.type]),
@@ -2299,11 +2396,27 @@ function generateFallbackDailyTweets(context, count = rng(6, 12)) {
           `${c.player.name}今天打得真硬，继续这样冲季后赛。`,
           `赢球就是舒服，${c.player.name}状态在线！`,
           `${c.player.name} ${game.pts}分带队赢球，这才是该有的样子。`,
+          `${c.player.name}关键时刻没软，这就是球星的担当。`,
+          `队伍赢了最重要，${c.player.name}今天打得很稳。`,
+          `${c.player.name}今天攻防两端都有贡献，全面表现。`,
+          `这就是实力，${c.player.name}不需要解释，让数据说话。`,
+          `赢球心情好，${c.player.name}继续保持就能冲一波了。`,
+          `${game.pts}分${game.reb}板${game.ast}助，${c.player.name}今天的表现我给满分。`,
+          `看到${c.player.name}这样打球，买票看比赛值了。`,
+          `${c.player.name}今天第四节站出来了，这就是领袖气质。`,
+          `赢了！${c.player.name}今天节奏控制得很好，继续加油。`,
         ])
         : pick([
           `输了球就别飘，防守和选择都要更稳一点。`,
           `${c.player.name}今天${game.pts}分？就这数据还想赢球？`,
           `输球不可怕，可怕的是看不到改变。`,
+          `${c.player.name}今天关键球处理得不好，经验还得攒。`,
+          `又输了…${c.player.name}需要反思一下投篮选择了。`,
+          `今天的比赛说明进攻不是唯一的，防守端漏洞太多。`,
+          `${c.player.name}在场球队净负${rng(5, 15)}分…教练组也该反思了。`,
+          `输球夜，不想说话。${c.player.name}明天加练吧。`,
+          `比分说明一切。${c.player.name}有能力但今天没发挥出来。`,
+          `这种比赛输了都不想看集锦了，${c.player.name}好好调整吧。`,
         ]),
       likes: rng(80, 760),
       reposts: rng(10, 160),
@@ -2372,10 +2485,25 @@ function generateHistoricalContextPosts(context) {
     `某东部高管匿名透露：现在的球员太早抱团了，失去了当年的竞争精神。`,
     `运动医学专家警告：现代比赛节奏过快导致球员膝盖伤病率激增20%。`,
     `选秀专家：明年的状元大热身高2米20还能运球投三分，简直是作弊。`,
-    `联盟办公室宣布将严查“假摔”行为，违者将在赛后追加罚款。`,
+    `联盟办公室宣布将严查"假摔"行为，违者将在赛后追加罚款。`,
     `据传多支球队有意在欧洲寻找下一个东契奇，球探网络已覆盖整个欧洲。`,
-    `退役名宿在节目中炮轰现役球星：“他们防守时像是在散步。”`,
-    `新规则试行：G联赛将尝试罚球“一罚制”，以缩短比赛时长。`
+    `退役名宿在节目中炮轰现役球星："他们防守时像是在散步。"`,
+    `新规则试行：G联赛将尝试罚球"一罚制"，以缩短比赛时长。`,
+    `联盟计划在非洲举办季前赛，旨在拓展国际市场和发掘人才。`,
+    `球员健康数据分析显示：背靠背比赛受伤概率比间隔两天的比赛高出35%。`,
+    `某西部球队聘请了前AI工程师担任数据分析主管，用机器学习优化轮换策略。`,
+    `一项调查显示，超过60%的年轻球迷更喜欢看${rng(1, 3)}分钟的比赛集锦而非完整比赛。`,
+    `联盟正在考虑将赛季中锦标赛扩大规模，增加更多激励措施。`,
+    `名宿访谈："如果让我重新选择，我宁愿少赚钱也要在一支球队打满整个生涯。"`,
+    `NBA中国赛时隔多年重启讨论，联盟希望修复与中国市场的关系。`,
+    `最新球鞋科技报告：碳纤维底板可以提升球员弹跳高度2-3厘米。`,
+    `联盟宣布新赛季将增加裁判回放中心的权限，争议判罚可实时纠正。`,
+    `球员营养学研究：越来越多球星开始采用素食饮食方案。`,
+    `某分析师指出：本赛季快攻得分占总得分的比例创下历史新低。`,
+    `退役球员创业潮：超过${rng(15, 30)}%的前球员在退役后投资了科技公司。`,
+    `据统计，本赛季联盟平均年龄是近${rng(5, 15)}年来最年轻的。`,
+    `球探报告：澳大利亚NBL联赛正在成为NBA人才的新输送渠道。`,
+    `联盟正在评估是否允许球队在球衣上展示更大面积的赞助商标志。`
   ];
 
   // 特定年份彩蛋 (示例)
@@ -2415,7 +2543,17 @@ function generateLeagueNewsPosts(context) {
     `数据统计：${tA.z}本赛季三分命中率领跑全联盟，进攻效率创队史新高。`,
     `名记爆料：${tB.z}更衣室出现不和传闻，主教练对此拒绝置评。`,
     `${tA.z}主场球馆宣布将在休赛期进行全面翻新，升级观众体验。`,
-    `全明星票选首轮结果公布：${tB.z}的新星意外杀入前场前五。`
+    `全明星票选首轮结果公布：${tB.z}的新星意外杀入前场前五。`,
+    `${tA.z}主帅赛后承认球队需要改善${pick(['防守轮转', '篮板保护', '罚球命中率', '替补得分'])}。`,
+    `${tB.z}宣布将老将${pick(['后卫', '前锋', '中锋'])}列入每日观察名单，伤情不容乐观。`,
+    `据联盟消息人士透露，${tA.z}正在考虑更换主教练，多名候选人已被列入名单。`,
+    `${tB.z}本赛季客场战绩离谱，目前仅有${rng(3, 8)}胜${rng(12, 20)}负，排名联盟倒数。`,
+    `${tA.z}宣布与球队核心完成提前续约，合同细节暂未公布。`,
+    `球探报告：${tB.z}的年轻球员发展速度超出预期，已引起多支球队关注。`,
+    `${tA.z}新援加盟后球队化学反应明显改善，近${rng(5, 10)}场取得${rng(4, 8)}胜。`,
+    `伤病报告：${tB.z}两名首发确认缺战接下来的${rng(2, 4)}场比赛。`,
+    `选秀情报：${tA.z}球探已多次前往NCAA观察${pick(['后卫', '前锋', '内线'])}位置的潜力新秀。`,
+    `${tB.z}管理层内部会议讨论了下赛季的薪资空间问题，预计有${rng(15, 35)}M可用。`
   ];
 
   const count = rng(1, 2);
@@ -3902,6 +4040,13 @@ function simulateLeagueRound(userGame) {
     userGame.st.oppPts = userBox.oppScore;
   }
   G.leagueSeason.round = Math.max(G.leagueSeason.round, roundIndex + 1);
+  // NPC球员全年分散成长：每轮比赛时触发增量成长
+  if (LEAGUE.loaded) {
+    Object.values(LEAGUE.teams).forEach(t => {
+      const coach = t.coach || null;
+      (t.players || []).forEach(p => applyNpcIncrementalGrowth(p, coach));
+    });
+  }
   return userBox;
 }
 function getLeagueTeamRecordsArray() {
@@ -4199,10 +4344,17 @@ function playPlayoffGame() {
 
   if (win) s.myWins++; else s.oppWins++;
   s.games.push({ ...st, grade, win, teamPts: myScore, oppPts: oppScore, gameId });
-  G.player.stamina = clamp(G.player.stamina - 5, 0, 100);
-  const xpGain = addPlayerXP((15 + grade / 4 + st.pts / 2) * parseNum(getBadgeEffects(G.player).xpMult, 1));
+  // 季后赛体力系统：根据努力模式计算体力消耗
+  const effortCfg = getEffortMode(G._effortMode);
+  let staminaCost = rng(12, 22);
+  staminaCost = Math.round(staminaCost * effortCfg.staminaMult);
+  G.player.stamina = clamp(G.player.stamina - staminaCost, 0, 100);
+  // 赛后恢复少量体力
+  const ecoFx = typeof getEconomyEffects === 'function' ? getEconomyEffects() : {};
+  G.player.stamina = clamp(G.player.stamina + rng(3, 8) + parseNum(ecoFx.gameStaminaBonus, 0), 0, 100);
+  const xpGain = addPlayerXP((15 + grade / 4 + st.pts / 2) * effortCfg.xpMult * parseNum(getBadgeEffects(G.player).xpMult, 1));
   applyPostGameSocialEffects({ win, grade, stats: st, injured: false, playoff: true });
-  return { st: { ...st, teamPts: myScore, oppPts: oppScore }, grade, win, opp, xp: xpGain, myWins: s.myWins, oppWins: s.oppWins, gameId };
+  return { st: { ...st, teamPts: myScore, oppPts: oppScore }, grade, win, opp, xp: xpGain, myWins: s.myWins, oppWins: s.oppWins, gameId, effortMode: G._effortMode || 'normal' };
 }
 
 function checkSeriesEnd() {
@@ -4691,7 +4843,19 @@ function progressLeaguePlayers() {
   if (!LEAGUE.loaded) return;
   Object.values(LEAGUE.teams).forEach(t => {
     const coach = t.coach || null;
-    (t.players || []).forEach(p => applyNpcSeasonDevelopment(p, coach));
+    (t.players || []).forEach(p => {
+      // 属性成长已在赛季中通过 applyNpcIncrementalGrowth 完成
+      // 对未触发过增量成长的球员，补一次完整成长
+      if (!p._seasonDevApplied) {
+        applyNpcSeasonDevelopment(p, coach);
+      } else {
+        // 只做年龄+1和状态更新，跳过属性变更
+        p.age = parseNum(p.age, 24) + 1;
+        p.yearsLeague = Math.max(0, parseNum(p.yearsLeague, 0) + 1);
+        p.rookie = false;
+        delete p._seasonDevApplied;
+      }
+    });
     t.rotation = toRotation(t.players);
     t.strength = calcTeamStrength(t);
   });
@@ -4708,9 +4872,11 @@ function spendXP(attrKey, cost) {
 function getUpgradeCost(val) {
   const v = clamp(parseNum(val, 25), 25, 99);
   const x = v - 25;
-  const base = 6 + x * 0.35 + (x * x) / 110;
-  const elite = v >= 95 ? Math.pow(v - 94, 2) * 1.2 : 0;
-  return Math.round(base + elite);
+  const base = 6 + x * 0.5 + (x * x) / 70;
+  const high = v >= 85 ? Math.pow(v - 84, 1.8) * 1.5 : 0;
+  const elite = v >= 90 ? Math.pow(v - 89, 2.2) * 3.0 : 0;
+  const legend = v >= 95 ? Math.pow(v - 94, 2.5) * 5.0 : 0;
+  return Math.round(base + high + elite + legend);
 }
 
 function getTendencyUpgradeCost(val) {
@@ -4739,7 +4905,7 @@ function upgradeBadge(badgeId) {
     alert(`未达到徽章要求：${req}`);
     return false;
   }
-  const costs = [0, 30, 80, 180, 400];
+  const costs = [0, 30, 150, 400, 900];
   const cost = costs[cur + 1];
   if (!cost || G.player.xp < cost) return false;
   G.player.xp -= cost;
