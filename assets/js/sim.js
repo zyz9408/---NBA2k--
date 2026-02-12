@@ -4465,17 +4465,70 @@ function playPlayoffGame() {
   if (win) s.myWins++; else s.oppWins++;
   updateTeamMorale(win);
   s.games.push({ ...st, grade, win, teamPts: myScore, oppPts: oppScore, gameId });
-  // 季后赛体力系统：根据努力模式计算体力消耗
+  // 季后赛体力系统：模拟休息日恢复 + 比赛消耗
+  // 季后赛通常有1-2天休息，先恢复大量体力
+  recoverStamina({ rest: true });
+
   const effortCfg = getEffortMode(G._effortMode);
-  let staminaCost = rng(12, 22);
+  let staminaCost = rng(15, 25); // 季后赛强度更高
   staminaCost = Math.round(staminaCost * effortCfg.staminaMult);
   G.player.stamina = clamp(G.player.stamina - staminaCost, 0, 100);
-  // 赛后恢复少量体力
+
+  // 赛后额外恢复少量 (理疗等)
   const ecoFx = typeof getEconomyEffects === 'function' ? getEconomyEffects() : {};
-  G.player.stamina = clamp(G.player.stamina + rng(3, 8) + parseNum(ecoFx.gameStaminaBonus, 0), 0, 100);
+  G.player.stamina = clamp(G.player.stamina + rng(2, 5) + parseNum(ecoFx.gameStaminaBonus, 0), 0, 100);
+
   const xpGain = addPlayerXP((15 + grade / 4 + st.pts / 2) * effortCfg.xpMult * parseNum(getBadgeEffects(G.player).xpMult, 1));
   applyPostGameSocialEffects({ win, grade, stats: st, injured: false, playoff: true });
+
+  // 模拟背景比赛（其他系列赛）
+  simulateBackgroundPlayoffGames();
+
   return { st: { ...st, teamPts: myScore, oppPts: oppScore }, grade, win, opp, xp: xpGain, myWins: s.myWins, oppWins: s.oppWins, gameId, effortMode: G._effortMode || 'normal' };
+}
+
+function simulateBackgroundPlayoffGames() {
+  // 简单的背景模拟：生成一些其他球队的比赛新闻，让世界看起来在动
+  // 只有在非总决赛阶段才模拟其他系列赛
+  if (G.playoffs.round >= 4) return;
+
+  const numNews = rng(1, 2); // 每次模拟1-2场其他比赛
+  const confs = ['East', 'West'];
+  const otherTeams = [];
+
+  // 收集所有季后赛球队（除了自己和当前对手）
+  confs.forEach(c => {
+    const list = G.standings[c];
+    if (Array.isArray(list)) {
+      list.slice(0, 8).forEach(t => {
+        if (t.id !== G.teamId && t.id !== G.playoffs.series.opp) {
+          otherTeams.push(t);
+        }
+      });
+    }
+  });
+
+  if (otherTeams.length < 2) return;
+
+  for (let i = 0; i < numNews; i++) {
+    const t1 = pick(otherTeams);
+    const t2 = pick(otherTeams);
+    if (t1.id === t2.id) continue;
+
+    // 简单模拟比分
+    const s1 = getTeamStrength(t1.id) + rng(-10, 10);
+    const s2 = getTeamStrength(t2.id) + rng(-10, 10);
+    const winScore = Math.max(90, Math.max(s1, s2) + rng(0, 10));
+    const loseScore = Math.min(winScore - 1, Math.min(s1, s2) + rng(0, 10));
+
+    const team1 = getTeam(t1.id);
+    const team2 = getTeam(t2.id);
+    const winner = s1 > s2 ? team1 : team2;
+    const loser = s1 > s2 ? team2 : team1;
+
+    addNews(`季后赛: ${winner.z} ${winScore}-${loseScore} 战胜 ${loser.z}`, 'neu');
+  }
+
 }
 
 function checkSeriesEnd() {
@@ -4948,8 +5001,10 @@ function evolvePlayerOneYear(player, { isUser = false } = {}) {
   applyOvrDeltaToAttrs(attrs, targetDelta, pot, age);
   player.attrs = attrs;
   player.rating = ovr(attrs);
-  player.att = player.rating;
-  player.def = player.rating;
+  if (typeof calcPlayerAtt === 'function') player.att = calcPlayerAtt(attrs);
+  else player.att = player.rating;
+  if (typeof calcPlayerDef === 'function') player.def = calcPlayerDef(attrs);
+  else player.def = player.rating;
   player.age = age + 1;
   if (!isUser) {
     player.yearsLeague = Math.max(0, parseNum(player.yearsLeague, 0) + 1);

@@ -468,6 +468,27 @@ function normalizePotentialValue(v, rating = 70) {
   if (n <= 120) return clamp(Math.round(n), 55, 99);
   return clamp(rating + rng(4, 12), 58, 95);
 }
+function calcPlayerAtt(attrs) {
+  const v = [
+    parseNum(attrs.shotExt, 55),
+    parseNum(attrs.shotInt, 55),
+    parseNum(attrs.pass, 55),
+    parseNum(attrs.speed, 55),
+    parseNum(attrs.shotFree, 55)
+  ];
+  return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
+}
+function calcPlayerDef(attrs) {
+  const v = [
+    parseNum(attrs.stl, 55),
+    parseNum(attrs.blk, 55),
+    parseNum(attrs.reb, 55),
+    parseNum(attrs.strength, 55),
+    parseNum(attrs.physique, 55)
+  ];
+  return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
+}
+
 function rowToPlayer(row, fallbackId, extra = {}) {
   const yearsLeague = parseNum(row.yearsLeague, 0);
   const rating = calcPlayerRating(row);
@@ -491,8 +512,8 @@ function rowToPlayer(row, fallbackId, extra = {}) {
     pos2: clamp(parseNum(row.positionSecond, 0), 0, 5),
     rating: ovrValue,
     potential: potValue,
-    att: ovrValue, // simplified
-    def: ovrValue, // simplified
+    att: calcPlayerAtt(attrs),
+    def: calcPlayerDef(attrs),
     age: clamp(parseNum(row.age, 24), 18, 45),
     yearsLeague: parseNum(row.yearsLeague, 0),
     draft: parseNum(row.draftYear, 0) * 100 + parseNum(row.draftRound, 0), // rough draft info
@@ -864,7 +885,27 @@ function ensureGameRotation(force = false) {
   return rot;
 }
 function calcTeamStrength(teamObj) {
-  const core = (teamObj.rotation || []).slice(0, 8);
+  const teamId = teamObj.meta.id;
+  let pool = [...(teamObj.rotation || [])];
+
+  // 如果是玩家所在球队，把玩家也加入计算池
+  if (parseNum(G.teamId, 0) === parseNum(teamId, 0) && G.player) {
+    // 检查rotation里是否已经包含了玩家(避免重复)
+    const inRot = pool.some(r => r.isSelf || String(r.id) === 'USER_SELF');
+    if (!inRot) {
+      pool.push({
+        id: 'USER_SELF',
+        isSelf: true,
+        rating: ovr(G.player.attrs || {}),
+        badges: G.player.badges
+      });
+    }
+  }
+
+  // 取能力值最高的8人
+  pool.sort((a, b) => parseNum(b.rating, 0) - parseNum(a.rating, 0));
+  const core = pool.slice(0, 8);
+
   if (!core.length) return teamObj.meta.r || 75;
   const weight = [1, 1, 1, 1, 1, 0.7, 0.6, 0.5];
   let wSum = 0, val = 0;

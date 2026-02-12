@@ -868,13 +868,13 @@ function renderPlayoffGame() {
       <div class="tc">
         <div class="team-logo" style="background:${G.team.cl};margin:0 auto">${teamLogoMarkup(G.team, 50)}</div>
         <div class="fw-b mt-12">${G.team.z}</div>
-        <div class="t-gold fs-lg fw-b">${s.myWins}</div>
+        <div id="playoff-my-wins" class="t-gold fs-lg fw-b">${s.myWins}</div>
       </div>
       <div class="t-gold fs-lg fw-b">VS</div>
       <div class="tc">
         <div class="team-logo" style="background:${opp.cl};margin:0 auto">${teamLogoMarkup(opp, 50)}</div>
         <div class="fw-b mt-12">${opp.z}</div>
-        <div class="t-2 fs-lg fw-b">${s.oppWins}</div>
+        <div id="playoff-opp-wins" class="t-2 fs-lg fw-b">${s.oppWins}</div>
       </div>
     </div>
     <div style="margin-top:12px;padding:10px;background:rgba(0,0,0,.25);border-radius:8px">
@@ -916,6 +916,10 @@ function doPlayoffGame() {
       if ($('phonePage').classList.contains('active')) renderPhone();
     }).catch(() => { });
   }
+  // 实时更新比分板
+  if ($('playoff-my-wins')) $('playoff-my-wins').textContent = res.myWins;
+  if ($('playoff-opp-wins')) $('playoff-opp-wins').textContent = res.oppWins;
+
   const scoreText = Number.isFinite(parseNum(res?.st?.teamPts, NaN)) && Number.isFinite(parseNum(res?.st?.oppPts, NaN))
     ? `${parseNum(res.st.teamPts, 0)} - ${parseNum(res.st.oppPts, 0)}`
     : '-';
@@ -1021,10 +1025,10 @@ function showDraftDecisionModal(pickIdx, prospects, renewRes, draftState) {
     <div class="mb-16"><span class="fw-b">${team.z} ${team.n}</span> 持有第 <span class="t-gold fw-b">${pickNo}</span> 顺位</div>
     <div class="mb-16 fw-b">预计顺位附近的新秀：</div>
     ${prospects.map((p, i) => {
-      const posText = posLabel(p.pos) + (parseNum(p.pos2, 0) ? '/' + posLabel(p.pos2) : '');
-      const rating = parseNum(p.rating, 70);
-      const pot = parseNum(p.potential, rating);
-      return `<div class="choice-card mb-16" style="text-align:left;cursor:pointer" onclick="selectDraftProspect(${i})">
+    const posText = posLabel(p.pos) + (parseNum(p.pos2, 0) ? '/' + posLabel(p.pos2) : '');
+    const rating = parseNum(p.rating, 70);
+    const pot = parseNum(p.potential, rating);
+    return `<div class="choice-card mb-16" style="text-align:left;cursor:pointer" onclick="selectDraftProspect(${i})">
         <div class="flex fb">
           <div>
             <span class="fw-b">${p.name}</span>
@@ -1034,7 +1038,7 @@ function showDraftDecisionModal(pickIdx, prospects, renewRes, draftState) {
         </div>
         <div class="t-2 fs-sm mt-12">能力 ${rating} | 潜力 ${pot} | 球探评分 ${p.scoutScore?.toFixed(1) || '-'}</div>
       </div>`;
-    }).join('')}
+  }).join('')}
     <button class="btn btn-sm" onclick="selectDraftProspect(-1)" style="width:100%;margin-top:8px;opacity:.7">不干预，交给管理层</button>
   `);
 }
@@ -1058,11 +1062,11 @@ function showFAInviteModal(affordable, fullPool) {
     <div class="mb-16 t-2">作为当家球星，你可以向管理层推荐一名自由球员。</div>
     <div class="mb-16 t-2 fs-sm">薪资空间: $${formatSalaryM(LEAGUE_SALARY_CAP_M * 1.18 - teamPayrollMillion(G.teamId))}M</div>
     ${affordable.map((p, i) => {
-      const posText = posLabel(p.pos) + (parseNum(p.pos2, 0) ? '/' + posLabel(p.pos2) : '');
-      const rating = parseNum(p.rating, 70);
-      const age = parseNum(p.age, 25);
-      const c = npcFreeAgentContract(p);
-      return `<div class="choice-card mb-16" style="text-align:left;cursor:pointer" onclick="selectFAInvite(${i})">
+    const posText = posLabel(p.pos) + (parseNum(p.pos2, 0) ? '/' + posLabel(p.pos2) : '');
+    const rating = parseNum(p.rating, 70);
+    const age = parseNum(p.age, 25);
+    const c = npcFreeAgentContract(p);
+    return `<div class="choice-card mb-16" style="text-align:left;cursor:pointer" onclick="selectFAInvite(${i})">
         <div class="flex fb">
           <div>
             <span class="fw-b">${p.name}</span>
@@ -1072,7 +1076,7 @@ function showFAInviteModal(affordable, fullPool) {
         </div>
         <div class="t-2 fs-sm mt-12">能力 ${rating} | 年龄 ${age} | 预估合同 ${c.years}年 $${formatSalaryM(c.salary)}M/年</div>
       </div>`;
-    }).join('')}
+  }).join('')}
     <button class="btn btn-sm" onclick="selectFAInvite(-1)" style="width:100%;margin-top:8px;opacity:.7">不干预，交给管理层</button>
   `);
   G._faInviteAffordable = affordable;
@@ -2514,6 +2518,25 @@ function applySaveData(data) {
   delete G._leagueTeams;
   delete G._leagueCoaches;
   delete G._leagueRookiesBySeason;
+
+  // 重新计算所有球队强度（修复旧存档未包含玩家的问题）
+  if (LEAGUE.loaded && LEAGUE.teams) {
+    Object.values(LEAGUE.teams).forEach(t => {
+      // 确保calcTeamStrength能访问到正确的G.teamId/G.player
+      if (typeof calcTeamStrength === 'function') {
+        t.strength = calcTeamStrength(t);
+      }
+      // 重新计算球员ATT/DEF（修复旧存档数值相同的问题）
+      if (Array.isArray(t.players)) {
+        t.players.forEach(p => {
+          if (p.attrs) {
+            if (typeof calcPlayerAtt === 'function') p.att = calcPlayerAtt(p.attrs);
+            if (typeof calcPlayerDef === 'function') p.def = calcPlayerDef(p.attrs);
+          }
+        });
+      }
+    });
+  }
 
   G.pendingUserTrade = null;
   G._pendingRegularSeasonAwardsModal = false;
