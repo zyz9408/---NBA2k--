@@ -2482,6 +2482,122 @@ ${(() => {
     })()}
       </div>
     </div>
+${(() => {
+      // --- 赛季数据表格 ---
+      const isUser = player.isSelf;
+      let seasonRows = [];
+
+      if (isUser) {
+        // 用户球员：取 G.careerStats + 当前赛季
+        seasonRows = (G.careerStats || []).map(c => ({
+          year: c.year || '-', team: c.team, gp: c.gp || 0,
+          ppg: c.ppg || 0, rpg: c.rpg || 0, apg: c.apg || 0,
+          spg: c.spg || 0, bpg: c.bpg || 0,
+          fgPct: c.fgPct || 0, tpPct: c.tpPct || 0, ftPct: c.ftPct || 0
+        }));
+        // 加入当前赛季（如果已经打过比赛）
+        const cs = G.seasonStats;
+        if (cs && cs.gp > 0) {
+          const cgp = Math.max(cs.gp, 1);
+          seasonRows.push({
+            year: G.year, team: G.teamId, gp: cs.gp,
+            ppg: +(cs.pts / cgp).toFixed(1), rpg: +(cs.reb / cgp).toFixed(1), apg: +(cs.ast / cgp).toFixed(1),
+            spg: +(cs.stl / cgp).toFixed(1), bpg: +(cs.blk / cgp).toFixed(1),
+            fgPct: cs.fga > 0 ? +(cs.fgm / cs.fga * 100).toFixed(1) : 0,
+            tpPct: cs.tpa > 0 ? +(cs.tpm / cs.tpa * 100).toFixed(1) : 0,
+            ftPct: cs.fta > 0 ? +(cs.ftm / cs.fta * 100).toFixed(1) : 0,
+            current: true
+          });
+        }
+      } else {
+        // NPC球员：取 careerHistory + 当前赛季
+        seasonRows = (player.careerHistory || []).map(c => ({
+          year: c.year || '-', team: c.team, gp: c.gp || 0,
+          ppg: c.ppg || 0, rpg: c.rpg || 0, apg: c.apg || 0,
+          spg: c.spg || 0, bpg: c.bpg || 0,
+          fgPct: c.fgPct || 0, tpPct: c.tpPct || 0, ftPct: c.ftPct || 0
+        }));
+        // 查找NPC当前赛季数据
+        if (G.leagueSeason?.playerStats) {
+          const npcKey = Object.keys(G.leagueSeason.playerStats).find(k => {
+            const ps = G.leagueSeason.playerStats[k];
+            return !ps.isSelf && String(ps.playerId) === String(player.id);
+          });
+          if (npcKey) {
+            const ns = G.leagueSeason.playerStats[npcKey];
+            if (ns && ns.gp > 0) {
+              const ngp = Math.max(ns.gp, 1);
+              seasonRows.push({
+                year: G.year, team: ns.teamId, gp: ns.gp,
+                ppg: +(ns.pts / ngp).toFixed(1), rpg: +(ns.reb / ngp).toFixed(1), apg: +(ns.ast / ngp).toFixed(1),
+                spg: +(ns.stl / ngp).toFixed(1), bpg: +(ns.blk / ngp).toFixed(1),
+                fgPct: ns.fga > 0 ? +(ns.fgm / ns.fga * 100).toFixed(1) : 0,
+                tpPct: ns.tpa > 0 ? +(ns.tpm / ns.tpa * 100).toFixed(1) : 0,
+                ftPct: ns.fta > 0 ? +(ns.ftm / ns.fta * 100).toFixed(1) : 0,
+                current: true
+              });
+            }
+          }
+        }
+      }
+
+      if (seasonRows.length === 0) return '<div class="t-2 fs-sm" style="margin-top:16px;text-align:center">暂无赛季数据</div>';
+
+      // 查找球队缩写
+      const getTeamAbbr = (tid) => {
+        if (typeof TEAMS !== 'undefined') {
+          const t = TEAMS.find(t => t.id === tid);
+          if (t) return t.a || t.abbr || String(tid);
+        }
+        return String(tid);
+      };
+
+      // 计算生涯平均
+      const totalGp = seasonRows.reduce((s, r) => s + (r.gp || 0), 0);
+      const n = seasonRows.length;
+      const avg = (key) => n > 0 ? +(seasonRows.reduce((s, r) => s + parseFloat(r[key] || 0), 0) / n).toFixed(1) : 0;
+      const avgWeighted = (key) => {
+        const totalW = seasonRows.reduce((s, r) => s + (r.gp || 1), 0);
+        return totalW > 0 ? +(seasonRows.reduce((s, r) => s + parseFloat(r[key] || 0) * (r.gp || 1), 0) / totalW).toFixed(1) : 0;
+      };
+
+      const thStyle = 'padding:4px 6px;font-size:11px;text-align:center;white-space:nowrap;border-bottom:2px solid var(--bd);background:rgba(255,255,255,0.05)';
+      const tdStyle = 'padding:4px 6px;font-size:11px;text-align:center;white-space:nowrap;border-bottom:1px solid rgba(255,255,255,0.06)';
+      const tdBold = 'padding:4px 6px;font-size:11px;text-align:center;white-space:nowrap;font-weight:bold;border-top:2px solid var(--bd);background:rgba(255,255,255,0.05)';
+
+      const headerRow = `<tr>
+    <th style="${thStyle}">赛季</th><th style="${thStyle}">球队</th><th style="${thStyle}">GP</th>
+    <th style="${thStyle}">PPG</th><th style="${thStyle}">RPG</th><th style="${thStyle}">APG</th>
+    <th style="${thStyle}">SPG</th><th style="${thStyle}">BPG</th>
+    <th style="${thStyle}">FG%</th><th style="${thStyle}">3P%</th><th style="${thStyle}">FT%</th>
+  </tr>`;
+
+      const dataRows = seasonRows.map(r => `<tr${r.current ? ' style="background:rgba(52,152,219,0.12)"' : ''}>
+    <td style="${tdStyle}">${r.year}-${(parseInt(r.year) + 1).toString().slice(-2)}</td>
+    <td style="${tdStyle}">${getTeamAbbr(r.team)}</td>
+    <td style="${tdStyle}">${r.gp}</td>
+    <td style="${tdStyle}">${r.ppg}</td><td style="${tdStyle}">${r.rpg}</td><td style="${tdStyle}">${r.apg}</td>
+    <td style="${tdStyle}">${r.spg}</td><td style="${tdStyle}">${r.bpg}</td>
+    <td style="${tdStyle}">${r.fgPct}</td><td style="${tdStyle}">${r.tpPct}</td><td style="${tdStyle}">${r.ftPct}</td>
+  </tr>`).join('');
+
+      const careerRow = `<tr>
+    <td style="${tdBold}">生涯</td><td style="${tdBold}">${n}季</td><td style="${tdBold}">${totalGp}</td>
+    <td style="${tdBold}">${avgWeighted('ppg')}</td><td style="${tdBold}">${avgWeighted('rpg')}</td><td style="${tdBold}">${avgWeighted('apg')}</td>
+    <td style="${tdBold}">${avgWeighted('spg')}</td><td style="${tdBold}">${avgWeighted('bpg')}</td>
+    <td style="${tdBold}">${avgWeighted('fgPct')}</td><td style="${tdBold}">${avgWeighted('tpPct')}</td><td style="${tdBold}">${avgWeighted('ftPct')}</td>
+  </tr>`;
+
+      return `<div style="margin-top:16px;grid-column:1/-1">
+    <div class="fw-b mb-8" style="font-size:13px">📊 赛季数据</div>
+    <div style="overflow-x:auto;max-height:300px;overflow-y:auto;border:1px solid var(--bd);border-radius:8px">
+      <table style="width:100%;border-collapse:collapse">
+        <thead>${headerRow}</thead>
+        <tbody>${dataRows}${careerRow}</tbody>
+      </table>
+    </div>
+  </div>`;
+    })()}
   `);
 }
 function showMyPlayerModal() {

@@ -5755,6 +5755,28 @@ async function endSeason() {
     ftPct: s.fta > 0 ? +(s.ftm / s.fta * 100).toFixed(1) : 0,
     wins: s.wins, losses: s.losses
   });
+
+  // --- 保存NPC球员赛季数据到 careerHistory ---
+  if (LEAGUE.loaded && G.leagueSeason?.playerStats) {
+    Object.values(G.leagueSeason.playerStats).forEach(ps => {
+      if (ps.isSelf || !ps.playerId || ps.gp <= 0) return;
+      const teamObj = LEAGUE.teams?.[ps.teamId];
+      if (!teamObj) return;
+      const playerObj = (teamObj.players || []).find(p => String(p.id) === String(ps.playerId));
+      if (!playerObj) return;
+      if (!Array.isArray(playerObj.careerHistory)) playerObj.careerHistory = [];
+      const ngp = Math.max(ps.gp, 1);
+      playerObj.careerHistory.push({
+        season: G.season, year: G.year, team: ps.teamId, gp: ps.gp,
+        ppg: +(ps.pts / ngp).toFixed(1), apg: +(ps.ast / ngp).toFixed(1), rpg: +(ps.reb / ngp).toFixed(1),
+        spg: +(ps.stl / ngp).toFixed(1), bpg: +(ps.blk / ngp).toFixed(1),
+        fgPct: ps.fga > 0 ? +(ps.fgm / ps.fga * 100).toFixed(1) : 0,
+        tpPct: ps.tpa > 0 ? +(ps.tpm / ps.tpa * 100).toFixed(1) : 0,
+        ftPct: ps.fta > 0 ? +(ps.ftm / ps.fta * 100).toFixed(1) : 0
+      });
+    });
+  }
+
   ensureRegularSeasonAwardsIssued();
   finalizeFinalsAwardsForSeason();
   G._pendingRegularSeasonAwardsModal = false;
