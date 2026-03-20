@@ -1,4 +1,4 @@
-﻿// core.js
+// core.js
 // ============ GAME DATA ============
 const TEAMS = [
   { id: 1, n: "Celtics", z: "凯尔特人", a: "BOS", c: "East", cl: "#007A33", r: 88 },
@@ -222,7 +222,25 @@ let G = {
     pendingRequiredDay: -1,
     playerRepliedPostIds: {},
     playerPostsByDay: {},
-    llm: { enabled: false, baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini', apiKey: '' }
+    llm: {
+      enabled: false,
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4.1-mini',
+      apiKey: '',
+      presets: {
+        enabled: true,
+        antiTalk: true,
+        strictTurnTaking: false,
+        styleEnabled: true,
+        style: '白描',
+        antiOmniscience: true,
+        antiVariable: true,
+        emotionControl: true,
+        roleHope: true,
+        gameInteraction: true,
+        dataFirst: true
+      }
+    }
   },
   economy: { staminaCoachLevel: 0, trainingCoachLevel: 0, ownedItems: [], logs: [], salaryPaidSeason: 0 },
   offseasonStage: 0,
@@ -1352,10 +1370,13 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
   }
 }
 function getTeam(id) {
+  if (!id) return null;
+  if (typeof id === 'object' && id.id !== undefined) return id;
   if (LEAGUE.loaded && LEAGUE.teams[id]) return LEAGUE.teams[id].meta;
-  return TEAMS.find(t => t.id === id);
+  return TEAMS.find(t => t.id === id) || null;
 }
 function getTeamStrength(id) {
+  if (typeof id === 'object' && id.id !== undefined) id = id.id;
   if (LEAGUE.loaded && LEAGUE.teams[id]) return LEAGUE.teams[id].strength;
   return getTeam(id)?.r || 75;
 }
@@ -1907,7 +1928,8 @@ function buildBadgeRuleContext(player = {}) {
   const potential = clamp(parseNum(player?.potential, rating), 40, 99);
   const yearsLeague = Math.max(0, parseNum(player?.yearsLeague, 0));
   const hofScore = (() => {
-    if (String(player?.id) === 'USER_SELF' && typeof getUserHallOfFameProfile === 'function') {
+    // 修复：如果传入的是 G.player (即玩家自己)，或者显式带有 USER_SELF 标识，则必须走真实的荣誉分计算
+    if ((String(player?.id) === 'USER_SELF' || (typeof G !== 'undefined' && G && player === G.player)) && typeof getUserHallOfFameProfile === 'function') {
       const profile = getUserHallOfFameProfile();
       return parseNum(profile?.score, 0);
     }

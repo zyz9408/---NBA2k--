@@ -1,4 +1,4 @@
-﻿// ui.js
+// ui.js
 // ============ CREATE PAGE UI ============
 let createStep = 0;
 function renderCreate() {
@@ -206,11 +206,16 @@ async function gotoDraft() {
   $('createPage').innerHTML = `
   <div class="card tc">
     <div class="card-title fc" style="justify-content:center">🧾 生成选秀报告</div>
-    <div class="t-2">正在模拟选秀并生成球探报道，请稍候...</div>
+    <div class="t-2">正在模拟选秀并生成球探剧情报道，请稍候...</div>
   </div>`;
   assignToDraft();
   if (typeof generateDraftScoutingReport === 'function') {
-    try { await generateDraftScoutingReport({ force: true }); } catch (e) { }
+    try { 
+      const scout = await generateDraftScoutingReport({ force: true }); 
+      if (scout && scout.story && typeof showStoryModal === 'function') {
+        await showStoryModal('选秀夜', scout.story);
+      }
+    } catch (e) { }
   }
   createStep = 5; renderCreate();
 }
@@ -336,60 +341,130 @@ function updateHeader() {
 function renderHome() {
   const p = G.player, s = G.seasonStats, gp = Math.max(s.gp, 1);
   const xf = getXFactor(p.xfactor) || { icon: '❔', n: '未知天赋' };
-  const tpl = getTemplate(p.template, p.pos);
+  
+  if (!G.storyLog) {
+    G.storyLog = ["欢迎来到《篮球生涯模拟器》。你的传奇，从这里开始——\\n点击【推进日程】开启新的一天或直接去打比赛。"];
+  }
+
+  const storyContent = G.storyLog.map(msg => `<div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.05);line-height:1.6">${msg}</div>`).join('');
+
   $('homePage').innerHTML = `
-  <div class="grid g2">
-    <div class="card">
-      <div class="card-title">👤 ${p.name}</div>
-      <div class="flex gap-16">
-        ${p.avatar ? `<div style="flex-shrink:0"><img src="${p.avatar}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--gold)"></div>` : ''}
-        <div class="hex-container"><canvas id="hexChart" class="hex-canvas"></canvas></div>
-        <div style="flex:1">
-          <div class="flex fb mb-16"><span class="t-2">位置</span><span class="fw-b">${getPos(p.pos).n} ${getPos(p.pos).z}</span></div>
-          <div class="flex fb mb-16"><span class="t-2">年龄</span><span>${p.age}岁</span></div>
-          <div class="flex fb mb-16"><span class="t-2">身高/体重</span><span>${p.height}cm / ${p.weight}kg</span></div>
-          <div class="flex fb mb-16"><span class="t-2">臂展</span><span>${p.wingspan}cm</span></div>
-          <div class="flex fb mb-16"><span class="t-2">模版</span><span>${tpl ? tpl.n : '-'}</span></div>
-          <div class="flex fb mb-16"><span class="t-2">X-Factor</span><span class="t-purple">${xf.icon} ${xf.n}</span></div>
-          <div class="flex fb mb-16"><span class="t-2">合同</span><span>${p.contractYears}年 / $${formatSalaryM(p.salary)}M</span></div>
-          <div class="flex fb mb-16"><span class="t-2">现金</span><span class="t-gold">$${parseNum(p.cash, 0).toFixed(2)}M</span></div>
-          <div class="flex fb"><span class="t-2">XP</span><span class="t-gold">${p.xp}</span></div>
-        </div>
+  <div class="grid" style="grid-template-columns: 3fr 2fr; gap: 16px;">
+    <!-- LEFT: Story Board -->
+    <div class="flex f-col" style="height: 75vh;">
+      <div id="homeActionContainer" style="margin-bottom:12px;"></div>
+      <div id="storyBoard" class="card" style="flex:1; overflow-y:auto; margin-bottom:0; padding:16px; background:#0B0C10; border-radius:8px; font-family:'Courier New', monospace; font-size:15px; box-shadow:inset 0 0 10px rgba(0,0,0,0.5);">
+        <div class="t-2 mb-8" style="font-size:12px;border-bottom:1px dashed rgba(255,255,255,0.1);padding-bottom:4px">📜 生涯日志</div>
+        ${storyContent}
       </div>
     </div>
-    <div>
-      <div class="card">
-        <div class="card-title">📊 赛季数据 (${s.gp}场)</div>
-        <div class="grid g3">
-          <div class="stat-box"><div class="stat-val">${(s.pts / gp).toFixed(1)}</div><div class="stat-lbl">得分</div></div>
-          <div class="stat-box"><div class="stat-val">${(s.ast / gp).toFixed(1)}</div><div class="stat-lbl">助攻</div></div>
-          <div class="stat-box"><div class="stat-val">${(s.reb / gp).toFixed(1)}</div><div class="stat-lbl">篮板</div></div>
-          <div class="stat-box"><div class="stat-val">${(s.stl / gp).toFixed(1)}</div><div class="stat-lbl">抢断</div></div>
-          <div class="stat-box"><div class="stat-val">${(s.blk / gp).toFixed(1)}</div><div class="stat-lbl">盖帽</div></div>
-          <div class="stat-box"><div class="stat-val">${s.wins}-${s.losses}</div><div class="stat-lbl">战绩</div></div>
+    
+    <!-- RIGHT: Status & Stats -->
+    <div style="overflow-y:auto; height: 75vh; padding-right:8px;">
+      <div class="card mb-16">
+        <div class="flex fb ai-c mb-16">
+          <div class="flex ai-c gap-12">
+            ${p.avatar ? `<img src="${p.avatar}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;border:2px solid var(--gold)">` : ''}
+            <div>
+              <div class="fs-lg fw-b t-gold">${p.name}</div>
+              <div class="fs-sm t-2">${p.age}岁 | ${getPos(p.pos).z} | OVR ${ovr(p.attrs)}</div>
+            </div>
+          </div>
+          <div class="tc"><div class="fs-xl fw-b">${s.wins}-${s.losses}</div><div class="fs-xs t-2">战绩</div></div>
         </div>
+        
+        <div class="grid mt-12 mb-12" style="grid-template-columns: repeat(4, 1fr); gap: 8px; background:rgba(0,0,0,.2);padding:10px;border-radius:8px">
+          <div class="tc"><div class="t-2 fs-xs">得分</div><div class="fw-b">${(s.pts / gp).toFixed(1)}</div></div>
+          <div class="tc"><div class="t-2 fs-xs">篮板</div><div class="fw-b">${(s.reb / gp).toFixed(1)}</div></div>
+          <div class="tc"><div class="t-2 fs-xs">助攻</div><div class="fw-b">${(s.ast / gp).toFixed(1)}</div></div>
+          <div class="tc"><div class="t-2 fs-xs">薪金</div><div class="fw-b t-gold">$${formatSalaryM(p.salary)}M</div></div>
+          <div class="tc mt-8"><div class="t-2 fs-xs">抢断</div><div class="fw-b">${(s.stl / gp).toFixed(1)}</div></div>
+          <div class="tc mt-8"><div class="t-2 fs-xs">盖帽</div><div class="fw-b">${(s.blk / gp).toFixed(1)}</div></div>
+          <div class="tc mt-8"><div class="t-2 fs-xs">失误</div><div class="fw-b">${(s.tov / gp).toFixed(1)}</div></div>
+          <div class="tc mt-8"><div class="t-2 fs-xs">命中</div><div class="fw-b">${s.fga>0 ? Math.round(s.fgm/s.fga*100) : 0}%</div></div>
+        </div>
+        
+        <div class="grid g2 mt-12 mb-12">
+          <div class="flex fb fs-sm mb-8"><span class="t-2">天赋</span><span class="t-purple">${xf.icon} ${xf.n}</span></div>
+          <div class="flex fb fs-sm mb-8"><span class="t-2">存款</span><span class="t-gold">$${parseNum(p.cash, 0).toFixed(2)}M</span></div>
+          <div class="flex fb fs-sm mb-8"><span class="t-2">声望</span><span>${p.fame}</span></div>
+          <div class="flex fb fs-sm mb-8"><span class="t-2">信任</span><span>${p.trust}</span></div>
+        </div>
+        <div class="flex fb fs-sm mb-12"><span class="t-2">士气</span><span>${(() => { const m = parseNum(G.teamMorale, 50); const streak = Math.abs(G.winStreak||0) >= 2 ? `(${G.winStreak>0?'连胜':'连败'})` : ''; return (m > 65 ? '🔥' : m < 40 ? '💧' : '⚖️') + m + streak; })()}</span></div>
+        
+        <div class="mb-12 mt-12"><span class="t-2 fs-sm">体力: ${p.stamina}%</span>
+          <div class="stamina-bar mt-4"><div class="stamina-fill" style="width:${p.stamina}%"></div></div>
+        </div>
+        ${p.injury.active ? `<div class="mb-12" style="color:var(--danger)">🩹 ${p.injury.type} (缺阵${p.injury.games}场)</div>` : ''}
+        
+        <div class="mt-16"><button class="btn btn-sm" style="background:#dc3545;color:#fff;width:100%" onclick="if(confirm('确定要宣布退役吗？生涯将就此落幕！\\n如果是误触请点击取消。')) forceRetire()">👋 宣布退役 (结束生涯)</button></div>
       </div>
-      <div class="card">
-        <div class="card-title">状态</div>
-        <div class="mb-16"><span class="t-2 fs-sm">体力</span>
-          <div class="stamina-bar mt-12"><div class="stamina-fill" style="width:${p.stamina}%"></div></div>
-          <div class="t-2 fs-sm tc">${p.stamina}%</div>
-        </div>
-        <div class="flex fb fs-sm"><span class="t-2">心情</span><span>${p.mood > 70 ? '😊 良好' : p.mood > 40 ? '😐 一般' : '😞 低落'}</span></div>
-        <div class="flex fb fs-sm mt-12"><span class="t-2">声望</span><span>${p.fame}</span></div>
-        <div class="flex fb fs-sm mt-12"><span class="t-2">信任</span><span>${p.trust}</span></div>
-        <div class="flex fb fs-sm mt-12"><span class="t-2">士气</span><span>${(() => { const m = parseNum(G.teamMorale, 50); const s = parseNum(G.winStreak, 0); const icon = m > 65 ? '🔥' : m < 40 ? '💧' : '⚖️'; const streak = Math.abs(s) >= 2 ? ` (${s > 0 ? s + '连胜' : Math.abs(s) + '连败'})` : ''; return icon + ' ' + m + streak; })()}</span></div>
-        ${p.injury.active ? `<div class="mt-12" style="color:var(--danger)">🩹 ${p.injury.type} (缺阵${p.injury.games}场)</div>` : ''}
+      
+      <div class="card mb-16">
+        <div class="card-title">📰 最新资讯</div>
+        <div class="news-ticker">${G.news.slice(0, 5).map(n => `<div class="news-item fs-sm">${n.text}</div>`).join('') || '<div class="t-2 tc">暂无新闻</div>'}</div>
       </div>
     </div>
-  </div>
-  <div class="card">
-    <div class="card-title">📰 新闻</div>
-    <div class="news-ticker">${G.news.slice(0, 10).map(n => `<div class="news-item">${n.text}</div>`).join('') || '<div class="t-2 tc">暂无新闻</div>'}</div>
   </div>`;
-  const effAttrs = typeof getEffectivePlayerAttrs === 'function' ? getEffectivePlayerAttrs(p) : p.attrs;
-  setTimeout(() => drawHexChart('hexChart', effAttrs), 50);
+  
+  setTimeout(() => {
+    const sb = $('storyBoard');
+    if (sb) sb.scrollTop = sb.scrollHeight;
+  }, 10);
+
+  if (G.playoffs && G.playoffs.active && !G.playoffs.eliminated) {
+    if (typeof renderPlayoffGame === 'function') renderPlayoffGame();
+  } else if (G.gameNum >= 82) {
+    if (typeof renderSeasonEnd === 'function') renderSeasonEnd();
+  } else {
+    if (typeof renderRegularSeasonAction === 'function') renderRegularSeasonAction();
+  }
 }
+
+function appendStoryToBoard(text, color = '#fff', typewrite = true) {
+  if (!G.storyLog) G.storyLog = [];
+  const formatted = `<span style="color:${color}">${text}</span>`;
+  G.storyLog.push(formatted);
+  if (G.storyLog.length > 50) G.storyLog.shift(); // Keep history size contained
+
+  const sb = $('storyBoard');
+  if (sb) {
+    if (typewrite) {
+      const id = "story_msg_" + Date.now() + "_" + Math.floor(Math.random()*1000);
+      const span = document.createElement('div');
+      span.style.marginBottom = '12px';
+      span.style.paddingBottom = '12px';
+      span.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+      span.style.lineHeight = '1.6';
+      span.style.color = color;
+      span.id = id;
+      sb.appendChild(span);
+      
+      let i = 0;
+      const speed = 25;
+      function typeWriter() {
+        if (i < text.length) {
+          const char = text.charAt(i);
+          span.innerHTML += char === '\\n' ? '<br>' : char;
+          i++;
+          sb.scrollTop = sb.scrollHeight;
+          setTimeout(typeWriter, speed);
+        }
+      }
+      typeWriter();
+    } else {
+      const el = document.createElement('div');
+      el.style.marginBottom = '12px';
+      el.style.paddingBottom = '12px';
+      el.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+      el.style.lineHeight = '1.6';
+      el.innerHTML = formatted.replace(/\\n/g, '<br>');
+      sb.appendChild(el);
+      sb.scrollTop = sb.scrollHeight;
+    }
+  }
+}
+
 
 function findResultGameDetail(r) {
   if (!r) return null;
@@ -471,6 +546,7 @@ function showLeagueGameDetailModal(gameId) {
         ${game.userGame ? '<span class="badge b-gold">你的比赛</span>' : ''}
       </div>
     </div>
+    ${renderHomeAwayFlow(game)}
     <div class="grid g1 game-detail-teams">
       <div class="card game-detail-team" style="margin-bottom:0">
         <div class="card-title">${home.z || home.n || '主队'} 盒分</div>
@@ -509,6 +585,138 @@ function renderRecentGameRows(limit = 10) {
     </tr>`;
   }).join('');
 }
+function safeSvgText(text = '') {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function renderMatchupSvg({ myTeam = null, oppTeam = null, home = true } = {}) {
+  const myAbbr = safeSvgText(myTeam?.a || 'ME');
+  const oppAbbr = safeSvgText(oppTeam?.a || 'OPP');
+  const leftAbbr = home ? myAbbr : oppAbbr;
+  const rightAbbr = home ? oppAbbr : myAbbr;
+  const leftColor = home ? (myTeam?.cl || '#1d428a') : (oppTeam?.cl || '#2a2f4a');
+  const rightColor = home ? (oppTeam?.cl || '#2a2f4a') : (myTeam?.cl || '#1d428a');
+  return `
+  <svg class="sim-svg matchup-svg" viewBox="0 0 420 160" xmlns="http://www.w3.org/2000/svg" aria-label="比赛对阵图">
+    <defs>
+      <linearGradient id="courtGrad" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="rgba(253,185,39,.2)"/>
+        <stop offset="100%" stop-color="rgba(0,212,255,.06)"/>
+      </linearGradient>
+    </defs>
+    <rect x="8" y="12" width="404" height="136" rx="18" fill="url(#courtGrad)" class="svg-court-line"/>
+    <path d="M210 20v120" stroke="rgba(255,255,255,.22)" stroke-width="2" stroke-dasharray="4 6"/>
+    <circle cx="210" cy="80" r="26" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="2"/>
+    <circle cx="210" cy="80" r="12" class="svg-ball-bounce" fill="#fdb927"/>
+    <rect x="40" y="45" width="110" height="70" rx="12" fill="${leftColor}" class="svg-pulse-soft"/>
+    <rect x="270" y="45" width="110" height="70" rx="12" fill="${rightColor}" class="svg-pulse-soft"/>
+    <text x="95" y="90" fill="#fff" font-size="28" text-anchor="middle" font-weight="700">${leftAbbr}</text>
+    <text x="325" y="90" fill="#fff" font-size="28" text-anchor="middle" font-weight="700">${rightAbbr}</text>
+    <text x="210" y="88" fill="#fff" font-size="18" text-anchor="middle" font-weight="700">VS</text>
+  </svg>`;
+}
+function renderResultBadgeSvg({ win = false } = {}) {
+  const color = win ? '#28a745' : '#dc3545';
+  const mark = win ? 'W' : 'L';
+  return `
+  <svg class="sim-svg result-svg" viewBox="0 0 320 84" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <rect x="6" y="8" width="308" height="68" rx="14" fill="${win ? 'rgba(40,167,69,.12)' : 'rgba(220,53,69,.12)'}" stroke="${color}" class="svg-court-line"/>
+    <circle cx="48" cy="42" r="18" fill="${color}" class="svg-pulse-soft"/>
+    <text x="48" y="49" fill="#fff" font-size="16" text-anchor="middle" font-weight="700">${mark}</text>
+    <path d="M86 42h206" stroke="${color}" stroke-width="2" stroke-dasharray="4 7" class="svg-dash-flow"/>
+  </svg>`;
+}
+function renderEventTypeSvg(type = 'neu', symbol = '★', { large = false } = {}) {
+  const tone = type === 'pos'
+    ? { c: '#28a745', bg: 'rgba(40,167,69,.18)' }
+    : type === 'neg'
+      ? { c: '#dc3545', bg: 'rgba(220,53,69,.18)' }
+      : { c: '#fdb927', bg: 'rgba(253,185,39,.18)' };
+  const size = large ? 108 : 46;
+  const fontSize = large ? 30 : 16;
+  const safeSymbol = safeSvgText((Array.from(String(symbol || '★'))[0] || '★'));
+  return `
+  <svg class="event-type-svg ${large ? 'large' : ''}" viewBox="0 0 100 100" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <circle cx="50" cy="50" r="44" fill="${tone.bg}" stroke="${tone.c}" stroke-width="2" class="svg-court-line"/>
+    <g class="svg-rotate-slow" transform="translate(50,50)">
+      <path d="M0-36L6-16L26-16L10-4L16 16L0 6L-16 16L-10 -4L-26 -16L-6 -16Z" fill="${tone.c}" opacity=".22"/>
+    </g>
+    <circle cx="50" cy="50" r="24" fill="${tone.c}" class="svg-pulse-soft"/>
+    <text x="50" y="58" text-anchor="middle" fill="#fff" font-size="${fontSize}" font-weight="700">${safeSymbol}</text>
+  </svg>`;
+}
+function renderUserGameFlow(flow) {
+  if (!flow || typeof flow !== 'object') return '';
+  const labels = Array.isArray(flow.periodLabels) && flow.periodLabels.length ? flow.periodLabels : ['Q1', 'Q2', 'Q3', 'Q4'];
+  const myPeriods = Array.isArray(flow.myPeriods) ? flow.myPeriods : [];
+  const oppPeriods = Array.isArray(flow.oppPeriods) ? flow.oppPeriods : [];
+  if (!myPeriods.length || !oppPeriods.length) return '';
+  const myTotal = myPeriods.reduce((s, x) => s + parseNum(x, 0), 0);
+  const oppTotal = oppPeriods.reduce((s, x) => s + parseNum(x, 0), 0);
+  const runs = Array.isArray(flow.runs) ? flow.runs.slice(0, 2) : [];
+  return `
+  <div class="sim-flow-card mt-12">
+    <div class="tbl">
+      <table>
+        <thead><tr><th>队伍</th>${labels.map(x => `<th>${x}</th>`).join('')}<th>TOT</th></tr></thead>
+        <tbody>
+          <tr><td>${safeSvgText(flow.myAbbr || 'ME')}</td>${myPeriods.map(x => `<td>${parseNum(x, 0)}</td>`).join('')}<td>${myTotal}</td></tr>
+          <tr><td>${safeSvgText(flow.oppAbbr || 'OPP')}</td>${oppPeriods.map(x => `<td>${parseNum(x, 0)}</td>`).join('')}<td>${oppTotal}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="sim-flow-meta t-2 fs-sm">
+      回合 ${parseNum(flow.myPoss, 0)}-${parseNum(flow.oppPoss, 0)} | 进攻效率 ${parseNum(flow.myOrtg, 0)}-${parseNum(flow.oppOrtg, 0)} |
+      领先交替 ${parseNum(flow.leadChanges, 0)} 次 ${flow.clutch ? `| 关键球分差 ${parseNum(flow.clutchMargin, 0)}` : ''}
+    </div>
+    <div class="sim-flow-meta t-2 fs-sm">
+      eFG% ${parseNum(flow.myEfg, 0)}-${parseNum(flow.oppEfg, 0)} | TOV% ${parseNum(flow.myTovRate, 0)}-${parseNum(flow.oppTovRate, 0)} |
+      最大领先 ${parseNum(flow.myBiggestLead, 0)}-${parseNum(flow.oppBiggestLead, 0)}
+    </div>
+    ${flow.summary ? `<div class="sim-flow-summary">${flow.summary}</div>` : ''}
+    ${runs.length ? `<div class="event-log mt-12">${runs.map(r => `<div class="ev neu">${r}</div>`).join('')}</div>` : ''}
+  </div>`;
+}
+function renderHomeAwayFlow(game) {
+  const flow = game?.flow;
+  if (!flow || typeof flow !== 'object') return '';
+  const homeAbbr = safeSvgText(flow.homeAbbr || getTeam(game.homeTeamId)?.a || 'HOME');
+  const awayAbbr = safeSvgText(flow.awayAbbr || getTeam(game.awayTeamId)?.a || 'AWAY');
+  const labels = Array.isArray(flow.periodLabels) && flow.periodLabels.length ? flow.periodLabels : ['Q1', 'Q2', 'Q3', 'Q4'];
+  const homePeriods = Array.isArray(flow.homePeriods) ? flow.homePeriods : [];
+  const awayPeriods = Array.isArray(flow.awayPeriods) ? flow.awayPeriods : [];
+  if (!homePeriods.length || !awayPeriods.length) return '';
+  const homeTotal = homePeriods.reduce((s, x) => s + parseNum(x, 0), 0);
+  const awayTotal = awayPeriods.reduce((s, x) => s + parseNum(x, 0), 0);
+  const runs = Array.isArray(flow.runs) ? flow.runs.slice(0, 3) : [];
+  return `
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title">⏱ 比赛流</div>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>队伍</th>${labels.map(x => `<th>${x}</th>`).join('')}<th>TOT</th></tr></thead>
+        <tbody>
+          <tr><td>${homeAbbr}</td>${homePeriods.map(x => `<td>${parseNum(x, 0)}</td>`).join('')}<td>${homeTotal}</td></tr>
+          <tr><td>${awayAbbr}</td>${awayPeriods.map(x => `<td>${parseNum(x, 0)}</td>`).join('')}<td>${awayTotal}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="sim-flow-meta t-2 fs-sm">
+      回合 ${parseNum(flow.homePoss, 0)}-${parseNum(flow.awayPoss, 0)} | 进攻效率 ${parseNum(flow.homeOrtg, 0)}-${parseNum(flow.awayOrtg, 0)} |
+      领先交替 ${parseNum(flow.leadChanges, 0)} 次 ${flow.clutch ? `| 关键球分差 ${parseNum(flow.clutchMargin, 0)}` : ''}
+    </div>
+    <div class="sim-flow-meta t-2 fs-sm">
+      eFG% ${parseNum(flow.homeEfg, 0)}-${parseNum(flow.awayEfg, 0)} | TOV% ${parseNum(flow.homeTovRate, 0)}-${parseNum(flow.awayTovRate, 0)} |
+      最大领先 ${parseNum(flow.biggestLeadHome, 0)}-${parseNum(flow.biggestLeadAway, 0)}
+    </div>
+    ${flow.summary ? `<div class="sim-flow-summary">${flow.summary}</div>` : ''}
+    ${runs.length ? `<div class="event-log mt-12">${runs.map(r => `<div class="ev neu">${r}</div>`).join('')}</div>` : ''}
+  </div>`;
+}
 
 function renderGameResultCard(res) {
   let ev = null, roll = null, result = null;
@@ -535,6 +743,7 @@ function renderGameResultCard(res) {
     const attrLabel = ATTRS.find(a => a.k === ev.attr)?.n || '综合';
     const evtIcon = ev.icon || '🎲';
     const evtName = ev.n || '特殊事件';
+    const evtSvg = renderEventTypeSvg(type, evtIcon);
 
     // Roll details HTML
     let rollHtml = '';
@@ -561,9 +770,12 @@ function renderGameResultCard(res) {
 
     evBanner = `
     <div style="margin-top:10px;padding:10px 14px;border-radius:8px;background:${bg};border:1px solid ${color}">
-      <div class="fw-b filter-blur" style="display:flex;justify-content:space-between">
-        <span>${evtIcon} ${evtName}</span>
-        ${result ? `<span class="badge" style="background:${color};color:#fff;font-size:11px">${isPos ? '正面' : isNeg ? '负面' : '特殊'}</span>` : ''}
+      <div class="sim-event-head">
+        ${evtSvg}
+        <div class="fw-b filter-blur" style="display:flex;justify-content:space-between;flex:1;align-items:center">
+          <span>${evtName}</span>
+          ${result ? `<span class="badge" style="background:${color};color:#fff;font-size:11px">${isPos ? '正面' : isNeg ? '负面' : '特殊'}</span>` : ''}
+        </div>
       </div>
       ${rollHtml}
       <div class="t-2 fs-sm" style="margin-top:6px">${desc}</div>
@@ -573,11 +785,14 @@ function renderGameResultCard(res) {
   const effortTag = effortCfg && effortCfg.id !== 'normal' ? `<span class="badge" style="background:${effortCfg.color};color:#fff;margin-left:8px;font-size:11px">${effortCfg.icon} ${effortCfg.n}</span>` : '';
   const teamAbbr = G.team?.a || 'HOME';
   const oppAbbr = res?.opp?.a || res?.opp?.z || 'AWAY';
+  const flowHtml = renderUserGameFlow(res?.flow);
+  const resultSvg = renderResultBadgeSvg({ win: !!res.win });
 
   return `
   <div class="card">
     <div class="card-title">${res.win ? '🎉 胜利' : '😞 失败'}${effortTag}</div>
     <div class="result-banner ${res.win ? 'win' : 'loss'}">${res.win ? 'W 胜利' : 'L 失利'}</div>
+    <div class="tc">${resultSvg}</div>
     <div class="tc fw-b mt-12">${teamAbbr} ${parseNum(res.teamPts, 0)} : ${parseNum(res.oppPts, 0)} ${oppAbbr}</div>
     <div class="grade ${gradeClass(res.grade)}">${gradeLetter(res.grade)}</div>
     <div class="grid g4 mt-12">
@@ -587,8 +802,10 @@ function renderGameResultCard(res) {
       <div class="stat-box"><div class="stat-val">${res.st.stl}/${res.st.blk}</div><div class="stat-lbl">抢断/盖帽</div></div>
     </div>
     <div class="t-2 fs-sm tc mt-12">
-      投篮: ${res.st.fgm}/${res.st.fga} | 三分: ${res.st.tpm}/${res.st.tpa} | 罚球: ${res.st.ftm}/${res.st.fta} | +${res.xp}XP
-    </div>${evBanner}
+      投篮: ${res.st.fgm}/${res.st.fga} | 三分: ${res.st.tpm}/${res.st.tpa} | 罚球: ${res.st.ftm}/${res.st.fta} | +${parseNum(res.xp, 0)}XP
+    </div>
+    ${flowHtml}
+    ${evBanner}
     ${res.gameId ? `<div class="tc mt-12"><button class="btn btn-cyan btn-sm" onclick="showLeagueGameDetailModal('${res.gameId}')">查看本场双方数据</button></div>` : ''}
   </div>`;
 }
@@ -609,15 +826,10 @@ function renderQuickResultCardFromLog(log) {
   </div>`;
 }
 
-// ============ GAME PAGE ============
-function renderGame() {
-  const pg = $('gamePage');
-  if (G.playoffs.active && !G.playoffs.eliminated) {
-    renderPlayoffGame(); return;
-  }
-  if (G.gameNum >= 82) {
-    renderSeasonEnd(); return;
-  }
+function renderRegularSeasonAction() {
+  const container = $('homeActionContainer');
+  if (!container) return;
+
 
   // 初始化gameDays
   if (!G.gameDays || G.gameDays.length === 0) generateGameDays();
@@ -635,89 +847,38 @@ function renderGame() {
   const game = G.schedule[G.gameNum];
   const opp = getTeam(game?.opp);
 
-  const gameHtml = `
-  <div class="card">
-    <div class="card-title">📅 ${G.year}赛季 - ${getDayDateString(G.dayNum)}（单日模拟）</div>
-    <div class="grid g4" style="gap:12px;padding:12px 0">
-      <div class="tc">
-        <div class="fs-xl fw-b" style="color:var(--gold)">${G.dayNum + 1}</div>
-        <div class="t-2 fs-sm">第几天</div>
+  let gameHtml = '';
+  if (isToday) {
+    gameHtml = `
+      <div style="background:linear-gradient(90deg, rgba(20,20,20,0.9), rgba(40,40,40,0.9)); border:1px solid var(--gold); border-radius:6px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
+        <div style="font-size:14px;">
+          📅 第${G.dayNum + 1}天 | 🏀 比赛: ${G.gameNum + 1}/82 VS <span class="t-gold fw-b">${opp?.z || '对手'}</span> (${game?.home ? '主场' : '客场'})
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <select id="effortSel" class="input-sm" style="padding:4px; height:28px; background:#222; color:#fff; border:1px solid #555; border-radius:4px" onchange="G._effortMode=this.value">
+            <option value="slack" ${(G._effortMode==='slack')?'selected':''}>划水</option>
+            <option value="normal" ${(!G._effortMode||G._effortMode==='normal')?'selected':''}>正常</option>
+            <option value="hard" ${(G._effortMode==='hard')?'selected':''}>拼命</option>
+          </select>
+          <button class="btn btn-gold btn-sm" style="padding:4px 12px; height:28px; border-radius:4px" ${simBusy ? 'disabled' : ''} onclick="G._effortMode=$('effortSel').value; doSimulateDay()">
+            ${simBusy ? '处理中...' : '▶ 比赛并推演剧情'}
+          </button>
+        </div>
       </div>
-      <div class="tc">
-        <div class="fs-xl fw-b">${G.gameNum}/82</div>
-        <div class="t-2 fs-sm">已打场次</div>
+    `;
+  } else {
+    gameHtml = `
+      <div style="background:rgba(20,20,20,0.8); border:1px solid #444; border-radius:6px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
+        <div style="font-size:14px; color:#aaa;">
+          📅 第${G.dayNum + 1}天 | 😴 休息日 | 距下场比赛还有 <span class="t-cyan fw-b">${daysToGame}</span> 天
+        </div>
+        <button class="btn btn-pri btn-sm" style="padding:4px 12px; height:28px; border-radius:4px" ${simBusy ? 'disabled' : ''} onclick="doSimulateDay()">
+          ${simBusy ? '处理中...' : '▶ 顺延日常并推演'}
+        </button>
       </div>
-      <div class="tc">
-        <div class="fs-xl fw-b">${G.seasonStats.wins}-${G.seasonStats.losses}</div>
-        <div class="t-2 fs-sm">战绩</div>
-      </div>
-      <div class="tc">
-        <div class="fs-xl fw-b t-gold">$${cash.toFixed(2)}M</div>
-        <div class="t-2 fs-sm">现金</div>
-      </div>
-    </div>
-    <div class="tc" style="padding:8px;background:rgba(0,0,0,.2);border-radius:6px">
-      <span>${staminaStatus.icon || '💪'} 体力: ${parseNum(G.player.stamina, 0)}</span> <span class="t-2">(${staminaStatus.name || '正常'})</span>
-      ${injured ? `<span style="color:var(--danger);margin-left:12px">🩹 ${G.player.injury.type} 剩${G.player.injury.games}场</span>` : ''}
-      <span style="margin-left:12px">${(() => { const m = parseNum(G.teamMorale, 50), s = parseNum(G.winStreak, 0), icon = m > 65 ? '🔥' : m < 40 ? '💧' : '⚖️', streak = Math.abs(s) >= 2 ? ' (' + (s > 0 ? s + '连胜' : Math.abs(s) + '连败') + ')' : ''; return icon + ' 士气: ' + m + streak; })()}</span>
-    </div>
-  </div>
-  
-  ${latest?.isGame && latest?.gameResult ? renderGameResultCard(latest.gameResult) : ''}
-  ${latest && !latest.isGame ? `
-  <div class="card">
-    <div class="card-title">📌 昨日总结</div>
-    <div class="t-2">${latest.date} 休息日</div>
-    <div class="event-log mt-12">${(latest.events || []).map(x => `<div class="ev neu">${x}</div>`).join('')}</div>
-  </div>` : ''}
-
-  ${isToday ? `
-  <div class="card" style="border:2px solid var(--gold)">
-    <div class="card-title" style="color:var(--gold)">🏀 今日有比赛！第${G.gameNum + 1}场</div>
-    <div class="flex fc gap-16" style="padding:12px 0">
-      <div class="tc">
-        <div class="team-logo" style="background:${G.team?.cl || '#333'};margin:0 auto">${teamLogoMarkup(G.team, 40)}</div>
-        <div class="fw-b mt-12">${G.team?.z || '我的球队'}</div>
-      </div>
-      <div class="t-gold fs-lg fw-b">${game?.home ? '主场' : '客场'} VS</div>
-      <div class="tc">
-        <div class="team-logo" style="background:${opp?.cl || '#333'};margin:0 auto">${teamLogoMarkup(opp, 40)}</div>
-        <div class="fw-b mt-12">${opp?.z || '对手'}</div>
-        <div class="t-2 fs-sm">强度 ${getTeamStrength(opp?.id)}</div>
-      </div>
-    </div>
-    <div style="margin-top:12px;padding:10px;background:rgba(0,0,0,.25);border-radius:8px">
-      <div class="t-2 fs-sm" style="margin-bottom:8px;text-align:center">选择比赛强度：</div>
-      <div style="display:flex;gap:6px;justify-content:center">
-        ${EFFORT_MODES.map(m => {
-    const sel = (G._effortMode || 'normal') === m.id;
-    return `<button class="btn btn-sm" style="padding:8px 14px;border:2px solid ${m.color};background:${sel ? m.color : 'transparent'};color:${sel ? '#fff' : m.color};font-weight:bold;border-radius:8px;transition:all .2s" onclick="G._effortMode='${m.id}';renderGame()" title="${m.desc}">${m.icon} ${m.n}</button>`;
-  }).join('')}
-      </div>
-      <div class="t-2 fs-xs tc" style="margin-top:6px">${getEffortMode(G._effortMode || 'normal').desc}</div>
-    </div>
-    <div class="tc mt-12">
-      <button class="btn btn-gold mt-12" ${simBusy ? 'disabled' : ''} onclick="doSimulateDay()">${simBusy ? '处理中...' : '▶ 模拟今日（含比赛）'}</button>
-    </div>
-  </div>
-  `: `
-  <div class="card">
-    <div class="card-title">😴 今日休息日</div>
-    <div class="t-2">距离下场比赛还有 <span class="fw-b" style="color:var(--cyan)">${daysToGame}</span> 天</div>
-    ${opp ? `<div class="t-2 mt-12">下场对手: <span class="fw-b">${opp.z}</span> (${game?.home ? '主场' : '客场'})</div>` : ''}
-    <div class="tc mt-12">
-      <button class="btn btn-pri mt-12" ${simBusy ? 'disabled' : ''} onclick="doSimulateDay()">${simBusy ? '处理中...' : '模拟今天'}</button>
-    </div>
-  </div>
-  `}
-  
-  <div class="card"><div class="card-title">📋 最近比赛</div>
-    <div class="tbl"><table><thead><tr>
-      <th>#</th><th>对手</th><th>主客</th><th>比分</th><th>结果</th><th>PTS</th><th>REB</th><th>AST</th><th>评分</th>
-    </tr></thead>
-    <tbody id="recentGamesBody">${renderRecentGameRows(8)}</tbody></table></div>
-  </div>`;
-  pg.innerHTML = typeof stripUndefinedTokens === 'function' ? stripUndefinedTokens(gameHtml) : gameHtml;
+    `;
+  }
+  container.innerHTML = typeof stripUndefinedTokens === 'function' ? stripUndefinedTokens(gameHtml) : gameHtml;
 }
 
 function doPlayGame() {
@@ -728,7 +889,7 @@ function doPlayGame() {
 async function doSimulateDay() {
   if (G._simulatingDay) return;
   G._simulatingDay = true;
-  renderGame();
+  renderHome();
   try {
     // 赛前事件：如果今天是比赛日，先掷骰并展示事件
     const isGame = typeof isGameDay === 'function' && isGameDay(G.dayNum) && G.gameNum < 82;
@@ -746,14 +907,21 @@ async function doSimulateDay() {
       renderSeasonEnd();
       return;
     }
+
+    // ========== 剧情引擎接管 ==========
+    if (typeof generateDailyStoryByLLM === 'function') {
+      await generateDailyStoryByLLM(result);
+    }
+    // ===================================
+
     G._latestDayResult = result;
     updateHeader();
-    renderGame();
+    renderHome();
     if ($('phonePage').classList.contains('active')) renderPhone();
 
-    // 后台非阻塞生成推文，仅比赛日生成，休息日不生成
-    if (typeof generateDailySocialTweets === 'function' && result.isGame) {
-      generateDailySocialTweets(result).then(() => {
+    // 后台非阻塞生成推文，每日都生成从而反映休赛日花边或日常训练
+    if (typeof generateDailySocialTweets === 'function') {
+      generateDailySocialTweetsSmart(result).then(() => {
         if ($('phonePage').classList.contains('active')) renderPhone();
       }).catch(e => {
         G.social = G.social || {};
@@ -762,7 +930,7 @@ async function doSimulateDay() {
     }
   } finally {
     G._simulatingDay = false;
-    if ($('gamePage').classList.contains('active')) renderGame();
+    if ($('homePage').classList.contains('active')) renderHome();
     if ($('phonePage').classList.contains('active')) renderPhone();
     // 自动备份到 localStorage
     try { localStorage.setItem('nba_save_auto', JSON.stringify(buildSaveObj())); } catch (e) { }
@@ -778,7 +946,7 @@ async function doResolveDailySocialGate() {
       ? `补生成完成：${res?.count || 0} 条`
       : (res?.message || '补生成失败，请检查模型设置后重试')
   };
-  renderGame();
+  renderHome();
   if ($('phonePage').classList.contains('active')) renderPhone();
 }
 
@@ -794,7 +962,7 @@ function renderDaySimResults(results) {
   if (Array.isArray(results) && results.length) {
     G._latestDayResult = results[results.length - 1];
   }
-  renderGame();
+  renderHome();
 }
 
 function showRegularSeasonAwardsModal(madePlayoffs = false) {
@@ -833,18 +1001,13 @@ function renderSeasonEnd() {
     }
     if (made) { renderPlayoffGame(); return; }
   }
-  $('gamePage').innerHTML = `
-  <div class="card tc">
-    <div class="card-title fc" style="justify-content:center">🏁 赛季结束</div>
-    <div class="fs-lg fw-b">${G.year}-${G.year + 1} 赛季总结</div>
-    <div class="grid g3 mt-16">
-      <div class="stat-box"><div class="stat-val">${(s.pts / gp).toFixed(1)}</div><div class="stat-lbl">场均得分</div></div>
-      <div class="stat-box"><div class="stat-val">${(s.ast / gp).toFixed(1)}</div><div class="stat-lbl">场均助攻</div></div>
-      <div class="stat-box"><div class="stat-val">${(s.reb / gp).toFixed(1)}</div><div class="stat-lbl">场均篮板</div></div>
+  const container = $('homeActionContainer') || $('gamePage');
+  if (container) container.innerHTML = `
+  <div style="background:rgba(40,20,0,0.9); border:1px solid var(--gold); border-radius:6px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
+    <div style="font-size:14px;">
+      🏁 <span class="t-gold fw-b">${G.year}-${G.year+1} 赛季结束</span> | 战绩: ${s.wins}胜${s.losses}负 ${G.playoffs.champion ? '🏆 总冠军' : ''} | 场均 ${ (s.pts / gp).toFixed(1) }分 ${ (s.reb / gp).toFixed(1) }板 ${ (s.ast / gp).toFixed(1) }助
     </div>
-    <div class="mt-16"><span class="fw-b">${s.wins}胜${s.losses}负</span></div>
-    ${G.playoffs.champion ? '<div class="t-gold fs-lg fw-b mt-16">🏆 NBA总冠军！</div>' : ''}
-    <button class="btn btn-gold mt-16" onclick="goToOffseason()">进入休赛期 →</button>
+    <button class="btn btn-gold btn-sm" style="padding:4px 12px; height:28px; border-radius:4px" onclick="goToOffseason()">进入休赛期 ▶</button>
   </div>`;
 }
 
@@ -853,45 +1016,22 @@ function renderPlayoffGame() {
   const opp = getTeam(s.opp);
   const roundNames = ["", "首轮", "次轮", "分区决赛", "总决赛"];
   const staminaStatus = getStaminaStatus(G.player.stamina);
-  $('gamePage').innerHTML = `
-  <div class="card">
-    <div class="card-title">🏆 季后赛 - ${roundNames[G.playoffs.round]}</div>
-    <div class="tc" style="padding:8px;background:rgba(0,0,0,.2);border-radius:6px;margin-bottom:12px">
-      <span>${staminaStatus.icon || '💪'} 体力: ${parseNum(G.player.stamina, 0)}</span> <span class="t-2">(${staminaStatus.name || '正常'})</span>
-      <span style="margin-left:12px">${(() => { const m = parseNum(G.teamMorale, 50), s = parseNum(G.winStreak, 0), icon = m > 65 ? '🔥' : m < 40 ? '💧' : '⚖️', streak = Math.abs(s) >= 2 ? ' (' + (s > 0 ? s + '连胜' : Math.abs(s) + '连败') + ')' : ''; return icon + ' 士气: ' + m + streak; })()}</span>
+  const container = $('homeActionContainer') || $('gamePage');
+  if (container) container.innerHTML = `
+  <div style="background:linear-gradient(90deg, rgba(80,20,20,0.9), rgba(40,10,10,0.9)); border:1px solid var(--danger); border-radius:6px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
+    <div style="font-size:14px;">
+      🏆 季后赛 ${roundNames[G.playoffs.round]} | 🏀 VS <span class="t-gold fw-b">${opp.z}</span> | 总比分: <span id="playoff-my-wins" class="t-cyan fw-b">${s.myWins}</span> - <span id="playoff-opp-wins" class="t-danger fw-b">${s.oppWins}</span>
     </div>
-    <div class="mb-16"><span class="t-2 fs-sm">体力</span>
-      <div class="stamina-bar mt-12"><div class="stamina-fill" style="width:${G.player.stamina}%"></div></div>
-      <div class="t-2 fs-sm tc">${G.player.stamina}%</div>
-    </div>
-    <div class="flex fc gap-16" style="padding:20px 0">
-      <div class="tc">
-        <div class="team-logo" style="background:${G.team.cl};margin:0 auto">${teamLogoMarkup(G.team, 50)}</div>
-        <div class="fw-b mt-12">${G.team.z}</div>
-        <div id="playoff-my-wins" class="t-gold fs-lg fw-b">${s.myWins}</div>
-      </div>
-      <div class="t-gold fs-lg fw-b">VS</div>
-      <div class="tc">
-        <div class="team-logo" style="background:${opp.cl};margin:0 auto">${teamLogoMarkup(opp, 50)}</div>
-        <div class="fw-b mt-12">${opp.z}</div>
-        <div id="playoff-opp-wins" class="t-2 fs-lg fw-b">${s.oppWins}</div>
-      </div>
-    </div>
-    <div style="margin-top:12px;padding:10px;background:rgba(0,0,0,.25);border-radius:8px">
-      <div class="t-2 fs-sm" style="margin-bottom:8px;text-align:center">选择比赛强度：</div>
-      <div style="display:flex;gap:6px;justify-content:center">
-        ${EFFORT_MODES.map(m => {
-    const sel = (G._effortMode || 'normal') === m.id;
-    return `<button class="btn btn-sm" style="padding:8px 14px;border:2px solid ${m.color};background:${sel ? m.color : 'transparent'};color:${sel ? '#fff' : m.color};font-weight:bold;border-radius:8px;transition:all .2s" onclick="G._effortMode='${m.id}';renderPlayoffGame()" title="${m.desc}">${m.icon} ${m.n}</button>`;
-  }).join('')}
-      </div>
-      <div class="t-2 fs-xs tc" style="margin-top:6px">${getEffortMode(G._effortMode || 'normal').desc}</div>
-    </div>
-    <div class="tc mt-16">
-      <button class="btn btn-gold" onclick="doPlayoffGame()">▶ 比赛</button>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <select id="playoffEffort" class="input-sm" style="padding:4px; height:28px; background:#222; color:#fff; border:1px solid #555; border-radius:4px" onchange="G._effortMode=this.value">
+        <option value="slack" ${(G._effortMode==='slack')?'selected':''}>划水</option>
+        <option value="normal" ${(!G._effortMode||G._effortMode==='normal')?'selected':''}>正常</option>
+        <option value="hard" ${(G._effortMode==='hard')?'selected':''}>拼命</option>
+      </select>
+      <button class="btn btn-danger btn-sm" style="padding:4px 12px; height:28px; border-radius:4px; font-weight:bold;" onclick="G._effortMode=$('playoffEffort').value; doPlayoffGame()">▶ 比赛并生成剧情</button>
     </div>
   </div>
-  <div id="playoffResult"></div>`;
+  <div id="playoffResult" style="display:none;"></div>`;
 }
 
 function doPlayoffGame() {
@@ -900,7 +1040,7 @@ function doPlayoffGame() {
   // 后台非阻塞生成推文
   if (typeof generateDailySocialTweets === 'function') {
     const socialDay = parseNum(G.dayNum, 0) + 1000 + parseNum(G.playoffs.round, 0) * 10 + parseNum(res.myWins + res.oppWins, 0);
-    generateDailySocialTweets({
+    generateDailySocialTweetsSmart({
       day: socialDay,
       date: `${G.year}季后赛R${parseNum(G.playoffs.round, 0)}G${parseNum(res.myWins + res.oppWins, 0)}`,
       isGame: true,
@@ -910,7 +1050,8 @@ function doPlayoffGame() {
         teamPts: parseNum(res?.st?.teamPts, 0),
         oppPts: parseNum(res?.st?.oppPts, 0),
         st: res.st,
-        grade: res.grade
+        grade: res.grade,
+        flow: res.flow || null
       }
     }, { force: true }).then(() => {
       if ($('phonePage').classList.contains('active')) renderPhone();
@@ -920,28 +1061,25 @@ function doPlayoffGame() {
   if ($('playoff-my-wins')) $('playoff-my-wins').textContent = res.myWins;
   if ($('playoff-opp-wins')) $('playoff-opp-wins').textContent = res.oppWins;
 
-  const scoreText = Number.isFinite(parseNum(res?.st?.teamPts, NaN)) && Number.isFinite(parseNum(res?.st?.oppPts, NaN))
-    ? `${parseNum(res.st.teamPts, 0)} - ${parseNum(res.st.oppPts, 0)}`
-    : '-';
-  $('playoffResult').innerHTML = `
-  <div class="card">
-    <div class="card-title">${res.win ? '🎉 胜利' : '😞 失败'}</div>
-    <div class="grade ${gradeClass(res.grade)}">${gradeLetter(res.grade)}</div>
-    <div class="tc fw-b mt-12">比分 ${scoreText}</div>
-    <div class="grid g4 mt-12">
-      <div class="stat-box"><div class="stat-val">${res.st.pts}</div><div class="stat-lbl">得分</div></div>
-      <div class="stat-box"><div class="stat-val">${res.st.reb}</div><div class="stat-lbl">篮板</div></div>
-      <div class="stat-box"><div class="stat-val">${res.st.ast}</div><div class="stat-lbl">助攻</div></div>
-      <div class="stat-box"><div class="stat-val">${res.st.stl}/${res.st.blk}</div><div class="stat-lbl">抢断/盖帽</div></div>
-    </div>
-    ${res.gameId ? `<div class="tc mt-12"><button class="btn btn-cyan btn-sm" onclick="showLeagueGameDetailModal('${res.gameId}')">查看本场双方数据</button></div>` : ''}
-    <div class="tc mt-12 fw-b">系列赛 ${res.myWins} - ${res.oppWins}</div>
-    <div class="tc mt-16">
-      ${status === 'continue' ? `<button class="btn btn-gold" onclick="renderPlayoffGame()">下一场</button>` : ''}
-      ${status === 'advance' ? `<button class="btn btn-gold" onclick="renderPlayoffGame()">下一轮</button>` : ''}
-      ${status === 'champion' || status === 'eliminated' ? `<button class="btn btn-gold" onclick="renderSeasonEnd()">赛季总结</button>` : ''}
-    </div>
-  </div>`;
+  if (typeof generateDailyStoryByLLM === 'function') {
+    // 强制追加季后赛上下文
+    res.isPlayoffs = true;
+    res.playoffRoundName = ['','首轮','次轮','分区决赛','总决赛'][G.playoffs.round];
+    generateDailyStoryByLLM({
+      isGame: true,
+      gameResult: res,
+      type: 'playoffGame'
+    }).then(() => {
+      if (status === 'continue' || status === 'advance') {
+        renderPlayoffGame();
+      } else {
+        renderSeasonEnd();
+      }
+    });
+  } else {
+    // 降级时立即刷新
+    if (status === 'continue' || status === 'advance') renderPlayoffGame(); else renderSeasonEnd();
+  }
 }
 
 async function goToOffseason() {
@@ -1958,7 +2096,26 @@ function renderAwards() {
 // ============ PHONE PAGE ============
 // 效果键中文翻译
 function translateEffectKey(key) {
-  const map = { fame: '声望', trust: '信任', money: '金钱', xp: '经验', stamina: '体力', games: '缺阵', injury: '受伤风险', risk: '风险' };
+  const map = {
+    fame: '声望',
+    trust: '信任',
+    money: '金钱',
+    xp: '经验',
+    stamina: '体力',
+    games: '缺阵',
+    injury: '受伤风险',
+    risk: '风险',
+    pass: '传球',
+    shotInt: '内线',
+    shotExt: '外线',
+    shotFree: '罚球',
+    speed: '速度',
+    strength: '力量',
+    reb: '篮板',
+    blk: '盖帽',
+    stl: '抢断',
+    physique: '体能'
+  };
   return map[key] || key;
 }
 function formatEffectText(eff) {
@@ -1980,7 +2137,7 @@ function setPhoneTab(tab) {
   renderPhone();
 }
 function getPhoneTab() {
-  const allowed = new Set(['feed', 'compose', 'market', 'inbox']);
+  const allowed = new Set(['feed', 'compose', 'market', 'endorse', 'inbox']);
   const tab = String(G._phoneTab || 'feed');
   return allowed.has(tab) ? tab : 'feed';
 }
@@ -2028,6 +2185,107 @@ function renderPhoneComposeTab() {
     <textarea id="phoneComposeInput" class="form-control" rows="5" placeholder="输入你的推文，建议结合比赛与团队内容（当天最多3条）"></textarea>
     <div class="t-2 fs-sm mt-12">规则：发言会影响声望与信任；挑衅/逼宫倾向会明显降低信任。</div>
     <button class="btn btn-gold mt-12" onclick="doPhonePostTweet()">发布</button>
+  </div>`;
+}
+function renderPhoneEndorseTab() {
+  const view = typeof buildEndorsementOffersView === 'function' ? buildEndorsementOffersView() : null;
+  const resultMsg = G._phoneEndorseResult ? `<div class="ev ${G._phoneEndorseResult.ok ? 'pos' : 'neg'}" style="margin-bottom:10px">${G._phoneEndorseResult.message}</div>` : '';
+  if (!view) {
+    return '<div class="card" style="margin:0"><div class="t-2">代言系统未加载</div></div>';
+  }
+  const summary = view.summary || {};
+  const activeCards = (view.activeDeals || []).length ? view.activeDeals.map(deal => {
+    const shoe = deal.shoe || null;
+    return `
+      <div class="ev pos" style="margin-bottom:8px">
+        <div class="flex fb">
+          <div>
+            <div class="fw-b">${deal.brand}</div>
+            <div class="t-2 fs-xs">${deal.category} · ${deal.product}</div>
+          </div>
+          <span class="badge b-ok">生效中</span>
+        </div>
+        <div class="t-2 fs-sm mt-8">剩余 ${parseNum(deal.remainingDays, 0)} 天 | 基础日入 $${phoneFmtM(deal.baseDailyIncome)} | 比赛日 $${phoneFmtM(deal.baseGameIncome)} | 累计 $${phoneFmtM(deal.earned)}</div>
+        ${shoe ? `<div class="t-2 fs-sm mt-8">自创球鞋：${shoe.name}</div><div class="t-2 fs-sm mt-4">属性：${formatEffectText(shoe.boosts || {})}</div><div class="t-2 fs-sm mt-4">额外分成：日常 $${phoneFmtM(shoe.dailyIncome)} | 比赛日 $${phoneFmtM(shoe.gameIncome)}</div>` : (deal.shoeEligible ? '<div class="t-2 fs-sm mt-8">这份球鞋代言还可以继续打造你的签名鞋。</div>' : '')}
+        ${deal.shoeEligible ? `
+          <div class="grid g2 mt-12">
+            <button class="btn btn-gold btn-sm" onclick="doPhoneCreateSignatureShoe('${deal.id}', 'speed')">速度型</button>
+            <button class="btn btn-pri btn-sm" onclick="doPhoneCreateSignatureShoe('${deal.id}', 'scoring')">得分型</button>
+            <button class="btn btn-pri btn-sm" onclick="doPhoneCreateSignatureShoe('${deal.id}', 'defense')">防守型</button>
+            <button class="btn btn-cyan btn-sm" onclick="doPhoneCreateSignatureShoe('${deal.id}', 'allaround')">全能型</button>
+          </div>` : ''}
+      </div>`;
+  }).join('') : '<div class="t-2 fs-sm">暂无已签约代言</div>';
+
+  const renderOffer = (offer) => {
+    const statusMeta = {
+      active: { text: '生效中', cls: 'b-ok' },
+      available: { text: '可签约', cls: 'b-gold' },
+      locked: { text: '未解锁', cls: 'b-pri' },
+      rejected: { text: '本季已拒绝', cls: 'b-no' }
+    };
+    const st = statusMeta[offer.status] || statusMeta.locked;
+    const active = offer.active || null;
+    const activeShoe = active?.shoe || null;
+    return `
+      <div class="ev ${offer.status === 'active' ? 'pos' : offer.status === 'locked' ? 'neu' : offer.status === 'rejected' ? 'neg' : 'neu'}" style="margin-bottom:8px;opacity:${offer.status === 'locked' ? 0.78 : 1}">
+        <div class="flex fb">
+          <div>
+            <div class="fw-b">${offer.brand}</div>
+            <div class="t-2 fs-xs">${offer.product} · ${offer.category}</div>
+          </div>
+          <span class="badge ${st.cls}">${st.text}</span>
+        </div>
+        <div class="t-2 fs-sm mt-8">签约金 $${phoneFmtM(offer.signingBonus)} | 日常 $${phoneFmtM(offer.dailyIncome)} | 比赛日 $${phoneFmtM(offer.gameIncome)} | 合约 ${parseNum(offer.termDays, 0)} 天</div>
+        <div class="t-2 fs-xs mt-8">解锁：市场分≥${parseNum(offer.marketScore, 0)} / 声望≥${parseNum(offer.minFame, 0)} / 信任≥${parseNum(offer.minTrust, 0)} / 荣誉分≥${parseNum(offer.minHonor, 0)}</div>
+        ${offer.note ? `<div class="t-2 fs-xs mt-8">${offer.note}</div>` : ''}
+        ${offer.status === 'available' ? `
+          <div class="grid g2 mt-12">
+            <button class="btn btn-gold btn-sm" onclick="doPhoneAcceptEndorsement('${offer.id}')">签约</button>
+            <button class="btn btn-pri btn-sm" onclick="doPhoneRejectEndorsement('${offer.id}')">拒绝</button>
+          </div>` : ''}
+        ${offer.status === 'active' && offer.shoeEligible ? `
+          <div class="t-2 fs-xs mt-12">球鞋代言可继续打造签名鞋，属性会直接加到球员身上。</div>
+          <div class="grid g2 mt-8">
+            <button class="btn btn-gold btn-sm" onclick="doPhoneCreateSignatureShoe('${offer.id}', 'speed')">速度型</button>
+            <button class="btn btn-pri btn-sm" onclick="doPhoneCreateSignatureShoe('${offer.id}', 'scoring')">得分型</button>
+            <button class="btn btn-pri btn-sm" onclick="doPhoneCreateSignatureShoe('${offer.id}', 'defense')">防守型</button>
+            <button class="btn btn-cyan btn-sm" onclick="doPhoneCreateSignatureShoe('${offer.id}', 'allaround')">全能型</button>
+          </div>` : ''}
+        ${offer.status === 'active' && active ? `
+          <div class="t-2 fs-xs mt-12">累计入账 $${phoneFmtM(active.earned)} · 剩余 ${parseNum(active.remainingDays, 0)} 天</div>
+          ${activeShoe ? `<div class="t-2 fs-xs mt-4">签名鞋：${activeShoe.name} · ${formatEffectText(activeShoe.boosts || {})}</div>` : ''}
+        ` : ''}
+        ${offer.status === 'locked' ? `<div class="t-2 fs-xs mt-8">原因：${offer.lockReason || '当前市场表现暂未达到要求'}</div>` : ''}
+      </div>`;
+  };
+
+  return `
+  <div class="card" style="margin:0">
+    <div class="card-title">🤝 代言中心</div>
+    ${resultMsg}
+    <div class="grid g2">
+      <div class="stat-box"><div class="stat-val">${parseNum(summary.marketScore, 0).toFixed(1)}</div><div class="stat-lbl">代言市场分</div></div>
+      <div class="stat-box"><div class="stat-val">${summary.marketLabel || '未评级'}</div><div class="stat-lbl">当前档位</div></div>
+      <div class="stat-box"><div class="stat-val">${summary.activeCount || 0}</div><div class="stat-lbl">已签约</div></div>
+      <div class="stat-box"><div class="stat-val">$${phoneFmtM(summary.totalDailyIncome || 0)}</div><div class="stat-lbl">日常分成</div></div>
+    </div>
+    <div class="t-2 fs-sm mt-12">声望 ${parseNum(summary.fame, 0)} | 信任 ${parseNum(summary.trust, 0)} | 荣誉分 ${parseNum(summary.honorScore, 0)} | 荣誉：${summary.honorText || '暂无'}</div>
+    <div class="t-2 fs-sm mt-8">综合：${parseNum(summary.overall, 0)} | 场均 ${parseNum(summary.ppg, 0).toFixed(1)} / ${parseNum(summary.apg, 0).toFixed(1)} / ${parseNum(summary.rpg, 0).toFixed(1)} | 比赛日额外分成 $${phoneFmtM(summary.totalGameIncome || 0)}</div>
+    <div class="mt-16">
+      <div class="fw-b mb-12">当前已签约</div>
+      ${activeCards}
+    </div>
+    <div class="mt-16">
+      <div class="fw-b mb-12">50 个代言品牌池</div>
+      <div class="t-2 fs-sm mb-12">当前可签约 ${summary.availableCount || 0} 个，未解锁 ${summary.lockedCount || 0} 个，本季拒绝 ${summary.rejectedCount || 0} 个。</div>
+      ${view.categories.map(cat => `
+        <div class="mt-16">
+          <div class="fw-b mb-12">${cat.name} <span class="badge b-pri">${cat.items.length} 个</span></div>
+          ${cat.items.map(renderOffer).join('')}
+        </div>
+      `).join('')}
+    </div>
   </div>`;
 }
 function renderPhoneMarketTab() {
@@ -2093,6 +2351,7 @@ function renderPhone() {
   if (tab === 'feed') content = renderPhoneFeedTab();
   else if (tab === 'compose') content = renderPhoneComposeTab();
   else if (tab === 'market') content = renderPhoneMarketTab();
+  else if (tab === 'endorse') content = renderPhoneEndorseTab();
   else content = renderPhoneInboxTab();
 
   const pendingTradeBanner = G.pendingTrade ? `
@@ -2117,6 +2376,7 @@ function renderPhone() {
           ${tabBtn('feed', '推文流')}
           ${tabBtn('compose', '发推')}
           ${tabBtn('market', '商城')}
+          ${tabBtn('endorse', '代言')}
           ${tabBtn('inbox', '消息')}
         </div>
         ${pendingTradeBanner}
@@ -2177,6 +2437,26 @@ function doPhoneBuyLuxury(itemId) {
   updateHeader();
   renderPhone();
 }
+function doPhoneAcceptEndorsement(offerId) {
+  if (typeof acceptEndorsementOffer !== 'function') return;
+  const res = acceptEndorsementOffer(offerId);
+  G._phoneEndorseResult = { ok: !!res.ok, message: res.message || (res.ok ? '签约成功' : '签约失败') };
+  updateHeader();
+  renderPhone();
+}
+function doPhoneRejectEndorsement(offerId) {
+  if (typeof rejectEndorsementOffer !== 'function') return;
+  const res = rejectEndorsementOffer(offerId);
+  G._phoneEndorseResult = { ok: !!res.ok, message: res.message || (res.ok ? '已拒绝' : '操作失败') };
+  renderPhone();
+}
+function doPhoneCreateSignatureShoe(offerId, styleKey) {
+  if (typeof createSignatureShoeForOffer !== 'function') return;
+  const res = createSignatureShoeForOffer(offerId, styleKey);
+  G._phoneEndorseResult = { ok: !!res.ok, message: res.message || (res.ok ? '球鞋打造完成' : '球鞋打造失败') };
+  updateHeader();
+  renderPhone();
+}
 async function doPhoneGenerateTweets() {
   if (typeof regenerateTodaySocialTweets !== 'function') return;
   try {
@@ -2221,6 +2501,8 @@ function buildSaveObj() {
   delete saveObj._effortMode;
   delete saveObj._mainMenuLLMResult;
   delete saveObj._phoneComposeResult;
+  delete saveObj._phoneShopResult;
+  delete saveObj._phoneEndorseResult;
   // ---- 保存联盟数据（队友、名单、教练等） ----
   if (LEAGUE.loaded && LEAGUE.teams) {
     saveObj._leagueTeams = {};
@@ -2625,7 +2907,7 @@ function navTo(page) {
   const btn = document.querySelector(`.nav-btn[data-p="${page}"]`);
   if (btn) btn.classList.add('active');
   const renderers = {
-    home: renderHome, game: renderGame, stats: renderStats,
+    home: renderHome, stats: renderStats,
     matches: renderMatchCenter, roster: renderRoster, upgrade: renderUpgrade, trade: renderTrade, awards: renderAwards,
     phone: renderPhone, save: renderSave
   };
@@ -2657,28 +2939,54 @@ function readMainMenuLLMDraft() {
       enabled: typeof data.enabled === 'boolean' ? data.enabled : undefined,
       baseUrl: typeof data.baseUrl === 'string' ? data.baseUrl : undefined,
       model: typeof data.model === 'string' ? data.model : undefined,
-      apiKey: typeof data.apiKey === 'string' ? data.apiKey : undefined
+      apiKey: typeof data.apiKey === 'string' ? data.apiKey : undefined,
+      presets: data.presets && typeof data.presets === 'object' ? data.presets : undefined
     };
   } catch (e) {
     return null;
   }
 }
-function writeMainMenuLLMDraft({ enabled, baseUrl, model, apiKey }) {
+function writeMainMenuLLMDraft({ enabled, baseUrl, model, apiKey, presets } = {}) {
   try {
-    localStorage.setItem(MAIN_MENU_LLM_DRAFT_KEY, JSON.stringify({
+    const payload = {
       enabled: typeof enabled === 'boolean' ? enabled : false,
       baseUrl: String(baseUrl || '').trim(),
       model: String(model || '').trim(),
       apiKey: String(apiKey || '').trim()
-    }));
+    };
+    if (presets !== undefined) {
+      payload.presets = typeof normalizeLLMPresetConfig === 'function'
+        ? normalizeLLMPresetConfig(presets)
+        : presets;
+    }
+    localStorage.setItem(MAIN_MENU_LLM_DRAFT_KEY, JSON.stringify(payload));
   } catch (e) { }
+}
+function collectMainMenuLLMPresetValues() {
+  const presets = {
+    enabled: $('menuLlmPresetEnabled')?.checked !== false,
+    antiTalk: $('menuLlmPresetAntiTalk')?.checked !== false,
+    strictTurnTaking: $('menuLlmPresetStrictTurnTaking')?.checked === true,
+    styleEnabled: $('menuLlmPresetStyleEnabled')?.checked !== false,
+    style: $('menuLlmPresetStyle')?.value || '白描',
+    antiOmniscience: $('menuLlmPresetAntiOmniscience')?.checked !== false,
+    antiVariable: $('menuLlmPresetAntiVariable')?.checked !== false,
+    emotionControl: $('menuLlmPresetEmotionControl')?.checked !== false,
+    roleHope: $('menuLlmPresetRoleHope')?.checked !== false,
+    gameInteraction: $('menuLlmPresetGameInteraction')?.checked !== false,
+    dataFirst: $('menuLlmPresetDataFirst')?.checked !== false
+  };
+  return typeof normalizeLLMPresetConfig === 'function'
+    ? normalizeLLMPresetConfig(presets)
+    : presets;
 }
 function collectMainMenuLLMFormValues() {
   const enabled = parseNum($('menuLlmEnabled')?.value, 0) === 1;
   const baseUrl = $('menuLlmBase')?.value || 'https://api.openai.com/v1';
   const model = $('menuLlmModel')?.value || 'gpt-4.1-mini';
   const apiKey = $('menuLlmKey')?.value || '';
-  return { enabled, baseUrl, model, apiKey };
+  const presets = collectMainMenuLLMPresetValues();
+  return { enabled, baseUrl, model, apiKey, presets };
 }
 function persistMainMenuLLMDraft() {
   writeMainMenuLLMDraft(collectMainMenuLLMFormValues());
@@ -2686,13 +2994,48 @@ function persistMainMenuLLMDraft() {
 
 function renderMainMenu() {
   if (typeof ensureSocialState === 'function') ensureSocialState();
-  const llm = G.social?.llm || { enabled: false, baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini', apiKey: '' };
+  const llm = G.social?.llm || {
+    enabled: false,
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-4.1-mini',
+    apiKey: '',
+    presets: {
+      enabled: true,
+      antiTalk: true,
+      strictTurnTaking: false,
+      styleEnabled: true,
+      style: '白描',
+      antiOmniscience: true,
+      antiVariable: true,
+      emotionControl: true,
+      roleHope: true,
+      gameInteraction: true,
+      dataFirst: true
+    }
+  };
   const draft = readMainMenuLLMDraft();
+  const presetView = typeof normalizeLLMPresetConfig === 'function'
+    ? normalizeLLMPresetConfig(draft?.presets || llm.presets || {})
+    : {
+      enabled: true,
+      antiTalk: true,
+      strictTurnTaking: false,
+      styleEnabled: true,
+      style: '白描',
+      antiOmniscience: true,
+      antiVariable: true,
+      emotionControl: true,
+      roleHope: true,
+      gameInteraction: true,
+      dataFirst: true
+    };
+  const presetStyleOptions = ['白描', 'TG推荐文风', 'TG推荐文风2', '纯爱文风', '轻小说文风', '热血', '数据流', '纪实', '吐槽'];
   const llmView = {
     enabled: typeof draft?.enabled === 'boolean' ? draft.enabled : !!llm.enabled,
     baseUrl: draft?.baseUrl || llm.baseUrl || 'https://api.openai.com/v1',
     model: draft?.model || llm.model || 'gpt-4.1-mini',
-    apiKey: draft?.apiKey || llm.apiKey || ''
+    apiKey: draft?.apiKey || llm.apiKey || '',
+    presets: presetView
   };
   const modelOptions = Array.isArray(G.social?.llmModels) ? G.social.llmModels : [];
   const llmResult = G._mainMenuLLMResult ? `<div class="ev ${G._mainMenuLLMResult.ok ? 'pos' : 'neg'} mt-12">${G._mainMenuLLMResult.message}</div>` : '';
@@ -2742,6 +3085,56 @@ function renderMainMenu() {
         </div>
         ${llmResult}
         ${G.social?.lastLLMError ? `<div class="t-2 fs-sm mt-12">最近错误: ${G.social.lastLLMError}</div>` : ''}
+        
+        <div class="card-title mt-24">TGbreak 预设参数</div>
+        <div class="t-2 fs-sm">参考 TGbreak V1.0.7，把防抢话、文风和比赛互动拆成可开关的预设。</div>
+        <label class="flex ai-c gap-8 pointer mt-12">
+          <input type="checkbox" id="menuLlmPresetEnabled" ${presetView.enabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+          <span>启用预设参数</span>
+        </label>
+        <div class="grid g2 mt-12">
+          <label class="flex ai-c gap-8 pointer">
+            <input type="checkbox" id="menuLlmPresetAntiTalk" ${presetView.antiTalk ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+            <span>防抢话</span>
+          </label>
+          <label class="flex ai-c gap-8 pointer">
+            <input type="checkbox" id="menuLlmPresetStrictTurnTaking" ${presetView.strictTurnTaking ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+            <span>超级防抢话</span>
+          </label>
+          <label class="flex ai-c gap-8 pointer">
+            <input type="checkbox" id="menuLlmPresetStyleEnabled" ${presetView.styleEnabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+            <span>启用文风</span>
+          </label>
+          <label class="flex ai-c gap-8 pointer">
+            <input type="checkbox" id="menuLlmPresetGameInteraction" ${presetView.gameInteraction ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+            <span>比赛互动</span>
+          </label>
+          <label class="flex ai-c gap-8 pointer">
+            <input type="checkbox" id="menuLlmPresetDataFirst" ${presetView.dataFirst ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+            <span>双方数据优先</span>
+          </label>
+          <label class="flex ai-c gap-8 pointer">
+            <input type="checkbox" id="menuLlmPresetAntiOmniscience" ${presetView.antiOmniscience ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+            <span>防全知</span>
+          </label>
+          <label class="flex ai-c gap-8 pointer">
+            <input type="checkbox" id="menuLlmPresetAntiVariable" ${presetView.antiVariable ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+            <span>防变量出错</span>
+          </label>
+          <label class="flex ai-c gap-8 pointer">
+            <input type="checkbox" id="menuLlmPresetEmotionControl" ${presetView.emotionControl ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+            <span>防极端情绪</span>
+          </label>
+          <label class="flex ai-c gap-8 pointer">
+            <input type="checkbox" id="menuLlmPresetRoleHope" ${presetView.roleHope ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+            <span>角色防绝望</span>
+          </label>
+        </div>
+        <label class="t-2 fs-sm mt-12">文风</label>
+        <select id="menuLlmPresetStyle" class="form-control" onchange="persistMainMenuLLMDraft()">
+          ${presetStyleOptions.map(style => `<option value="${style}" ${presetView.style === style ? 'selected' : ''}>${style}</option>`).join('')}
+        </select>
+        <div class="t-2 fs-sm mt-8">文风会作为系统提示注入；关闭“启用文风”后，只保留事实类预设。</div>
       </div>
     </div>
   `;
@@ -2749,17 +3142,17 @@ function renderMainMenu() {
 }
 function doMainMenuSaveLLMSettings() {
   if (typeof saveSocialLLMSettings !== 'function') return;
-  const { enabled, baseUrl, model, apiKey } = collectMainMenuLLMFormValues();
-  writeMainMenuLLMDraft({ enabled, baseUrl, model, apiKey });
-  saveSocialLLMSettings({ enabled, baseUrl, model, apiKey });
+  const values = collectMainMenuLLMFormValues();
+  writeMainMenuLLMDraft(values);
+  saveSocialLLMSettings(values);
   G._mainMenuLLMResult = { ok: true, message: '主页模型设置已保存' };
   renderMainMenu();
 }
 async function doMainMenuTestLLMConnectivity() {
   if (typeof saveSocialLLMSettings !== 'function' || typeof testSocialLLMConnectivity !== 'function') return;
-  const { enabled, baseUrl, model, apiKey } = collectMainMenuLLMFormValues();
-  writeMainMenuLLMDraft({ enabled, baseUrl, model, apiKey });
-  saveSocialLLMSettings({ enabled, baseUrl, model, apiKey });
+  const values = collectMainMenuLLMFormValues();
+  writeMainMenuLLMDraft(values);
+  saveSocialLLMSettings(values);
   const res = await testSocialLLMConnectivity();
   const suffix = res.ok ? (Array.isArray(res.models) && res.models.length ? `，已加载 ${res.models.length} 个模型` : '') : '';
   G._mainMenuLLMResult = { ok: !!res.ok, message: `${res.message || (res.ok ? '连接成功' : '连接失败')}${suffix}` };
@@ -2767,6 +3160,13 @@ async function doMainMenuTestLLMConnectivity() {
 }
 
 async function exportSave() {
+  // 初次使用引导绑定本地真实文件夹，实现丝滑直接保存
+  if (!G._saveHandle && window.showDirectoryPicker) {
+    if (confirm('为了实现【直接保存】且不再弹出烦人的下载框，强烈建议您先绑定一个游戏专属的存档目录（建议在游戏所在目录下新建一个叫做 Save 的文件夹并选中它）。\\n\\n点击确定进行绑定，之后的所有存档都将自动覆盖或创建在该目录下！')) {
+      await bindSaveDirectory();
+      if (!G._saveHandle) return; // 用户取消了绑定
+    }
+  }
   // 统一使用 autoSaveToFile
   await autoSaveToFile();
 }
@@ -2779,6 +3179,7 @@ function importSave(input) {
 // Start the game
 async function bootstrap() {
   await loadLeagueData({ startYear: G.startYear });
+  if (typeof loadTGBreakPromptSource === 'function') await loadTGBreakPromptSource();
   renderMainMenu();
 }
 bootstrap();
@@ -2831,15 +3232,16 @@ function showEventOutcomeModal(evtData) {
     const desc = result.desc || evt.desc || '本次事件已结算。';
     const attrName = ATTRS.find(a => a.k === evt.attr)?.n || '综合';
     const effectHtml = buildEventOutcomeEffectRows(resultMod);
+    const eventSvg = renderEventTypeSvg(type, evt.icon || '🎲', { large: true });
 
     showModal(`
       <div class="tc" style="padding:10px 8px">
-        <div style="font-size:48px;margin-bottom:10px;filter:drop-shadow(0 0 10px rgba(253,185,39,.35))">${evt.icon || '🎲'}</div>
+        <div class="tc" style="margin-bottom:8px">${eventSvg}</div>
         <div class="fs-xl fw-b mb-12" style="color:var(--gold)">${title}</div>
         <div class="t-2 fs-sm mb-16">${attrName} 检定（DC${dcVal}）</div>
         <div class="t-2 mb-16" style="min-height:38px">${evt.desc || '突发状况出现，你需要一次检定。'}</div>
 
-        <div id="dice-container" style="background:radial-gradient(circle at 50% 30%, rgba(253,185,39,.18), rgba(0,0,0,.45));border-radius:12px;padding:20px;margin:18px 0;border:2px solid var(--border);transition:all .3s">
+        <div id="dice-container" class="dice-container" style="background:radial-gradient(circle at 50% 30%, rgba(253,185,39,.18), rgba(0,0,0,.45));border-radius:12px;padding:20px;margin:18px 0;border:2px solid var(--border);transition:all .3s">
           <div id="dice-anim" style="font-size:56px;font-weight:bold;font-family:monospace;color:var(--gold);min-height:74px;display:flex;align-items:center;justify-content:center">🎲 ?</div>
         </div>
 
@@ -2902,3 +3304,159 @@ function showEventOutcomeModal(evtData) {
     };
   });
 }
+// ============ RETIREMENT (LLM POWERED) ============
+async function forceRetire() {
+  $('gamePage').innerHTML = `<div class="card tc"><div class="card-title">光荣退役中...</div><div class="t-2 mt-12">正在由大模型生成生涯四极管评价，请稍候...</div></div>`;
+  switchPage('home');
+
+  ensureSocialState();
+  const llm = G.social.llm || {};
+  
+  let llmSummary = null;
+  if (llm.enabled && llm.apiKey) {
+    const baseUrl = normalizeLLMBaseUrl(llm.baseUrl);
+    const model = String(llm.model || 'gpt-4.1-mini');
+    
+    let honorsText = (G.awards || []).join('、');
+    if (!honorsText) honorsText = "无";
+    
+    const sysPrompt = `你是一个体育媒体的 AI 故事引擎。玩家即将退役，请根据玩家的生涯数据、荣誉、拥有的奢侈品属性等，生成一份“退役总结报告”。
+要求必须返回合法的 JSON 格式。包含四个视角的锐评以及总分：
+{
+  "media": "媒体视角的评价(客观带点夸张)...",
+  "players": "球员视角的评价(敬佩或敌意)...",
+  "fans": "粉丝视角的评价(狂热回忆)...",
+  "critics": "毒舌球评人的评价(挑剔但承认伟大)...",
+  "message": "最后的总评语...",
+  "score": 98 // 生涯总分 0-100
+}`;
+
+    let luxury = "无";
+    if (typeof getLuxuryItemsNames === 'function') luxury = getLuxuryItemsNames();
+
+    const promptContext = `玩家姓名: ${G.player.name}
+生涯赛季数: ${G.careerStats.length}
+累计荣誉: ${honorsText}
+奢侈品资产: ${luxury}
+
+请给出这名 ${G.player.age} 岁球员的退役定论。`;
+
+    let raw = "";
+    try {
+      if (isGoogleGeminiEndpoint(baseUrl)) {
+        const modelName = normalizeModelNameForGemini(model);
+        const endpoint = `${baseUrl}/models/${encodeURIComponent(modelName)}:generateContent`;
+        const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint, { jsonBody: true });
+        const payload = {
+          systemInstruction: { parts: [{ text: sysPrompt }] },
+          contents: [{ role: 'user', parts: [{ text: promptContext }] }],
+          generationConfig: { temperature: 0.7, responseMimeType: 'application/json' }
+        };
+        const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+        const data = await readJSONResponseSafe(res, '退役生成');
+        raw = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text).join('') || '';
+      } else {
+        const payload = {
+          model,
+          temperature: 0.7,
+          messages: [
+            { role: 'system', content: sysPrompt },
+            { role: 'user', content: promptContext }
+          ]
+        };
+        const endpoint = `${baseUrl}/chat/completions`;
+        const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
+        const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+        const data = await readJSONResponseSafe(res, '退役生成');
+        raw = data?.choices?.[0]?.message?.content || '';
+      }
+      
+      const parsed = tryParseJSONText(raw.replace(/^\\s*\`\`\`json/i, '').replace(/^\\s*\`\`\`/i, '').replace(/\`\`\`\\s*$/, '').trim());
+      if (parsed) llmSummary = parsed;
+    } catch(e) { console.error('Retire LLM error:', e); }
+  }
+
+  // Fallback summary if LLM failed
+  if (!llmSummary) {
+    llmSummary = {
+      media: "他是一个数据刷子，还是真正的赢家？历史会给出答案。",
+      players: "和他对位很难受，但退役后我会想念他的。",
+      fans: "永远的传奇！我会一直穿着他的球衣。",
+      critics: "不够完美，但在他的时代，他留下了属于自己的印记。",
+      message: "传奇落幕，江湖再见。",
+      score: 85
+    };
+  }
+  
+  renderRetirement(llmSummary);
+}
+
+function renderRetirement(summary) {
+  $('gamePage').innerHTML = `
+  <div class="card tc">
+    <div class="card-title fc fc-center" style="color:var(--gold);font-size:24px;">🐐 生涯落幕 - 退役仪式</div>
+    <div class="fs-lg fw-b mt-12">${G.player.name} 正式宣布退役</div>
+    
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0;text-align:left;">
+      <div style="background:rgba(255,255,255,.05);padding:10px;border-radius:8px;border-left:3px solid #17a2b8;">
+        <div class="fw-b" style="color:#17a2b8;margin-bottom:6px">📺 媒体评价</div>
+        <div class="t-2 fs-sm">${summary.media}</div>
+      </div>
+      <div style="background:rgba(255,255,255,.05);padding:10px;border-radius:8px;border-left:3px solid #fd7e14;">
+        <div class="fw-b" style="color:#fd7e14;margin-bottom:6px">🏀 球员评价</div>
+        <div class="t-2 fs-sm">${summary.players}</div>
+      </div>
+      <div style="background:rgba(255,255,255,.05);padding:10px;border-radius:8px;border-left:3px solid #e83e8c;">
+        <div class="fw-b" style="color:#e83e8c;margin-bottom:6px">📣 粉丝评价</div>
+        <div class="t-2 fs-sm">${summary.fans}</div>
+      </div>
+      <div style="background:rgba(255,255,255,.05);padding:10px;border-radius:8px;border-left:3px solid #6f42c1;">
+        <div class="fw-b" style="color:#6f42c1;margin-bottom:6px">🧐 球评人评价</div>
+        <div class="t-2 fs-sm">${summary.critics}</div>
+      </div>
+    </div>
+    
+    <div style="margin-top:20px;padding:15px;background:rgba(253,185,39,.1);border:1px solid var(--gold);border-radius:8px;">
+      <div class="fs-xl fw-b t-gold" style="font-size:32px;margin-bottom:8px">总分：${summary.score}</div>
+      <div class="t-2">${summary.message}</div>
+    </div>
+    
+    <button class="btn btn-primary mt-16" onclick="location.reload()" style="width:100%">重头再来 (重新开始)</button>
+  </div>
+  `;
+}
+
+window.showStoryModal = async function(title, text) {
+  return new Promise(resolve => {
+    const modal = document.createElement('div');
+    modal.className = 'modal active';
+    modal.style.background = 'rgba(0,0,0,0.95)';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width:800px;background:#0f172a;border:1px solid var(--gold);padding:30px">
+        <h2 class="t-gold tc mb-24">${title}</h2>
+        <div id="storyText" class="t-2" style="font-size:18px;line-height:1.8;min-height:200px"></div>
+        <button id="storyBtn" class="btn btn-gold mt-24" style="width:100%;display:none">继续</button>
+      </div>`;
+    document.body.appendChild(modal);
+
+    const st = modal.querySelector('#storyText');
+    const btn = modal.querySelector('#storyBtn');
+    let i = 0;
+    const speed = 30;
+    function typeWriter() {
+      if (i < text.length) {
+        st.innerHTML += text.charAt(i) === '\\n' ? '<br>' : text.charAt(i);
+        i++;
+        setTimeout(typeWriter, speed);
+      } else {
+        btn.style.display = 'block';
+      }
+    }
+    typeWriter();
+
+    btn.onclick = () => {
+      document.body.removeChild(modal);
+      resolve();
+    };
+  });
+};

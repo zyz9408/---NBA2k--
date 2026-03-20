@@ -1,0 +1,192 @@
+[
+    {
+        "id": "d05afd8b-638f-4428-b1d8-7b899a09a1a1",
+        "scriptName": "TG-思维链美化",
+        "findRegex": "/([\\s\\S]*?)</draft_notes>/g",
+        "replaceString": "<div class=\"my-foldable-block\" style=\"width: 100%; margin: 20px auto;\">\n  <details class=\"thinking-description\">\n    <summary class=\"thinking-summary\">\n      <span class=\"jump-char\" style=\"--i:0;\">😽</span>\n      <span class=\"jump-char\" style=\"--i:1;\"> </span>\n      <span class=\"jump-char\" style=\"--i:2;\">T</span>\n      <span class=\"jump-char\" style=\"--i:3;\">G</span>\n      <span class=\"jump-char\" style=\"--i:4;\">D</span>\n      <span class=\"jump-char\" style=\"--i:5;\"> </span>\n      <span class=\"jump-char\" style=\"--i:6;\">思</span>\n      <span class=\"jump-char\" style=\"--i:7;\">维</span>\n      <span class=\"jump-char\" style=\"--i:8;\">链</span>\n    </summary>\n    <div class=\"thinking-content\">\n      $1\n    </div>\n  </details>\n</div>\n\n<style>\n/* 所有样式前都加上 .my-foldable-block 容器限定 */\n.my-foldable-block .thinking-description {\n  background: transparent;\n  border: none;\n  box-shadow: none;\n  color: #fff;\n}\n\n.my-foldable-block .thinking-summary {\n  padding: 12px 16px;\n  color: white;\n  cursor: pointer;\n  list-style: none;\n  background: transparent;\n  font-weight: 600;\n  font-size: 2rem;           /* 调大字号 */\n  letter-spacing: 0.5px;\n  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);\n  border: none;\n  transition: color 0.2s ease, text-shadow 0.2s ease;\n  display: block;            /* 占满整行 */\n  text-align: center;        /* 居中 */\n}\n\n.my-foldable-block .thinking-content {\n  max-height: 300px;\n  overflow-y: auto;\n  padding: 8px 16px;\n  background: transparent;\n  color: #f0f8ff;\n  line-height: 1.7;\n  font-size: 1rem;\n  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);\n  white-space: pre-wrap;\n  border: none;\n  font-family: 'SimSun', '宋体', serif;\n}\n\n/* 跳动动画 */\n@keyframes bounce {\n  0%, 100% { transform: translateY(0); }\n  50% { transform: translateY(-6px); }\n}\n\n.my-foldable-block .jump-char {\n  display: inline-block;\n  animation: bounce 0.8s infinite ease-in-out;\n  animation-delay: calc(0.1s * var(--i));\n}\n\n/* 滚动条样式 */\n.my-foldable-block .thinking-description::-webkit-scrollbar {\n  width: 6px;\n}\n.my-foldable-block .thinking-description::-webkit-scrollbar-track {\n  background: transparent;\n}\n.my-foldable-block .thinking-description::-webkit-scrollbar-thumb {\n  background: rgba(255, 255, 255, 0.5);\n  border-radius: 6px;\n}\n\n.my-foldable-block .thinking-summary::marker {\n  display: none;\n}\n\n/* 悬停高亮 */\n.my-foldable-block .thinking-summary:hover .jump-char {\n  color: #aaddff;\n  text-shadow: 0 2px 8px rgba(0, 160, 255, 0.8);\n}\n\n/* 强制背景透明（仅限该容器内部） */\n.my-foldable-block .thinking-description,\n.my-foldable-block .thinking-description * {\n  background: transparent !important;\n  border-color: transparent !important;\n  box-shadow: none !important;\n  backdrop-filter: none !important;\n}\n</style>",
+        "trimStrings": [
+            "<",
+            "draft_notes>"
+        ],
+        "placement": [
+            2
+        ],
+        "disabled": false,
+        "markdownOnly": true,
+        "promptOnly": false,
+        "runOnEdit": true,
+        "substituteRegex": 0,
+        "minDepth": null,
+        "maxDepth": null
+    },
+    {
+        "id": "abfa94f6-f58f-44f7-9d8b-364f4fe6800c",
+        "scriptName": "TG-思维隐藏",
+        "findRegex": "/[\\s\\S]*?</draft_notes>/g",
+        "replaceString": "",
+        "trimStrings": [],
+        "placement": [
+            2
+        ],
+        "disabled": false,
+        "markdownOnly": false,
+        "promptOnly": true,
+        "runOnEdit": true,
+        "substituteRegex": 0,
+        "minDepth": 1,
+        "maxDepth": null
+    },
+    {
+        "id": "6a9b9b78-b9db-4f73-8e55-a0083e3eff58",
+        "scriptName": "TG-一拳超人",
+        "findRegex": "/<draft_notes>(?!.*</draft_notes>).+/s",
+        "replaceString": "<img src=\"https://i.meee.com.tw/rqXDhPI.gif\" style=\"width: 5000px;display: block;margin: 0 auto; filter: opacity(10%);\">",
+        "trimStrings": [],
+        "placement": [
+            2
+        ],
+        "disabled": false,
+        "markdownOnly": true,
+        "promptOnly": false,
+        "runOnEdit": true,
+        "substituteRegex": 0,
+        "minDepth": null,
+        "maxDepth": null
+    },
+    {
+        "id": "84e87453-08bd-4692-a7ee-68a97f40fe0f",
+        "scriptName": "TG-行动选项美化",
+        "findRegex": "/<w2g>([\\s\\S]*?)<\\/w2g>/g",
+        "replaceString": "```\n<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>选项卡片</title>\n\n    <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n    <link rel=\"preconnect\" href=\"https://gstatic.com\" crossorigin>\n    <link href=\"https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Caveat:wght@400..700&display=swap\" rel=\"stylesheet\">\n\n<style>\n:root {\n    --accent-color: #6dd5d5;\n    --text-primary: #d4d0c8;\n    --border-color: #2a2a2a;\n    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.6);\n    --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);\n}\n\n* { box-sizing: border-box; }\n\nbody {\n    margin: 0;\n    padding: 12px;\n    font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;\n    background: transparent;\n    color: var(--text-primary);\n    display: flex;\n    justify-content: center;\n}\n\n.choice-card {\n    width: 100%;\n    max-width: 380px;\n    background: linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%);\n    border-radius: 12px;\n    padding: 20px;\n    box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255,255,255,0.05);\n    border: 1px solid var(--border-color);\n}\n\n/* 优化了头部布局，采用 space-between 两端对齐，避免移动端挤压 */\n.card-header {\n    display: flex;\n    align-items: center;\n    justify-content: space-between;\n    margin-bottom: 16px;\n    cursor: pointer;\n    user-select: none;\n    width: 100%;\n}\n\n.header-center-group {\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    gap: 8px;\n    flex: 1; /* 让中央区域占据剩余空间 */\n    text-align: center;\n}\n\n.header-title {\n    font-family: 'Caveat', cursive;\n    font-size: 26px;\n    font-weight: 700;\n    letter-spacing: 2px;\n    background: linear-gradient(135deg, #6dd5d5 0%, #88d8b0 100%);\n    -webkit-background-clip: text;\n    -webkit-text-fill-color: transparent;\n    background-clip: text;\n    white-space: nowrap;\n}\n\n.header-icon {\n    font-size: 20px;\n    filter: drop-shadow(0 0 8px rgba(109,213,213,0.4));\n    transition: transform var(--transition);\n}\n\n.card-header:hover .header-icon {\n    transform: scale(1.15) rotate(10deg);\n}\n\n.mode-btn {\n    display: inline-flex;\n    align-items: center;\n    justify-content: center;\n    padding: 3px 10px;\n    border: 1px solid var(--border-color);\n    border-radius: 4px;\n    background: transparent;\n    color: #555;\n    font-family: 'Noto Sans SC', sans-serif;\n    font-size: 11px;\n    cursor: pointer;\n    transition: all var(--transition);\n    white-space: nowrap;\n    line-height: 1.4;\n    flex-shrink: 0; /* 保证按钮不会被压缩变形 */\n}\n\n.mode-btn:hover {\n    border-color: #555;\n    color: #999;\n}\n\n.mode-btn.active {\n    border-color: var(--accent-color);\n    color: var(--accent-color);\n    background: rgba(109,213,213,0.1);\n    box-shadow: 0 0 8px rgba(109,213,213,0.2);\n}\n\n.options-container {\n    display: grid;\n    grid-template-rows: 1fr;\n    transition: grid-template-rows var(--transition);\n    overflow: hidden;\n}\n\n.options-container.collapsed {\n    grid-template-rows: 0fr;\n}\n\n.options-wrapper {\n    overflow: hidden;\n    min-height: 0;\n}\n\n.options-list {\n    display: flex;\n    flex-direction: column;\n    gap: 10px;\n    list-style: none;\n    margin: 0;\n    padding: 0;\n}\n\n.option-item {\n    position: relative;\n    padding: 14px 16px;\n    background: linear-gradient(135deg, #1a1a1a 0%, #151515 100%);\n    border: 1px solid var(--border-color);\n    border-radius: 8px;\n    cursor: pointer;\n    font-size: 14px;\n    color: var(--text-primary);\n    transition: all var(--transition);\n    overflow: hidden;\n    display: flex;\n    align-items: flex-start;\n    gap: 12px;\n}\n\n.option-item::before {\n    content: '';\n    position: absolute;\n    top: 0; left: 0;\n    width: 3px; height: 100%;\n    background: linear-gradient(180deg, var(--accent-color) 0%, #5dd5d5 100%);\n    transform: scaleY(0);\n    transform-origin: top;\n    transition: transform var(--transition);\n    box-shadow: 0 0 8px rgba(109,213,213,0.5);\n}\n\n.option-item::after {\n    content: '';\n    position: absolute;\n    top: 0; left: 0;\n    width: 100%; height: 100%;\n    background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(109,213,213,0.1) 0%, transparent 80%);\n    opacity: 0;\n    transition: opacity var(--transition);\n    pointer-events: none;\n}\n\n.option-item:hover {\n    background: linear-gradient(135deg, #1f2a2a 0%, #1a2525 100%);\n    border-color: var(--accent-color);\n    color: var(--accent-color);\n    box-shadow: 0 0 16px rgba(109,213,213,0.3), inset 0 0 16px rgba(109,213,213,0.05);\n    transform: translateX(4px);\n}\n\n.option-item:hover::before { transform: scaleY(1); }\n.option-item:hover::after  { opacity: 1; }\n.option-item:active { transform: translateX(4px) scale(0.98); }\n\n.option-label {\n    display: inline-flex;\n    align-items: center;\n    justify-content: center;\n    min-width: 22px; width: 22px; height: 22px;\n    background: linear-gradient(135deg, var(--accent-color) 0%, #5dd5d5 100%);\n    border-radius: 4px;\n    font-size: 11px;\n    font-weight: 700;\n    flex-shrink: 0;\n    color: #0f0f0f;\n    box-shadow: 0 0 8px rgba(109,213,213,0.4);\n    margin-top: 1px;\n}\n\n.option-title {\n    font-weight: 500;\n    color: var(--accent-color);\n    margin-right: 6px;\n    white-space: nowrap;\n}\n\n.option-content {\n    flex: 1;\n    line-height: 1.5;\n    position: relative;\n    z-index: 1;\n}\n\n@media (max-width: 600px) {\n    body { padding: 8px; }\n    .choice-card { padding: 16px; border-radius: 10px; max-width: 100%; }\n    .header-title { font-size: 20px; letter-spacing: 1px; } /* 移动端字号微调 */\n    .header-icon { font-size: 16px; }\n    .option-item { padding: 12px 14px; font-size: 13px; }\n    .options-list { gap: 8px; }\n    .mode-btn { font-size: 10px; padding: 2px 6px; }\n    .header-center-group { gap: 4px; }\n}\n\n@keyframes fadeIn {\n    from { opacity: 0; transform: translateY(-6px); }\n    to   { opacity: 1; transform: translateY(0); }\n}\n\n.option-item:nth-child(1) { animation: fadeIn 0.3s ease-out 0.05s both; }\n.option-item:nth-child(2) { animation: fadeIn 0.3s ease-out 0.10s both; }\n.option-item:nth-child(3) { animation: fadeIn 0.3s ease-out 0.15s both; }\n.option-item:nth-child(4) { animation: fadeIn 0.3s ease-out 0.20s both; }\n.option-item:nth-child(5) { animation: fadeIn 0.3s ease-out 0.25s both; }\n.option-item:nth-child(n+6) { animation: fadeIn 0.3s ease-out 0.30s both; }\n</style>\n</head>\n<body>\n\n<div class=\"choice-card\" id=\"choiceCard\">\n    <div class=\"card-header\" id=\"cardHeader\">\n        <span class=\"mode-btn\" id=\"btnSend\">直发</span>\n        <div class=\"header-center-group\">\n            <span class=\"header-icon\">✦</span>\n            <span class=\"header-title\">行动选项</span>\n            <span class=\"header-icon\">✦</span>\n        </div>\n        <span class=\"mode-btn\" id=\"btnAppend\">追加</span>\n    </div>\n\n    <div class=\"options-container\" id=\"optionsContainer\">\n        <div class=\"options-wrapper\">\n            <ul class=\"options-list\" id=\"optionsList\"></ul>\n        </div>\n    </div>\n</div>\n\n<div id=\"rawData\" style=\"display:none;\">$1</div>\n\n<script>\ndocument.addEventListener('DOMContentLoaded', function() {\n    const rawData          = document.getElementById('rawData');\n    const optionsList      = document.getElementById('optionsList');\n    const optionsContainer = document.getElementById('optionsContainer');\n    const cardHeader       = document.getElementById('cardHeader');\n    const btnSend          = document.getElementById('btnSend');\n    const btnAppend        = document.getElementById('btnAppend');\n\n    // 本地存储的 Key\n    const STORAGE_KEY = 'st_choice_card_mode';\n\n    // 初始化状态，读取 localStorage，若无则默认为 'append'\n    let currentMode = localStorage.getItem(STORAGE_KEY) || 'append';\n\n    // 渲染初始按钮状态\n    function updateBtnUI() {\n        if (currentMode === 'send') {\n            btnSend.className = 'mode-btn active';\n            btnAppend.className = 'mode-btn';\n        } else {\n            btnAppend.className = 'mode-btn active';\n            btnSend.className = 'mode-btn';\n        }\n    }\n    updateBtnUI();\n\n    // 按钮点击事件，同时持久化到 localStorage\n    btnSend.addEventListener('click', function(e) {\n        e.stopPropagation();\n        currentMode = 'send';\n        localStorage.setItem(STORAGE_KEY, currentMode);\n        updateBtnUI();\n    });\n\n    btnAppend.addEventListener('click', function(e) {\n        e.stopPropagation();\n        currentMode = 'append';\n        localStorage.setItem(STORAGE_KEY, currentMode);\n        updateBtnUI();\n    });\n\n    function setupOptionList(dataEl, targetContainer) {\n        const rawText = dataEl.textContent.trim();\n        const lines   = rawText.split(/\\r?\\n/).filter(function(line) { return line.trim() !== ''; });\n\n        lines.forEach(function(line) {\n            const trimmed = line.trim();\n            if (!trimmed) return;\n\n            const match = trimmed.match(/^([A-Z])[：:]\\s*([^：:]+)[：:]\\s*(.+)$/);\n\n            let label, title, content, sendText;\n\n            if (match) {\n                label    = match[1];\n                title    = match[2].trim();\n                content  = match[3].trim();\n                sendText = content;\n            } else {\n                const simpleMatch = trimmed.match(/^([A-Z])[：:]\\s*(.+)$/);\n                if (simpleMatch) {\n                    label    = simpleMatch[1];\n                    title    = '';\n                    content  = simpleMatch[2].trim();\n                    sendText = content;\n                } else {\n                    label    = '';\n                    title    = '';\n                    content  = trimmed;\n                    sendText = trimmed;\n                }\n            }\n\n            const optionDiv = document.createElement('li');\n            optionDiv.className = 'option-item';\n            optionDiv.setAttribute('data-action', sendText);\n\n            let html = '';\n            if (label) html += '<span class=\"option-label\">' + label + '</span>';\n            html += '<span class=\"option-content\">';\n            if (title) html += '<span class=\"option-title\">' + title + '：</span>';\n            html += content;\n            html += '</span>';\n            optionDiv.innerHTML = html;\n\n            optionDiv.addEventListener('click', function(e) {\n                e.stopPropagation();\n                const textToSend = this.getAttribute('data-action');\n                try {\n                    const input   = window.parent.document.querySelector('#send_textarea');\n                    const trigger = window.parent.triggerSlash;\n\n                    if (currentMode === 'send') {\n                        if (trigger) {\n                            trigger('/setinput ' + textToSend);\n                        } else if (input) {\n                            input.value = textToSend;\n                            input.dispatchEvent(new Event('input', { bubbles: true }));\n                        }\n                        // 触发发送\n                        setTimeout(function() {\n                            try {\n                                const sendBtn = window.parent.document.querySelector('#send_but');\n                                if (sendBtn) sendBtn.click();\n                            } catch(err) {}\n                        }, 100);\n                    } else {\n                        // 追加模式：在现有内容后面拼接\n                        if (input) {\n                            const existing = input.value;\n                            const separator = existing.trim() === '' ? '' : ' ';\n                            input.value = existing + separator + textToSend;\n                            input.dispatchEvent(new Event('input', { bubbles: true }));\n                        } else if (trigger) {\n                            // trigger 无法获取现有内容，只能直接追加（降级处理）\n                            trigger('/setinput ' + textToSend);\n                        }\n                    }\n                } catch (err) {\n                    console.error('Error:', err);\n                }\n            });\n\n            optionDiv.addEventListener('mousemove', function(e) {\n                const rect = optionDiv.getBoundingClientRect();\n                optionDiv.style.setProperty('--mouse-x', ((e.clientX - rect.left) / rect.width  * 100) + '%');\n                optionDiv.style.setProperty('--mouse-y', ((e.clientY - rect.top)  / rect.height * 100) + '%');\n            });\n\n            targetContainer.appendChild(optionDiv);\n        });\n    }\n\n    function setupCollapsible() {\n        cardHeader.addEventListener('click', function(e) {\n            const tid = e.target.id;\n            if (tid === 'btnSend' || tid === 'btnAppend') return;\n            optionsContainer.classList.toggle('collapsed');\n        });\n    }\n\n    setupOptionList(rawData, optionsList);\n    setupCollapsible();\n});\n</script>\n</body>\n</html>\n```",
+        "trimStrings": [],
+        "placement": [
+            2
+        ],
+        "disabled": false,
+        "markdownOnly": true,
+        "promptOnly": false,
+        "runOnEdit": true,
+        "substituteRegex": 0,
+        "minDepth": null,
+        "maxDepth": null
+    },
+    {
+        "id": "1ff71a90-78db-40eb-968a-6b186a8a0813",
+        "scriptName": "TG-7楼内摘要隐藏",
+        "findRegex": "/<details><summary>摘要[\\s\\S]*?<\\/details>/g",
+        "replaceString": "",
+        "trimStrings": [],
+        "placement": [
+            2
+        ],
+        "disabled": false,
+        "markdownOnly": true,
+        "promptOnly": true,
+        "runOnEdit": true,
+        "substituteRegex": 0,
+        "minDepth": null,
+        "maxDepth": 7
+    },
+    {
+        "id": "1742431a-a291-4c92-87d1-e6191f4172af",
+        "scriptName": "TG-7楼之前只显示摘要",
+        "findRegex": "([\\s\\S]*?)<details><summary>摘要<\\/summary>([\\s\\S]*?)<\\/details>([\\s\\S]*)",
+        "replaceString": "$2",
+        "trimStrings": [],
+        "placement": [
+            2
+        ],
+        "disabled": false,
+        "markdownOnly": true,
+        "promptOnly": true,
+        "runOnEdit": true,
+        "substituteRegex": 0,
+        "minDepth": 7,
+        "maxDepth": null
+    },
+    {
+        "id": "584bb0c4-2651-49a2-8c26-e570ac2e6c52",
+        "scriptName": "TG-对你隐藏",
+        "findRegex": "<(VariableCheck|Disclaimer|memo)>([\\s\\S]*?)<\\/\\1>",
+        "replaceString": "",
+        "trimStrings": [],
+        "placement": [
+            2
+        ],
+        "disabled": false,
+        "markdownOnly": true,
+        "promptOnly": false,
+        "runOnEdit": true,
+        "substituteRegex": 0,
+        "minDepth": null,
+        "maxDepth": null
+    },
+    {
+        "id": "3faf455f-a335-4428-aa3f-808fa044ade2",
+        "scriptName": "TG-对ai隐藏",
+        "findRegex": "/<(VariableCheck|Disclaimer|w2g)>([\\s\\S]*?)<\\/\\1>|<!--([\\s\\S]*?)-->/g",
+        "replaceString": "",
+        "trimStrings": [],
+        "placement": [
+            2
+        ],
+        "disabled": false,
+        "markdownOnly": false,
+        "promptOnly": true,
+        "runOnEdit": true,
+        "substituteRegex": 0,
+        "minDepth": null,
+        "maxDepth": null
+    },
+    {
+        "id": "12062f2b-5895-44dd-b4b9-1c2d6c83db0d",
+        "scriptName": "TG-杀",
+        "findRegex": "/(不是[^,，]+[,，]([^,，]+)?是[^。]+。|两秒。|的那种|指节|小石子|一丝|一抹|一声|一股|勾勒)/g",
+        "replaceString": "<cliche>$1</cliche>",
+        "trimStrings": [],
+        "placement": [
+            2
+        ],
+        "disabled": false,
+        "markdownOnly": false,
+        "promptOnly": true,
+        "runOnEdit": true,
+        "substituteRegex": 0,
+        "minDepth": null,
+        "maxDepth": 2
+    },
+    {
+        "id": "79c502e4-fc78-4606-86c3-316b41319e99",
+        "scriptName": "TG-别关",
+        "findRegex": "^([\\s\\S]*)$",
+        "replaceString": "<player_input>\n$1{{getvar::supernsfw}}\n</player_input>",
+        "trimStrings": [],
+        "placement": [
+            1
+        ],
+        "disabled": false,
+        "markdownOnly": false,
+        "promptOnly": true,
+        "runOnEdit": true,
+        "substituteRegex": 0,
+        "minDepth": null,
+        "maxDepth": 3
+    },
+    {
+        "id": "f8b278b8-4765-4393-85d7-bf9ea359acaf",
+        "scriptName": "TG-巡回",
+        "findRegex": "^([\\s\\S]*)$",
+        "replaceString": "<ai_last_output>\n$1\n</ai_last_output>",
+        "trimStrings": [],
+        "placement": [
+            2
+        ],
+        "disabled": false,
+        "markdownOnly": false,
+        "promptOnly": true,
+        "runOnEdit": true,
+        "substituteRegex": 0,
+        "minDepth": null,
+        "maxDepth": 2
+    }
+]

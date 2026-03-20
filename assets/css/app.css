@@ -99,6 +99,27 @@ tr:hover{background:rgba(255,255,255,.02)}
 .result-banner{margin:6px 0 12px;padding:10px 14px;border-radius:10px;text-align:center;font-weight:900;letter-spacing:1px}
 .result-banner.win{background:rgba(40,167,69,.18);border:1px solid rgba(40,167,69,.45);color:#8dffb0}
 .result-banner.loss{background:rgba(220,53,69,.18);border:1px solid rgba(220,53,69,.45);color:#ff9aa5}
+.sim-svg{max-width:100%;height:auto}
+.matchup-svg{max-width:460px;filter:drop-shadow(0 6px 16px rgba(0,0,0,.35))}
+.result-svg{max-width:340px}
+.svg-court-line{stroke-dasharray:420;stroke-dashoffset:420;animation:svgStroke 1.4s ease forwards}
+.svg-ball-bounce{animation:svgBallBounce 1.5s ease-in-out infinite;transform-origin:center}
+.svg-pulse-soft{animation:svgPulse 1.9s ease-in-out infinite}
+.svg-dash-flow{animation:svgDash 2.3s linear infinite}
+.svg-rotate-slow{animation:svgRotate 8s linear infinite;transform-origin:center}
+.event-type-svg{flex:0 0 auto;display:block;filter:drop-shadow(0 0 8px rgba(253,185,39,.24))}
+.event-type-svg.large{margin:0 auto}
+.sim-event-head{display:flex;align-items:center;gap:10px}
+.sim-flow-card{padding:10px;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:rgba(0,0,0,.16)}
+.sim-flow-meta{margin-top:6px;line-height:1.45}
+.sim-flow-summary{margin-top:8px;padding:8px 10px;border-left:3px solid var(--cyan);border-radius:6px;background:rgba(0,212,255,.08);font-size:12px;color:var(--text2)}
+.dice-container{animation:diceGlow 2.4s ease-in-out infinite}
+@keyframes svgStroke{to{stroke-dashoffset:0}}
+@keyframes svgBallBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes svgPulse{0%,100%{opacity:.78}50%{opacity:1}}
+@keyframes svgDash{to{stroke-dashoffset:-44}}
+@keyframes svgRotate{to{transform:rotate(360deg)}}
+@keyframes diceGlow{0%,100%{box-shadow:0 0 0 rgba(253,185,39,0)}50%{box-shadow:0 0 20px rgba(253,185,39,.18)}}
 .win-row td{background:rgba(40,167,69,.07)}
 .loss-row td{background:rgba(220,53,69,.07)}
 .flex{display:flex}.f-col{flex-direction:column}.fc{justify-content:center;align-items:center}.fb{justify-content:space-between;align-items:center}

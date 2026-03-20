@@ -1,4 +1,4 @@
-﻿// sim.js
+// sim.js
 // ============ CHARACTER CREATION ============
 const BODY_TYPES = [
   { id: "small", n: "灵动型", d: "小体型，步频和机动性最佳", hRange: [175, 186], wRange: [70, 80], wsBonus: -3, boost: { speed: 9, stl: 5 }, nerf: { strength: -7, reb: -5, blk: -6 } },
@@ -599,6 +599,7 @@ function normalizeDraftScoutingReport(parsed, context) {
     strengths: strengths.map(x => cleanSocialText(x)).filter(Boolean).slice(0, 5),
     weaknesses: weaknesses.map(x => cleanSocialText(x)).filter(Boolean).slice(0, 5),
     comparable: cleanSocialText(parsed?.comparable || fallback.comparable),
+    story: cleanSocialText(parsed?.story || ''),
     source: parsed?.source || fallback.source,
     ts: Date.now()
   };
@@ -617,7 +618,7 @@ function parseDraftScoutReportFromRaw(raw, context) {
   return normalizeDraftScoutingReport(parsed, context);
 }
 function draftScoutSystemPrompt() {
-  return '你是NBA球队球探总监。请只输出JSON对象，包含字段: title (字符串), summary (字符串), projection (字符串), strengths (字符串数组), weaknesses (字符串数组), comparable (字符串)。优点和缺点(strengths/weaknesses)必须是简短的要点数组。全部使用简体中文，语气专业真实。不得提及 OVR/POT/游戏数值词。必须严格基于输入的选秀届别、顺位和球队信息。';
+  return '你是NBA球队球探总监和故事编剧。请只输出JSON对象，包含字段: title (字符串), summary (字符串), projection (字符串), strengths (字符串数组), weaknesses (字符串数组), comparable (字符串), story (字符串)。优点和缺点(strengths/weaknesses)必须是简短的要点数组。并在 story 字段写出一段生动的选秀夜或选修前的戏剧性文字剧情（包含主角的一些背景和潜力讨论，约150字）。全部使用简体中文，语气专业而生动。不得提及 OVR/POT等游戏数值词。严格基于输入信息。';
 }
 async function generateDraftScoutingReportByGeminiNative(baseUrl, apiKey, model, context) {
   const modelName = normalizeModelNameForGemini(model || 'gemini-2.0-flash');
@@ -663,6 +664,222 @@ async function generateDraftScoutingReportByLLM(context) {
   } catch (e) {
     console.warn('Draft report LLM failed:', e);
     return fallbackDraftScoutingReport(context);
+  }
+}
+
+// ============ DAILY STORY GENERATOR ============
+function getLuxuryItemsNames() {
+  ensureEconomyState();
+  if (!G.economy.ownedItems || !G.economy.ownedItems.length) return "无";
+  return G.economy.ownedItems.join('、');
+}
+
+function formatGameStoryPeriodLines(flow = {}) {
+  const periodLabels = Array.isArray(flow.periodLabels) && flow.periodLabels.length
+    ? flow.periodLabels.map(label => String(label || '').trim()).filter(Boolean)
+    : ['Q1', 'Q2', 'Q3', 'Q4'];
+  const myPeriods = Array.isArray(flow.myPeriods) ? flow.myPeriods : [];
+  const oppPeriods = Array.isArray(flow.oppPeriods) ? flow.oppPeriods : [];
+  const total = Math.max(periodLabels.length, myPeriods.length, oppPeriods.length);
+  const lines = [];
+
+  for (let i = 0; i < total; i++) {
+    const label = periodLabels[i] || `Q${i + 1}`;
+    const myScore = parseNum(myPeriods[i], NaN);
+    const oppScore = parseNum(oppPeriods[i], NaN);
+    const myText = Number.isFinite(myScore) ? myScore : '—';
+    const oppText = Number.isFinite(oppScore) ? oppScore : '—';
+    lines.push(`${label} ${myText}-${oppText}`);
+  }
+
+  return lines;
+}
+
+function formatGameStoryTeamHighlights(teamSnapshot = null, label = '我方', limit = 3) {
+  const rows = Array.isArray(teamSnapshot?.boxScore) ? teamSnapshot.boxScore.slice(0, Math.max(1, limit)) : [];
+  if (!rows.length) return '';
+  const text = rows.map(row => {
+    const name = String(row?.name || '').trim() || '球员';
+    const pts = parseNum(row?.pts, 0);
+    const reb = parseNum(row?.reb, 0);
+    const ast = parseNum(row?.ast, 0);
+    return `${name}${pts}分${reb}板${ast}助`;
+  }).join('；');
+  return `【${label}主要表现】${text}`;
+}
+
+function buildGameStoryNarrativeContext(result, matchup) {
+  const gameRes = result?.gameResult || {};
+  const flow = matchup?.flow || gameRes.flow || {};
+  const opp = typeof getTeam === 'function' ? (getTeam(gameRes.opp) || {}) : {};
+  const userTeamName = String(matchup?.userTeam?.name || matchup?.userTeam?.abbr || G.team?.z || G.team?.abbr || '我方').trim();
+  const oppTeamName = String(matchup?.opponentTeam?.name || matchup?.opponentTeam?.abbr || opp.z || opp.a || opp.name || '对手').trim();
+  const userScore = parseNum(gameRes.teamPts, 0);
+  const oppScore = parseNum(gameRes.oppPts, 0);
+  const finalMargin = Math.abs(userScore - oppScore);
+  const hasOvertime = !!flow.hasOvertime;
+  const closeGame = hasOvertime || finalMargin <= 7;
+  const lines = [
+    `【比赛叙事模式】${closeGame ? '焦灼收官' : '全场战报'}`,
+    `【最终比分】${userTeamName} ${userScore} - ${oppScore} ${oppTeamName}`,
+    `【最终分差】${finalMargin}分${hasOvertime ? '（含加时）' : ''}`
+  ];
+  const periodLines = formatGameStoryPeriodLines(flow);
+  if (periodLines.length) lines.push(`【四节走势】${periodLines.join('；')}`);
+  if (flow.summary) lines.push(`【比赛走势】${String(flow.summary).trim()}`);
+  if (Array.isArray(flow.runs) && flow.runs.length) {
+    const runText = flow.runs.map(r => String(r || '').trim()).filter(Boolean).slice(0, 4);
+    if (runText.length) lines.push(`【关键连段】${runText.join('；')}`);
+  }
+  const userHighlights = formatGameStoryTeamHighlights(matchup?.userTeam, '我方', 3);
+  if (userHighlights) lines.push(userHighlights);
+  const oppHighlights = formatGameStoryTeamHighlights(matchup?.opponentTeam, '对手', 3);
+  if (oppHighlights) lines.push(oppHighlights);
+  lines.push(
+    closeGame
+      ? '【写作要求】最后分差接近，重点写末节或加时的收官对抗，但不要忽略前三节的铺垫。'
+      : '【写作要求】这场比赛不是焦灼局，请按全场四节节奏写完整战报，第四节只作收束，不要把整篇写成末节独角戏。'
+  );
+  return { closeGame, finalMargin, hasOvertime, lines };
+}
+
+async function generateDailyStoryByLLM(result) {
+  ensureSocialState();
+  const llm = G.social.llm || {};
+  if (!llm.enabled || !llm.apiKey) {
+    if (typeof appendStoryToBoard === 'function') {
+      appendStoryToBoard('⚠️ 系统大模型未配置 API Key，无法推演具体剧情，只能机械地流逝光阴。请在主页或设置配置参数。', '#dc3545', false);
+    }
+    return;
+  }
+  
+  const baseUrl = normalizeLLMBaseUrl(llm.baseUrl);
+  const model = String(llm.model || 'gpt-4.1-mini');
+  
+  const matchup = result.matchup || (result.isGame && result.gameResult ? buildMatchupContextForLLM(result, { limit: 4 }) : null);
+  const gameNarrative = result.isGame && result.gameResult ? buildGameStoryNarrativeContext(result, matchup) : null;
+
+  let promptContext = `玩家是${G.player.age}岁的${G.player.name}(${getPos(G.player.pos).n})。当前效力于 ${G.team.z}。
+综合评分：${ovr(G.player.attrs)}。当前拥有奢侈品：${getLuxuryItemsNames()}。现金：$${parseNum(G.player.cash, 0).toFixed(2)}M。
+今日是第${result.day + 1}天。`;
+
+  if (result.isGame && result.gameResult) {
+    const opp = getTeam(result.gameResult.opp) || {};
+    const win = result.gameResult.win ? "胜利" : "失败";
+    const st = result.gameResult.st || {};
+    promptContext += `
+今天进行了一场比赛，对阵 ${opp.z || opp.a || opp.name || '对手'}(OVR ${getTeamStrength(opp.id || result.gameResult.opp)})。比赛结果：${win}。
+主队得分：${result.gameResult.teamPts}，客队得分：${result.gameResult.oppPts}。
+玩家个人数据：${st.pts}分、${st.reb}篮板、${st.ast}助攻、${st.stl}抢断、${st.blk}盖帽。
+${gameNarrative ? gameNarrative.lines.join('\n') : ''}`;
+  } else {
+    promptContext += "今天是休息日，或进行了一些日常训练。";
+  }
+  
+  if (G.storyLog && G.storyLog.length > 0) {
+    const recentContext = G.storyLog.slice(-3).map(s => {
+      if (typeof s === 'string') return s.replace(/<[^>]+>/g, '').trim();
+      return '';
+    }).filter(Boolean).join('\n---\n');
+    if (recentContext) {
+      promptContext += `\n\n【前情提要（最近的往日事件）】\n${recentContext}\n\n请结合以上前情、当前的最新战况和所处环境，继续生动地推进这段生涯小说，保证文脉的连贯与合理性。`;
+    }
+  }
+  
+  let sysPrompt = `你是一个篮球养成文字游戏的故事推演引擎。
+请根据提供的当天游戏信息，推演今日发生的事。
+如果是休息日，请推演出场外生活事件（例如买了名表或豪车后产生的社交新闻或绯闻），字数控制在 200 字左右。
+如果是比赛日，请生成一篇不少于 400 字的生动且燃向的“比赛战报/小说”。默认按全场四节走势来写，概括前三节铺垫、第三节转折和第四节收束；只有在最终分差很小、进入加时或末段真的焦灼时，才把末节/加时写成核心高潮。请优先使用输入里给出的四节比分、走势概括、关键连段和球员表现，不要只盯着第四节，更不要虚构不存在的绝杀、逆转或额外回合。
+要求：无论是生活还是比赛，文笔必须极度生动，剧情张力拉满！
+且必须返回合法的 JSON 格式。
+JSON 格式要求如下：
+{
+  "story": "旁白口吻的事件推演内容或燃向比赛战报（支持分段）...",
+  "changes": {"mood": 10, "cash": -0.5, "fame": 20} // 本周事件额外带来的心情变化、金钱惩罚/奖励(单位M)、声望/粉丝变动
+}`;
+
+  if (typeof applySillyTavernSystemPrompts === 'function') {
+    const tp = applySillyTavernSystemPrompts();
+    if (tp) sysPrompt += '\n\n【附加文本生成规则】\n' + tp;
+  }
+  if (gameNarrative) {
+    sysPrompt += `\n\n【比赛日补充要求】${gameNarrative.closeGame ? '若最终分差很小、进入加时或末段真的焦灼，再把末节/加时写成高潮重点；否则按全场四节走势写完整战报，不要只盯第四节。' : '默认按全场战报写作，概括四节走势、关键转折和收尾；末节只需收束，不要把整篇写成第四节特写。'}\n【事实约束】只使用输入里给出的比分、分段走势、关键连段和球员表现，不要虚构不存在的绝杀、逆转或额外回合。`;
+  }
+
+  const storySysPrompt = [sysPrompt, buildLLMPromptPresetSection({ context: { matchup }, scope: 'story' })]
+    .filter(Boolean)
+    .join('\n\n');
+
+  let raw = "";
+  try {
+    if (isGoogleGeminiEndpoint(baseUrl)) {
+      const modelName = normalizeModelNameForGemini(model);
+      const endpoint = `${baseUrl}/models/${encodeURIComponent(modelName)}:generateContent`;
+      const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint, { jsonBody: true });
+      const payload = {
+        systemInstruction: { parts: [{ text: storySysPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: promptContext }] }],
+        generationConfig: { temperature: 0.7, responseMimeType: 'application/json' }
+      };
+      if (typeof appendStoryToBoard === 'function') appendStoryToBoard('⏳ 正在推演今日事件...', '#888', false);
+      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const data = await readJSONResponseSafe(res, '故事生成');
+      raw = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text).join('') || '';
+    } else {
+      const payload = {
+        model,
+        temperature: 0.7,
+        messages: [
+          { role: 'system', content: storySysPrompt },
+          { role: 'user', content: promptContext }
+        ],
+        response_format: { type: 'json_object' }
+      };
+      const endpoint = `${baseUrl}/chat/completions`;
+      const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
+      if (typeof appendStoryToBoard === 'function') appendStoryToBoard('⏳ 正在推演今日事件...', '#888', false);
+      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const data = await readJSONResponseSafe(res, '故事生成');
+      raw = data?.choices?.[0]?.message?.content || '';
+    }
+    
+    let jsonStr = raw;
+    const match = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (match) {
+      jsonStr = match[1];
+    }
+    const parsed = tryParseJSONText(jsonStr.trim());
+    
+    // 移除“⏳ 正在推演今日事件...” 这个 loading 提示
+    if (G.storyLog && G.storyLog.length > 0 && G.storyLog[G.storyLog.length - 1].includes('正在推演今日事件')) {
+      G.storyLog.pop();
+    }
+    
+    if (!parsed || !parsed.story) {
+      throw new Error(`LLM 格式化失败。原始返回: ${raw.slice(0, 150)}...`);
+    }
+
+    if (typeof appendStoryToBoard === 'function') {
+      let finalStory = parsed.story;
+      if (typeof applySillyTavernRegex === 'function') {
+        finalStory = applySillyTavernRegex(finalStory, false);
+      }
+      appendStoryToBoard(`【第${result.day + 1}天】 ${finalStory}`, '#fff', true);
+    }
+    
+    if (parsed.changes) {
+      if (parsed.changes.mood) G.player.mood = clamp(G.player.mood + parsed.changes.mood, 0, 100);
+      if (parsed.changes.cash) G.player.cash += parsed.changes.cash;
+      if (parsed.changes.fame) G.player.fame += parsed.changes.fame;
+    }
+  } catch(e) {
+    console.error('Daily LLM Engine err:', e);
+    if (G.storyLog && G.storyLog.length > 0 && G.storyLog[G.storyLog.length - 1].includes('正在推演今日事件')) {
+      G.storyLog.pop();
+    }
+    if (typeof appendStoryToBoard === 'function') {
+      appendStoryToBoard(`⚠️ 剧情引擎受干扰，记录受损 (${String(e.message || e)})`, '#dc3545', false);
+    }
   }
 }
 
@@ -1384,6 +1601,9 @@ function simulateDay() {
     // 比赛日
     const gameRes = playGame(G.gameNum);
     result.gameResult = gameRes;
+    if (typeof buildMatchupContextForLLM === 'function') {
+      result.matchup = buildMatchupContextForLLM(result, { limit: 3 });
+    }
     result.events.push(`⚔️ 进行了第${G.gameNum}场比赛`);
     // 比赛后体力恢复少量
     G.player.stamina = clamp(G.player.stamina + rng(3, 8) + parseNum(ecoFx.gameStaminaBonus, 0), 0, 100);
@@ -1401,6 +1621,7 @@ function simulateDay() {
   }
 
   // 每日运行交易与续约系统
+  if (typeof settleEndorsementIncome === 'function') settleEndorsementIncome(result);
   tryAITrade();
   tryAIRenewal();
   triggerTradeRequest();
@@ -1559,6 +1780,13 @@ function ensureEconomyState() {
   G.economy.trainingCoachLevel = clamp(parseNum(G.economy.trainingCoachLevel, 0), 0, TRAINING_COACH_MARKET.length - 1);
   if (!Array.isArray(G.economy.ownedItems)) G.economy.ownedItems = [];
   if (!Array.isArray(G.economy.logs)) G.economy.logs = [];
+  if (!G.economy.endorsements || typeof G.economy.endorsements !== 'object') G.economy.endorsements = {};
+  const e = G.economy.endorsements;
+  if (!Array.isArray(e.active)) e.active = [];
+  if (!e.rejected || typeof e.rejected !== 'object') e.rejected = {};
+  if (!Number.isFinite(parseNum(e.lastPayoutDay, NaN))) e.lastPayoutDay = -1;
+  if (!Number.isFinite(parseNum(e.lastRefreshSeason, NaN))) e.lastRefreshSeason = parseNum(G.season, 1);
+  if (!e.signatureShoe || typeof e.signatureShoe !== 'object') e.signatureShoe = null;
 }
 function ensureSocialState() {
   if (!G.social || typeof G.social !== 'object') G.social = {};
@@ -1580,6 +1808,7 @@ function ensureSocialState() {
   if (!llm.baseUrl) llm.baseUrl = 'https://api.openai.com/v1';
   if (!llm.model) llm.model = 'gpt-4.1-mini';
   if (typeof llm.apiKey !== 'string') llm.apiKey = '';
+  llm.presets = normalizeLLMPresetConfig(llm.presets);
   try {
     const savedCfgText = localStorage.getItem('nba_social_llm_settings');
     if (savedCfgText) {
@@ -1594,6 +1823,9 @@ function ensureSocialState() {
         }
         if (typeof savedCfg.apiKey === 'string' && savedCfg.apiKey.trim()) {
           llm.apiKey = savedCfg.apiKey.trim();
+        }
+        if (savedCfg.presets && typeof savedCfg.presets === 'object') {
+          llm.presets = normalizeLLMPresetConfig(savedCfg.presets);
         }
       }
     }
@@ -1640,8 +1872,8 @@ function buildLLMRequestConfig(baseUrl, apiKey, url, { jsonBody = false } = {}) 
   headers.Authorization = `Bearer ${key}`;
   return { url, headers };
 }
-function llmSystemPrompt() {
-  return `你是NBA社媒运营助手。必须使用简体中文，语气真实自然，模仿Twitter/Reddit/虎扑网友风格。
+function llmSystemPrompt(context = null) {
+  let sys = `你是NBA社媒运营助手。必须使用简体中文，语气真实自然，模仿Twitter/Reddit/虎扑网友风格。
 
   【最高优先级：只用提供的数据】
   ⚠️ 这是一个模拟游戏，不是真实NBA历史。你必须：
@@ -1654,7 +1886,8 @@ function llmSystemPrompt() {
   - context.player.seasonYear 表示球员第几个赛季，评论必须符合球员实际资历
 
   【核心原则：丰富度与多样性】
-  1. **主题必须覆盖至少5个不同类别**，从以下随机选取：
+  1. **强烈关联 recentStories**：如果 context 中存在 recentStories（近期生涯故事线），务必生成至少 1-2 条推文去**精准探讨或吐槽**这些事件（如主角去酒吧、被教练骂、绝杀、投资赚钱等），让网友们的反应像是在实时“追更”主角的小说人生！
+  2. **主题必须覆盖至少5个不同类别**，从以下随机选取：
      - 球队战术分析（挡拆效率、转换进攻、半场阵地战、联防策略）
      - 球星对比/排名争论（历史地位辩论、同位置对比、数据对决）
      - 交易流言/自由市场分析（薪资空间、选秀权交易、球队补强方向）
@@ -1704,11 +1937,30 @@ function llmSystemPrompt() {
     ]
   }
   确保 posts 数组包含 5-8 条高质量推文，主题互不重复。`;
+
+  if (typeof applySillyTavernSystemPrompts === 'function') {
+    const tp = applySillyTavernSystemPrompts();
+    if (tp) sys += '\\n\\n【附加文本生成规则】\\n' + tp;
+  }
+  sys += '\\n- 每轮推文不要全部围绕主角展开：主角相关最多2条，其余必须覆盖联盟其他球队、球星、教练、交易、伤病、球鞋、城市、球迷或数据讨论。';
+  if (context?.gameToday && context?.gameStory) {
+    sys += `\n- 赛后新闻/推文默认采用全场战报视角：优先写四节走势、关键转折、球队整体执行和胜负原因，不要把整轮内容都压到第四节。`;
+    sys += `\n- 本场比赛判定为${context.gameStory.closeGame ? '焦灼局' : '非焦灼局'}；${context.gameStory.closeGame ? '可以强调末节/加时，但仍要交代全场铺垫。' : '只要按全场四节节奏写即可，末节不要喧宾夺主。'}`;
+  }
+  const presetPrompt = buildLLMPromptPresetSection({ context, scope: 'social' });
+  if (presetPrompt) sys += `\n\n【预设参数】\n${presetPrompt}`;
+  return sys;
 }
 function llmUserPromptPayload(context, count) {
   return JSON.stringify({
     context,
     count,
+    mix: {
+      maxPlayerCentricPosts: Math.min(2, Math.max(1, Math.round(count * 0.35))),
+      minNonPlayerPosts: Math.max(3, count - Math.min(2, Math.max(1, Math.round(count * 0.35)))),
+      requireLeagueWideTopics: true,
+      requireOtherTeamCoverage: true
+    },
     rules: {
       language: 'zh-CN',
       noGameTerms: true,
@@ -1803,19 +2055,22 @@ async function testSocialLLMConnectivity() {
     return { ok: false, message: msg, models: [] };
   }
 }
-function saveSocialLLMSettings({ enabled, baseUrl, model, apiKey }) {
+function saveSocialLLMSettings({ enabled, baseUrl, model, apiKey, presets } = {}) {
   ensureSocialState();
   const llm = G.social.llm;
   if (typeof enabled === 'boolean') llm.enabled = enabled;
   if (baseUrl !== undefined) llm.baseUrl = normalizeLLMBaseUrl(baseUrl);
   if (model !== undefined) llm.model = String(model || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
   if (apiKey !== undefined) llm.apiKey = String(apiKey || '').trim();
+  if (presets !== undefined) llm.presets = normalizeLLMPresetConfig(presets);
+  else llm.presets = normalizeLLMPresetConfig(llm.presets);
   try {
     localStorage.setItem('nba_social_llm_settings', JSON.stringify({
       enabled: !!llm.enabled,
       baseUrl: normalizeLLMBaseUrl(llm.baseUrl),
       model: String(llm.model || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini',
-      apiKey: String(llm.apiKey || '').trim()
+      apiKey: String(llm.apiKey || '').trim(),
+      presets: normalizeLLMPresetConfig(llm.presets)
     }));
     if (llm.apiKey) localStorage.setItem('nba_social_llm_key', llm.apiKey);
     else localStorage.removeItem('nba_social_llm_key');
@@ -1927,7 +2182,7 @@ async function ensureDailySocialReadyBeforeAdvance() {
   };
   const dayResult = (G._latestDayResult && parseNum(G._latestDayResult.day, -99) === day) ? G._latestDayResult : fallback;
   try {
-    const added = await generateDailySocialTweets(dayResult, { force: true });
+    const added = await generateDailySocialTweetsSmart(dayResult, { force: true });
     const generated = hasGeneratedSocialForDay(day, gate.season);
     if (generated) {
       G.social.pendingRequiredDay = -1;
@@ -2026,6 +2281,437 @@ function buyLuxuryItem(itemId) {
   emitPurchaseSocialBuzz(item.name, item.socialTag || '消费');
   return { ok: true, message: `已购入 ${item.name}`, rep };
 }
+const ENDORSEMENT_TIER_RULES = {
+  1: { marketScore: 28, fame: 12, trust: 34, honor: 0, signing: 0.18, daily: 0.003, game: 0.006, termDays: 54 },
+  2: { marketScore: 38, fame: 18, trust: 38, honor: 1, signing: 0.32, daily: 0.004, game: 0.008, termDays: 66 },
+  3: { marketScore: 50, fame: 24, trust: 44, honor: 4, signing: 0.56, daily: 0.006, game: 0.012, termDays: 78 },
+  4: { marketScore: 66, fame: 34, trust: 50, honor: 8, signing: 0.95, daily: 0.008, game: 0.016, termDays: 90 },
+  5: { marketScore: 84, fame: 46, trust: 58, honor: 14, signing: 1.6, daily: 0.012, game: 0.024, termDays: 108 }
+};
+const ENDORSEMENT_CATEGORY_MODIFIERS = {
+  gear: { score: -4, fame: -3, trust: 0, honor: 0, signingMult: 1.0, dailyMult: 1.05, gameMult: 1.1, termBonus: 0 },
+  food: { score: -6, fame: -4, trust: 0, honor: 0, signingMult: 0.9, dailyMult: 0.95, gameMult: 1.0, termBonus: -6 },
+  tech: { score: 0, fame: -1, trust: 0, honor: 0, signingMult: 1.05, dailyMult: 1.0, gameMult: 1.05, termBonus: 0 },
+  auto: { score: 10, fame: 4, trust: 5, honor: 5, signingMult: 1.7, dailyMult: 1.45, gameMult: 1.4, termBonus: 12 },
+  finance: { score: 12, fame: 3, trust: 7, honor: 6, signingMult: 1.6, dailyMult: 1.35, gameMult: 1.2, termBonus: 10 },
+  fashion: { score: 4, fame: 2, trust: 2, honor: 1, signingMult: 1.3, dailyMult: 1.15, gameMult: 1.1, termBonus: 4 },
+  beauty: { score: -4, fame: -2, trust: 3, honor: 0, signingMult: 0.85, dailyMult: 0.9, gameMult: 0.95, termBonus: -4 },
+  game: { score: -2, fame: 0, trust: 0, honor: 0, signingMult: 1.0, dailyMult: 1.05, gameMult: 1.1, termBonus: 0 },
+  public: { score: -3, fame: -1, trust: 6, honor: 2, signingMult: 0.8, dailyMult: 0.85, gameMult: 0.9, termBonus: 0 },
+  city: { score: 2, fame: 1, trust: 5, honor: 1, signingMult: 1.0, dailyMult: 0.95, gameMult: 0.95, termBonus: 4 }
+};
+const ENDORSEMENT_CATEGORY_DEFS = [
+  ['gear', '运动装备类', [
+    { brand: '迅步', product: '签名鞋', tier: 1, kind: 'shoe', shoeEligible: true, shoeStyle: 'speed' },
+    { brand: '铁卫', product: '训练护具', tier: 2, kind: 'gear' },
+    { brand: '脉冲', product: '运动手表', tier: 3, kind: 'wearable' },
+    { brand: '极光', product: '联名球衣', tier: 4, kind: 'apparel' },
+    { brand: '冠军轨迹', product: '顶级签名鞋', tier: 5, kind: 'shoe', shoeEligible: true, shoeStyle: 'scoring' }
+  ]],
+  ['food', '饮料和食品类', [
+    { brand: '能量泉', product: '运动饮料', tier: 1, kind: 'drink' },
+    { brand: '冰极', product: '矿泉水', tier: 1, kind: 'drink' },
+    { brand: '锋味', product: '蛋白棒', tier: 2, kind: 'food' },
+    { brand: '燃点', product: '功能饮料', tier: 3, kind: 'drink' },
+    { brand: '冠军补给', product: '轻食联名', tier: 4, kind: 'food' }
+  ]],
+  ['tech', '科技电子类', [
+    { brand: '雷音', product: '运动耳机', tier: 1, kind: 'tech' },
+    { brand: '智翼', product: '旗舰手机', tier: 2, kind: 'tech' },
+    { brand: '星核', product: '游戏设备', tier: 3, kind: 'tech' },
+    { brand: '闪步', product: '智能穿戴', tier: 4, kind: 'tech' },
+    { brand: '镜界', product: '影像相机', tier: 5, kind: 'tech' }
+  ]],
+  ['auto', '汽车类', [
+    { brand: '轮动', product: '高性能轮胎', tier: 1, kind: 'auto' },
+    { brand: '远航', product: '出行平台', tier: 2, kind: 'auto' },
+    { brand: '星驰', product: '新能源轿跑', tier: 3, kind: 'auto' },
+    { brand: '纵横', product: '豪华SUV', tier: 4, kind: 'auto' },
+    { brand: '极境', product: '性能轿跑', tier: 5, kind: 'auto' }
+  ]],
+  ['finance', '金融与商业服务类', [
+    { brand: '快付', product: '数字钱包', tier: 1, kind: 'finance' },
+    { brand: '竞篮', product: '联名信用卡', tier: 2, kind: 'finance' },
+    { brand: '守护', product: '保险计划', tier: 3, kind: 'finance' },
+    { brand: '稳盈', product: '投资平台', tier: 4, kind: 'finance' },
+    { brand: '速联', product: '电商通讯服务', tier: 5, kind: 'finance' }
+  ]],
+  ['fashion', '时尚与生活方式类', [
+    { brand: '霓裳', product: '潮牌联名', tier: 1, kind: 'fashion' },
+    { brand: '轻奢行囊', product: '箱包', tier: 2, kind: 'fashion' },
+    { brand: '银曜', product: '腕表', tier: 3, kind: 'fashion' },
+    { brand: '星棱', product: '珠宝', tier: 4, kind: 'fashion' },
+    { brand: '夜幕', product: '香氛', tier: 5, kind: 'fashion' }
+  ]],
+  ['beauty', '美妆与个人护理类', [
+    { brand: '清野', product: '男士护肤', tier: 1, kind: 'beauty' },
+    { brand: '速净', product: '洗护', tier: 2, kind: 'beauty' },
+    { brand: '锋芒', product: '剃须', tier: 3, kind: 'beauty' },
+    { brand: '活力', product: '口腔护理', tier: 4, kind: 'beauty' },
+    { brand: '温和', product: '身体护理', tier: 5, kind: 'beauty' }
+  ]],
+  ['game', '游戏与娱乐类', [
+    { brand: '篮火', product: '手游', tier: 1, kind: 'game' },
+    { brand: '主机战线', product: '主机游戏', tier: 2, kind: 'game' },
+    { brand: '赛场对决', product: '体育游戏联名', tier: 3, kind: 'game' },
+    { brand: '全明星直播', product: '直播平台', tier: 4, kind: 'game' },
+    { brand: '星途', product: '综艺合作', tier: 5, kind: 'game' }
+  ]],
+  ['public', '公益与社会形象类', [
+    { brand: '青篮计划', product: '青少年篮球公益', tier: 1, kind: 'public' },
+    { brand: '反毒行动', product: '社会倡导', tier: 2, kind: 'public' },
+    { brand: '助学灯塔', product: '教育助学', tier: 3, kind: 'public' },
+    { brand: '城市球场修复', product: '社区项目', tier: 4, kind: 'public' },
+    { brand: '少年成长营', product: '长期公益大使', tier: 5, kind: 'public' }
+  ]],
+  ['city', '地方文旅与城市推广类', [
+    { brand: '西部旅线', product: '文旅线路', tier: 1, kind: 'city' },
+    { brand: '海港之城', product: '旅游城市推广', tier: 2, kind: 'city' },
+    { brand: '地方好物', product: '城市品牌', tier: 3, kind: 'city' },
+    { brand: '赛事之都', product: '国际赛事宣传', tier: 4, kind: 'city' },
+    { brand: '城市节拍', product: '年度文旅大使', tier: 5, kind: 'city' }
+  ]]
+];
+function getEndorsementTierRule(tier) {
+  return ENDORSEMENT_TIER_RULES[clamp(parseNum(tier, 1), 1, 5)] || ENDORSEMENT_TIER_RULES[1];
+}
+function getEndorsementCategoryMod(categoryKey) {
+  return ENDORSEMENT_CATEGORY_MODIFIERS[categoryKey] || ENDORSEMENT_CATEGORY_MODIFIERS.gear;
+}
+function makeEndorsementTemplate(categoryKey, categoryName, raw, index) {
+  return {
+    id: String(raw.id || `${categoryKey}_${index + 1}`),
+    categoryKey,
+    category: categoryName,
+    brand: String(raw.brand || `品牌${index + 1}`),
+    product: String(raw.product || '合作'),
+    tier: clamp(parseNum(raw.tier, 1), 1, 5),
+    kind: String(raw.kind || categoryKey),
+    shoeEligible: !!raw.shoeEligible,
+    shoeStyle: String(raw.shoeStyle || 'allaround'),
+    note: String(raw.note || '')
+  };
+}
+function buildEndorsementCatalog() {
+  return ENDORSEMENT_CATEGORY_DEFS.flatMap(([categoryKey, categoryName, items]) =>
+    items.map((item, index) => makeEndorsementTemplate(categoryKey, categoryName, item, index))
+  );
+}
+const ENDORSEMENT_CATALOG = buildEndorsementCatalog();
+function getPlayerEndorsementHonorScore(honors = null) {
+  const c = honors || (typeof collectUserHonorCounterFromHistory === 'function' ? collectUserHonorCounterFromHistory() : defaultUserHonorCounter());
+  return (
+    parseNum(c.rings, 0) * 15 +
+    parseNum(c.mvp, 0) * 20 +
+    parseNum(c.fmvp, 0) * 14 +
+    parseNum(c.dpoy, 0) * 10 +
+    parseNum(c.allStar, 0) * 3 +
+    parseNum(c.allNba1, 0) * 9 +
+    parseNum(c.allNba2, 0) * 7 +
+    parseNum(c.allNba3, 0) * 5 +
+    parseNum(c.scoring, 0) * 5 +
+    parseNum(c.rebound, 0) * 4 +
+    parseNum(c.assist, 0) * 4 +
+    parseNum(c.block, 0) * 4 +
+    parseNum(c.steal, 0) * 4 +
+    parseNum(c.sixthMan, 0) * 4 +
+    parseNum(c.allStarMvp, 0) * 6
+  );
+}
+function getEndorsementMarketLabel(score) {
+  const s = parseNum(score, 0);
+  if (s >= 110) return '门面级';
+  if (s >= 95) return '超级巨星';
+  if (s >= 78) return '全明星级';
+  if (s >= 60) return '明星级';
+  if (s >= 45) return '联盟关注';
+  if (s >= 30) return '本地热度';
+  return '新秀观察';
+}
+function buildEndorsementProfile() {
+  const fame = clamp(parseNum(G.player.fame, 10), 0, 100);
+  const trust = clamp(parseNum(G.player.trust, 50), 0, 100);
+  const overall = typeof ovr === 'function' ? ovr(G.player.attrs || {}) : parseNum(G.player.tradeValue, 50);
+  const gp = Math.max(parseNum(G.seasonStats?.gp, 0), 1);
+  const ppg = parseNum(G.seasonStats?.pts, 0) / gp;
+  const apg = parseNum(G.seasonStats?.ast, 0) / gp;
+  const rpg = parseNum(G.seasonStats?.reb, 0) / gp;
+  const teamRecord = G.leagueSeason?.teamRecords?.[G.teamId] || {};
+  const teamGp = Math.max(parseNum(teamRecord.w, 0) + parseNum(teamRecord.l, 0), 1);
+  const winPct = parseNum(teamRecord.w, 0) / teamGp;
+  const honorCounts = typeof collectUserHonorCounterFromHistory === 'function' ? collectUserHonorCounterFromHistory() : defaultUserHonorCounter();
+  const honorScore = getPlayerEndorsementHonorScore(honorCounts);
+  const statsScore = clamp(
+    overall * 0.22 +
+    ppg * 0.8 +
+    apg * 0.55 +
+    rpg * 0.45 +
+    winPct * 20,
+    0,
+    70
+  );
+  const marketScore = clamp(statsScore + fame * 0.55 + trust * 0.25 + honorScore * 0.85, 0, 140);
+  return {
+    playerName: String(G.player.name || '球员'),
+    teamName: String(G.team?.z || ''),
+    seasonYear: parseNum(G.season, 1),
+    year: parseNum(G.year, 2025),
+    fame,
+    trust,
+    overall,
+    ppg: +ppg.toFixed(1),
+    apg: +apg.toFixed(1),
+    rpg: +rpg.toFixed(1),
+    winPct: +winPct.toFixed(3),
+    honorCounts,
+    honorText: buildPlayerHonorsSummary(),
+    honorScore,
+    statsScore: +statsScore.toFixed(1),
+    marketScore: +marketScore.toFixed(1),
+    marketLabel: getEndorsementMarketLabel(marketScore),
+    activeCount: Array.isArray(G.economy?.endorsements?.active) ? G.economy.endorsements.active.length : 0
+  };
+}
+function getEndorsementState() {
+  ensureEconomyState();
+  return G.economy.endorsements;
+}
+function evaluateEndorsementOffer(template, profile, state = null) {
+  const tierRule = getEndorsementTierRule(template.tier);
+  const categoryMod = getEndorsementCategoryMod(template.categoryKey);
+  const minScore = Math.max(0, tierRule.marketScore + parseNum(categoryMod.score, 0));
+  const minFame = Math.max(0, tierRule.fame + parseNum(categoryMod.fame, 0));
+  const minTrust = Math.max(0, tierRule.trust + parseNum(categoryMod.trust, 0));
+  const minHonor = Math.max(0, tierRule.honor + parseNum(categoryMod.honor, 0));
+  const scale = clamp(0.8 + parseNum(profile?.marketScore, 0) / 160, 0.85, 2.5);
+  const activeState = state || getEndorsementState();
+  const active = (activeState.active || []).find(x => String(x.id) === String(template.id)) || null;
+  const rejectedSeason = parseNum(activeState.rejected?.[template.id], -1);
+  const eligible = profile.marketScore >= minScore && profile.fame >= minFame && profile.trust >= minTrust && profile.honorScore >= minHonor;
+  const lockReason = eligible ? '' : [
+    profile.marketScore < minScore ? `市场分 ${minScore}` : '',
+    profile.fame < minFame ? `声望 ${minFame}` : '',
+    profile.trust < minTrust ? `信任 ${minTrust}` : '',
+    profile.honorScore < minHonor ? `荣誉分 ${minHonor}` : ''
+  ].filter(Boolean).join(' / ');
+  const signingBonus = +(tierRule.signing * parseNum(categoryMod.signingMult, 1) * scale).toFixed(2);
+  const dailyIncome = +(tierRule.daily * parseNum(categoryMod.dailyMult, 1) * scale).toFixed(3);
+  const gameIncome = +(tierRule.game * parseNum(categoryMod.gameMult, 1) * scale).toFixed(3);
+  const termDays = Math.max(30, Math.round((tierRule.termDays + parseNum(categoryMod.termBonus, 0)) * (0.9 + scale * 0.15)));
+  const status = active ? 'active' : (rejectedSeason === parseNum(G.season, 1) ? 'rejected' : (eligible ? 'available' : 'locked'));
+  return {
+    ...template,
+    status,
+    eligible,
+    active,
+    lockReason,
+    signingBonus,
+    dailyIncome,
+    gameIncome,
+    termDays,
+    marketScore: minScore,
+    minFame,
+    minTrust,
+    minHonor,
+    categoryLabel: template.category,
+    scale: +scale.toFixed(2)
+  };
+}
+function buildEndorsementOffersView() {
+  const profile = buildEndorsementProfile();
+  const state = getEndorsementState();
+  const categories = [];
+  const seen = new Map();
+  ENDORSEMENT_CATALOG.forEach(template => {
+    const offer = evaluateEndorsementOffer(template, profile, state);
+    if (!seen.has(template.categoryKey)) {
+      seen.set(template.categoryKey, { key: template.categoryKey, name: template.category, items: [] });
+      categories.push(seen.get(template.categoryKey));
+    }
+    seen.get(template.categoryKey).items.push(offer);
+  });
+  const activeDeals = (state.active || []).map(deal => ({
+    ...deal,
+    totalIncome: +(parseNum(deal.baseDailyIncome, 0) + parseNum(deal.baseGameIncome, 0) + parseNum(deal.shoe?.dailyIncome, 0) + parseNum(deal.shoe?.gameIncome, 0)).toFixed(3),
+    remainingDays: parseNum(deal.remainingDays, 0)
+  }));
+  const totals = activeDeals.reduce((acc, deal) => {
+    acc.daily += parseNum(deal.baseDailyIncome, 0) + parseNum(deal.shoe?.dailyIncome, 0);
+    acc.game += parseNum(deal.baseGameIncome, 0) + parseNum(deal.shoe?.gameIncome, 0);
+    return acc;
+  }, { daily: 0, game: 0 });
+  const summary = {
+    catalogCount: ENDORSEMENT_CATALOG.length,
+    activeCount: activeDeals.length,
+    availableCount: categories.reduce((sum, c) => sum + c.items.filter(i => i.status === 'available').length, 0),
+    lockedCount: categories.reduce((sum, c) => sum + c.items.filter(i => i.status === 'locked').length, 0),
+    rejectedCount: categories.reduce((sum, c) => sum + c.items.filter(i => i.status === 'rejected').length, 0),
+    marketScore: profile.marketScore,
+    marketLabel: profile.marketLabel,
+    fame: profile.fame,
+    trust: profile.trust,
+    honorText: profile.honorText,
+    honorScore: profile.honorScore,
+    overall: profile.overall,
+    ppg: profile.ppg,
+    apg: profile.apg,
+    rpg: profile.rpg,
+    totalDailyIncome: +totals.daily.toFixed(3),
+    totalGameIncome: +totals.game.toFixed(3),
+    signatureShoe: state.signatureShoe || null
+  };
+  return { profile, summary, categories, activeDeals };
+}
+function applyEndorsementAttrBoosts(boosts, direction = 1) {
+  if (!G.player?.attrs || !boosts) return;
+  Object.entries(boosts).forEach(([k, v]) => {
+    if (!Object.prototype.hasOwnProperty.call(G.player.attrs, k)) return;
+    G.player.attrs[k] = clamp(parseNum(G.player.attrs[k], 0) + parseNum(v, 0) * direction, 25, 99);
+  });
+}
+function buildSignatureShoeBoosts(offer, styleKey) {
+  const tier = clamp(parseNum(offer?.tier, 1), 1, 5);
+  const style = String(styleKey || offer?.shoeStyle || 'allaround');
+  const base = {
+    speed: { speed: 2, shotExt: 1 },
+    scoring: { shotExt: 2, shotInt: 1 },
+    defense: { stl: 1, blk: 2, physique: 1 },
+    allaround: { pass: 1, speed: 1, shotExt: 1, shotInt: 1 }
+  };
+  const boosts = { ...(base[style] || base.allaround) };
+  const bonus = Math.max(0, Math.floor((tier - 1) / 2));
+  Object.keys(boosts).forEach(k => { boosts[k] = parseNum(boosts[k], 0) + bonus; });
+  const pos = parseNum(G.player?.pos, 0);
+  if (pos <= 1) {
+    boosts.speed = parseNum(boosts.speed, 0) + 1;
+    boosts.shotExt = parseNum(boosts.shotExt, 0) + 1;
+  } else if (pos === 2 || pos === 3) {
+    boosts.shotExt = parseNum(boosts.shotExt, 0) + 1;
+    boosts.pass = parseNum(boosts.pass, 0) + 1;
+  } else {
+    boosts.reb = parseNum(boosts.reb, 0) + 1;
+    boosts.blk = parseNum(boosts.blk, 0) + 1;
+  }
+  const dailyIncome = +(0.003 + tier * 0.0015).toFixed(3);
+  const gameIncome = +(0.006 + tier * 0.002).toFixed(3);
+  const label = style === 'speed' ? '速度型' : style === 'scoring' ? '得分型' : style === 'defense' ? '防守型' : '全能型';
+  return { boosts, dailyIncome, gameIncome, label, styleKey: style };
+}
+function acceptEndorsementOffer(offerId) {
+  const state = getEndorsementState();
+  const profile = buildEndorsementProfile();
+  const template = ENDORSEMENT_CATALOG.find(x => String(x.id) === String(offerId));
+  if (!template) return { ok: false, reason: 'invalid', message: '代言不存在' };
+  if (state.active.length >= 8) return { ok: false, reason: 'cap', message: '最多同时签约 8 个代言' };
+  if (state.active.some(x => String(x.id) === String(offerId))) return { ok: false, reason: 'active', message: '这个代言已经签约了' };
+  const offer = evaluateEndorsementOffer(template, profile, state);
+  if (offer.status === 'locked') return { ok: false, reason: 'locked', message: `暂时未解锁：${offer.lockReason}` };
+  if (offer.status === 'rejected') return { ok: false, reason: 'rejected', message: '这个代言本季已经拒绝过了' };
+  if (offer.status === 'active') return { ok: false, reason: 'active', message: '这个代言已经在生效中' };
+  const contract = {
+    id: offer.id,
+    categoryKey: offer.categoryKey,
+    category: offer.category,
+    brand: offer.brand,
+    product: offer.product,
+    tier: offer.tier,
+    kind: offer.kind,
+    signingBonus: offer.signingBonus,
+    baseDailyIncome: offer.dailyIncome,
+    baseGameIncome: offer.gameIncome,
+    remainingDays: offer.termDays,
+    earned: 0,
+    shoeEligible: !!offer.shoeEligible,
+    shoe: null,
+    signedSeason: parseNum(G.season, 1),
+    signedDay: parseNum(G.dayNum, 0)
+  };
+  state.active.unshift(contract);
+  delete state.rejected[offer.id];
+  adjustPlayerCash(offer.signingBonus, `签约代言 ${offer.brand}`);
+  addPhone('代言经纪人', `已签下 ${offer.brand}（${offer.category}）代言，签约金 $${offer.signingBonus.toFixed(2)}M。`, 'info');
+  addEconomyLog(`签约代言 ${offer.brand}（${offer.category}）`, 'pos');
+  return { ok: true, message: `已签约 ${offer.brand}`, contract };
+}
+function rejectEndorsementOffer(offerId) {
+  const state = getEndorsementState();
+  const template = ENDORSEMENT_CATALOG.find(x => String(x.id) === String(offerId));
+  if (!template) return { ok: false, reason: 'invalid', message: '代言不存在' };
+  state.rejected[template.id] = parseNum(G.season, 1);
+  addPhone('代言经纪人', `你拒绝了 ${template.brand} 的代言邀约。`, 'neu');
+  addEconomyLog(`拒绝代言 ${template.brand}`, 'neu');
+  return { ok: true, message: `已拒绝 ${template.brand}` };
+}
+function createSignatureShoeForOffer(offerId, styleKey = 'allaround') {
+  const state = getEndorsementState();
+  const contract = (state.active || []).find(x => String(x.id) === String(offerId));
+  if (!contract) return { ok: false, reason: 'inactive', message: '请先签下这份球鞋代言' };
+  if (!contract.shoeEligible) return { ok: false, reason: 'unsupported', message: '这份代言不支持自创球鞋' };
+  const offer = ENDORSEMENT_CATALOG.find(x => String(x.id) === String(offerId));
+  if (!offer) return { ok: false, reason: 'invalid', message: '代言不存在' };
+  if (state.signatureShoe?.boosts) {
+    applyEndorsementAttrBoosts(state.signatureShoe.boosts, -1);
+  }
+  const shoe = buildSignatureShoeBoosts(contract, styleKey);
+  applyEndorsementAttrBoosts(shoe.boosts, 1);
+  const shoeName = `${G.player?.name || '球员'} × ${contract.brand} ${shoe.label}`;
+  const oldShoeContract = state.active.find(x => x.shoe && String(x.id) !== String(contract.id));
+  if (oldShoeContract) oldShoeContract.shoe = null;
+  contract.shoe = {
+    name: shoeName,
+    styleKey: shoe.styleKey,
+    label: shoe.label,
+    boosts: shoe.boosts,
+    dailyIncome: shoe.dailyIncome,
+    gameIncome: shoe.gameIncome,
+    createdDay: parseNum(G.dayNum, 0),
+    createdSeason: parseNum(G.season, 1)
+  };
+  state.signatureShoe = {
+    contractId: contract.id,
+    ...contract.shoe
+  };
+  addPhone('球鞋工坊', `已打造自创球鞋：${shoeName}，属性提升并解锁持续分成。`, 'pos');
+  addEconomyLog(`打造自创球鞋 ${shoeName}`, 'pos');
+  return { ok: true, message: `已打造 ${shoeName}`, shoe: contract.shoe };
+}
+function settleEndorsementIncome(dayResult) {
+  const state = getEndorsementState();
+  const day = parseNum(dayResult?.day, parseNum(G.dayNum, 0));
+  if (parseNum(state.lastPayoutDay, -1) === day) return { ok: false, amount: 0, expired: 0 };
+  const isGame = !!dayResult?.isGame;
+  let total = 0;
+  const expired = [];
+  state.active = (state.active || []).map(contract => {
+    if (!contract) return null;
+    const payout = parseNum(contract.baseDailyIncome, 0) + (isGame ? parseNum(contract.baseGameIncome, 0) : 0) +
+      parseNum(contract.shoe?.dailyIncome, 0) + (isGame ? parseNum(contract.shoe?.gameIncome, 0) : 0);
+    if (payout > 0) {
+      total += payout;
+      contract.earned = +(parseNum(contract.earned, 0) + payout).toFixed(3);
+    }
+    contract.remainingDays = parseNum(contract.remainingDays, 0) - 1;
+    if (contract.remainingDays <= 0) {
+      if (contract.shoe?.boosts) applyEndorsementAttrBoosts(contract.shoe.boosts, -1);
+      if (state.signatureShoe && String(state.signatureShoe.contractId) === String(contract.id)) {
+        state.signatureShoe = null;
+      }
+      expired.push(contract);
+      return null;
+    }
+    return contract;
+  }).filter(Boolean);
+  state.lastPayoutDay = day;
+  if (total > 0) {
+    adjustPlayerCash(total, `代言收入${isGame ? '（比赛日）' : ''}`);
+    addEconomyLog(`代言入账 $${total.toFixed(3)}M`, 'pos');
+  }
+  if (expired.length) {
+    addPhone('代言经纪人', `${expired.length} 个代言合约到期：${expired.slice(0, 3).map(x => x.brand).join('、')}`, 'warn');
+    addEconomyLog(`代言合约到期：${expired.slice(0, 3).map(x => x.brand).join('、')}`, 'neu');
+  }
+  return { ok: total > 0 || expired.length > 0, amount: +total.toFixed(3), expired: expired.length };
+}
 function cleanSocialText(text) {
   return String(text || '').replace(/\s+/g, ' ').trim().slice(0, 280);
 }
@@ -2036,10 +2722,13 @@ function sanitizeSocialGeneratedText(text) {
     .replace(/\b\d{1,3}\s*OVR\b/gi, '')
     .replace(/\bPOT\s*[:：]?\s*\d{1,3}\b/gi, '')
     .replace(/\b\d{1,3}\s*POT\b/gi, '')
-    .replace(/综合评分\s*[:：]?\s*\d{1,3}/g, '')
-    .replace(/能力值\s*[:：]?\s*\d{1,3}/g, '')
-    .replace(/\s{2,}/g, ' ')
+    .replace(/综合评分\\s*[:：]?\\s*\\d{1,3}/g, '')
+    .replace(/能力值\\s*[:：]?\\s*\\d{1,3}/g, '')
+    .replace(/\\s{2,}/g, ' ')
     .trim();
+  if (typeof applySillyTavernRegex === 'function') {
+    out = applySillyTavernRegex(out, false);
+  }
   return out;
 }
 function sanitizeDraftNarrativeText(text, context = null) {
@@ -2184,6 +2873,8 @@ function buildDailySocialContext(dayResult) {
   const gp = Math.max(parseNum(G.seasonStats.gp, 0), 1);
   const draftYear = parseNum(G.draftBoard?.year, parseNum(G.startYear, G.year));
   const topProspects = getDraftClassTopNames(5);
+  const matchup = res.matchup || (gameRes ? buildMatchupContextForLLM(res, { limit: 3 }) : null);
+  const gameStory = gameRes ? buildGameStoryNarrativeContext(res, matchup) : null;
   return {
     date: res.date || getDayDateString(Math.max(0, parseNum(G.dayNum, 1) - 1)),
     day: parseNum(res.day, Math.max(0, parseNum(G.dayNum, 1) - 1)),
@@ -2211,22 +2902,278 @@ function buildDailySocialContext(dayResult) {
       team: G.team?.z || ''
     },
     gameToday: !!res.isGame,
+    gameStory,
     gameResult: gameRes ? {
+      gameId: String(gameRes.gameId || ''),
+      teamId: parseNum(G.teamId, 0),
+      teamName: G.team?.z || '',
+      teamAbbr: G.team?.a || '',
       win: !!gameRes.win,
-      opp: gameRes.opp?.a || gameRes.opp?.z || '--',
+      oppId: parseNum(gameRes.opp?.id, 0),
+      oppName: gameRes.opp?.z || gameRes.opp?.a || '--',
+      oppAbbr: gameRes.opp?.a || gameRes.opp?.z || '--',
       teamPts: parseNum(gameRes.teamPts, 0),
       oppPts: parseNum(gameRes.oppPts, 0),
+      finalMargin: Math.abs(parseNum(gameRes.teamPts, 0) - parseNum(gameRes.oppPts, 0)),
+      hasOvertime: !!gameStory?.hasOvertime,
+      clutch: !!gameStory?.closeGame,
+      clutchMargin: parseNum(matchup?.flow?.clutchMargin, 0),
+      summary: String(matchup?.flow?.summary || ''),
+      periodLabels: Array.isArray(matchup?.flow?.periodLabels) ? [...matchup.flow.periodLabels] : ['Q1', 'Q2', 'Q3', 'Q4'],
+      myPeriods: Array.isArray(matchup?.flow?.myPeriods) ? [...matchup.flow.myPeriods] : [],
+      oppPeriods: Array.isArray(matchup?.flow?.oppPeriods) ? [...matchup.flow.oppPeriods] : [],
       pts: parseNum(gameRes.st?.pts, 0),
       reb: parseNum(gameRes.st?.reb, 0),
       ast: parseNum(gameRes.st?.ast, 0),
       stl: parseNum(gameRes.st?.stl, 0),
       blk: parseNum(gameRes.st?.blk, 0),
-      grade: parseNum(gameRes.grade, 0)
+      grade: parseNum(gameRes.grade, 0),
+      matchup
     } : null,
     hotNews: (G.news || []).slice(0, 6).map(n => n.text),
+    recentStories: (G.storyLog && G.storyLog.length > 0) ? G.storyLog.slice(-3).map(s => typeof s === 'string' ? s.replace(/<[^>]+>/g, '').trim() : '').filter(Boolean) : [],
     league: buildLeagueSnapshotForLLM(),
-    nextDraft: parseNum(G.seasonStats?.gp, 0) >= 40 ? getNextDraftClassPreview() : null
+    nextDraft: parseNum(G.seasonStats?.gp, 0) >= 40 ? getNextDraftClassPreview() : null,
+    matchup
   };
+}
+const LLM_STYLE_PRESET_MAP = {
+  '白描': '【文风：白描】用简洁动作、短句和对白推进，不堆砌形容词，重要节点再点一下即可。',
+  '基础文风': '【文风：白描】用简洁动作、短句和对白推进，不堆砌形容词，重要节点再点一下即可。',
+  'TG推荐文风': '【文风：日常白描】平时不炫技、关键处点睛，动作和对白推进，少做空泛抒情。',
+  'TG推荐文风2': '【文风：中国风中文】用动作串起句子，少堆修饰词，句子讲究节奏，逻辑靠语义自然呈现。',
+  '纯爱文风': '【文风：自然克制】语言干净自然，情感通过动作和眼神流露，不要过度煽情。',
+  '轻小说文风': '【文风：轻小说】对话和动作驱动剧情，场景要有画面感，但不要喧宾夺主。',
+  '热血': '【文风：热血】可以更有张力和节奏感，但仍要以场上动作、对位和结果为中心，不要夸张失真。',
+  '数据流': '【文风：数据流】允许穿插简短数据、对位和攻防判断，但不要写成表格或报表。',
+  '纪实': '【文风：纪实】语气克制，重事实、场面和人物反应，少空话，少主观感叹。',
+  '吐槽': '【文风：轻松吐槽】可以带一点轻松评价和梗，但不能偏离比赛事实和人物一致性。'
+};
+function normalizeLLMPresetConfig(raw = {}) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const style = String(src.style || '白描').trim() || '白描';
+  return {
+    enabled: src.enabled !== false,
+    antiTalk: src.antiTalk !== false,
+    strictTurnTaking: src.strictTurnTaking === true,
+    styleEnabled: src.styleEnabled !== false,
+    style: Object.prototype.hasOwnProperty.call(LLM_STYLE_PRESET_MAP, style) ? style : '白描',
+    antiOmniscience: src.antiOmniscience !== false,
+    antiVariable: src.antiVariable !== false,
+    emotionControl: src.emotionControl !== false,
+    roleHope: src.roleHope !== false,
+    gameInteraction: src.gameInteraction !== false,
+    dataFirst: src.dataFirst !== false
+  };
+}
+const TGBREAK_PROMPT_SOURCE = {
+  loaded: false,
+  byName: Object.create(null),
+  byId: Object.create(null)
+};
+async function loadTGBreakPromptSource() {
+  if (TGBREAK_PROMPT_SOURCE.loaded) return TGBREAK_PROMPT_SOURCE;
+  TGBREAK_PROMPT_SOURCE.loaded = true;
+  try {
+    const res = await fetch('TGbreak😺V1.0.7.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`TGbreak preset ${res.status}`);
+    const data = await res.json();
+    const prompts = Array.isArray(data?.prompts) ? data.prompts : [];
+    for (const prompt of prompts) {
+      if (!prompt || typeof prompt !== 'object') continue;
+      const name = String(prompt.name || '').trim();
+      const id = String(prompt.identifier || '').trim();
+      const content = String(prompt.content || '');
+      if (name) TGBREAK_PROMPT_SOURCE.byName[name] = content;
+      if (id) TGBREAK_PROMPT_SOURCE.byId[id] = content;
+    }
+  } catch (e) {
+    console.warn('Failed to load TGbreak prompt source:', e);
+  }
+  return TGBREAK_PROMPT_SOURCE;
+}
+function getTGBreakPromptContent(keys, fallback = '') {
+  const list = Array.isArray(keys) ? keys : [keys];
+  for (const key of list) {
+    if (!key) continue;
+    const nameHit = TGBREAK_PROMPT_SOURCE.byName[key];
+    if (typeof nameHit === 'string' && nameHit) return nameHit;
+    const idHit = TGBREAK_PROMPT_SOURCE.byId[key];
+    if (typeof idHit === 'string' && idHit) return idHit;
+  }
+  return fallback;
+}
+function buildTeamNarrativeSnapshot(teamId, { gameRows = [], limit = 4 } = {}) {
+  const tid = parseNum(teamId, 0);
+  if (tid <= 0) return null;
+  const team = getTeam(tid) || {};
+  const usageCtx = typeof buildTeamUsageContext === 'function'
+    ? buildTeamUsageContext(tid)
+    : { roster: typeof getTeamPlayers === 'function' ? (getTeamPlayers(tid) || []) : [], rotation: [] };
+  const rosterSource = Array.isArray(usageCtx.roster) ? usageCtx.roster : [];
+  const rotationSource = Array.isArray(usageCtx.rotation) ? usageCtx.rotation : [];
+  const teamRecord = G.leagueSeason?.teamRecords?.[tid] || {};
+  const roster = [...rosterSource]
+    .sort((a, b) => parseNum(b.rating, ovr(b.attrs || {})) - parseNum(a.rating, ovr(a.attrs || {})))
+    .slice(0, Math.max(1, parseNum(limit, 4)))
+    .map(p => ({
+      id: String(p.id ?? ''),
+      name: String(p.name || '').trim(),
+      pos: posLabel(parseNum(p.pos, 3)),
+      rating: parseNum(p.rating, ovr(p.attrs || {})),
+      role: String(p.rotationRole || p.teamTier || ''),
+      age: parseNum(p.age, 0)
+    }));
+  const rotation = [...rotationSource]
+    .slice(0, Math.max(1, parseNum(limit, 4)))
+    .map(p => ({
+      id: String(p.id ?? ''),
+      name: String(p.name || '').trim(),
+      pos: posLabel(parseNum(p.pos, 3)),
+      minutes: parseNum(p.minutes, 0),
+      role: String(p.rotationRole || p.teamTier || '')
+    }));
+  const boxScore = [...(Array.isArray(gameRows) ? gameRows : [])]
+    .sort((a, b) =>
+      parseNum(b.mins, 0) - parseNum(a.mins, 0) ||
+      parseNum(b.pts, 0) - parseNum(a.pts, 0) ||
+      parseNum(b.rating, 0) - parseNum(a.rating, 0)
+    )
+    .slice(0, Math.max(1, parseNum(limit, 4)))
+    .map(r => ({
+      name: String(r.name || '').trim(),
+      pts: parseNum(r.pts, 0),
+      reb: parseNum(r.reb, 0),
+      ast: parseNum(r.ast, 0),
+      stl: parseNum(r.stl, 0),
+      blk: parseNum(r.blk, 0),
+      mins: parseNum(r.mins, 0),
+      status: String(r.status || '')
+    }));
+  return {
+    id: tid,
+    name: String(team.z || team.name || '').trim(),
+    abbr: String(team.a || team.abbr || '').trim(),
+    strength: getTeamStrength(tid),
+    record: {
+      w: parseNum(teamRecord.w, 0),
+      l: parseNum(teamRecord.l, 0),
+      pf: parseNum(teamRecord.pf, 0),
+      pa: parseNum(teamRecord.pa, 0)
+    },
+    roster,
+    rotation,
+    boxScore
+  };
+}
+function buildMatchupContextForLLM(result, { limit = 4 } = {}) {
+  const gameRes = result?.gameResult || null;
+  if (!gameRes) return null;
+  const gameId = String(result?.gameId || gameRes?.gameId || '');
+  const detail = gameId && typeof getLeagueGameDetailById === 'function' ? getLeagueGameDetailById(gameId) : null;
+  const userTeamId = parseNum(G.teamId, 0);
+  const oppId = parseNum(gameRes?.opp?.id, 0);
+  const homeTeamId = parseNum(detail?.homeTeamId, userTeamId);
+  const awayTeamId = parseNum(detail?.awayTeamId, oppId || 0);
+  const userIsHome = homeTeamId === userTeamId;
+  const matchupUserTeamId = userTeamId;
+  const matchupOppId = oppId || (userIsHome ? awayTeamId : homeTeamId);
+  const userRows = userIsHome ? (detail?.homeRows || []) : (detail?.awayRows || []);
+  const oppRows = userIsHome ? (detail?.awayRows || []) : (detail?.homeRows || []);
+  const userTeam = buildTeamNarrativeSnapshot(matchupUserTeamId, { gameRows: userRows, limit });
+  const opponentTeam = buildTeamNarrativeSnapshot(matchupOppId, { gameRows: oppRows, limit });
+  const flow = gameRes.flow || null;
+  return {
+    gameId,
+    phase: String(detail?.phase || 'regular'),
+    round: parseNum(detail?.round, parseNum(result?.gameNum, 0)),
+    userIsHome,
+    win: !!gameRes.win,
+    score: {
+      user: parseNum(gameRes.teamPts, 0),
+      opp: parseNum(gameRes.oppPts, 0)
+    },
+    flow: {
+      summary: String(flow?.summary || detail?.flow?.summary || ''),
+      leadChanges: parseNum(flow?.leadChanges, 0),
+      clutch: !!flow?.clutch,
+      clutchMargin: parseNum(flow?.clutchMargin, 0),
+      pace: parseNum(flow?.pace, 96),
+      periodLabels: Array.isArray(flow?.periodLabels) ? [...flow.periodLabels] : ['Q1', 'Q2', 'Q3', 'Q4'],
+      hasOvertime: !!flow?.hasOvertime,
+      finalMargin: Math.abs(parseNum(gameRes.teamPts, 0) - parseNum(gameRes.oppPts, 0)),
+      myPeriods: Array.isArray(flow?.myPeriods) ? [...flow.myPeriods] : [],
+      oppPeriods: Array.isArray(flow?.oppPeriods) ? [...flow.oppPeriods] : [],
+      runs: Array.isArray(flow?.runs) ? flow.runs.slice(0, 5).map(x => String(x || '').slice(0, 80)) : []
+    },
+    userTeam,
+    opponentTeam,
+    spotlight: {
+      user: userTeam?.boxScore || [],
+      opp: opponentTeam?.boxScore || []
+    }
+  };
+}
+function buildLLMPromptPresetSection({ context = null, scope = 'social' } = {}) {
+  ensureSocialState();
+  const presets = normalizeLLMPresetConfig(G.social?.llm?.presets);
+  if (!presets.enabled) return '';
+  const allowNarrative = scope !== 'analysis';
+  const lines = [];
+  if (presets.dataFirst) {
+    lines.push('【数据优先】只依据输入里的球队、球员、比分、轮换、比赛流和球队数据写作，不要编造不存在的球员、荣誉或比分。');
+  }
+  if (presets.antiOmniscience) {
+    lines.push(getTGBreakPromptContent('👁️‍🗨️防全知（嵌入思维链）', '【防全知】只写角色已知信息；不知道就写疑惑、观察或去确认，不要偷看未来结果、未出现的内幕或别人的脑内想法。'));
+  }
+  if (presets.antiVariable) {
+    lines.push(getTGBreakPromptContent('⚙️防变量出错', '【防变量出错】所有球队、球员、比分、轮换、时间和胜负关系都以 context 为准；若缺数据就保守写，不要补全。'));
+  }
+  if (allowNarrative && presets.antiTalk) {
+    lines.push(getTGBreakPromptContent('🤐防抢话', '【防抢话】不要替用户或其他角色抢对白；轮到谁说话就让谁说，必要时用提问或停顿保留回应空间。'));
+  }
+  if (allowNarrative && presets.strictTurnTaking) {
+    lines.push(getTGBreakPromptContent('🤐超级防抢话(Gemini3/3.1专用)', '【超级防抢话】遇到需要用户选择或回应的节点，立即收束，不要替用户做决定，也不要继续替用户发言。'));
+  }
+  if (allowNarrative && presets.styleEnabled) {
+    const stylePromptMap = {
+      '白描': ['👻基础文风', '基础文风'],
+      'TG推荐文风': ['👻TG推荐文风', 'TG推荐文风'],
+      'TG推荐文风2': ['👻TG推荐文风2', 'TG推荐文风2'],
+      '纯爱文风': ['👻纯爱文风', '纯爱文风'],
+      '轻小说文风': ['👻轻小说文风', '轻小说文风'],
+      '热血': ['👻TG推荐文风', 'TG推荐文风'],
+      '数据流': ['👻TG推荐文风2', 'TG推荐文风2'],
+      '纪实': ['👻基础文风', '基础文风'],
+      '吐槽': ['👻TG推荐文风', 'TG推荐文风']
+    };
+    const styleKeys = stylePromptMap[presets.style] || stylePromptMap['白描'];
+    lines.push(getTGBreakPromptContent(styleKeys, LLM_STYLE_PRESET_MAP[presets.style] || LLM_STYLE_PRESET_MAP['白描']));
+  }
+  if (allowNarrative && presets.emotionControl) {
+    lines.push(getTGBreakPromptContent('😱防极端情绪', '【情绪防极端】情绪保持克制和生活化，不要狂怒、崩溃或过度戏剧化，允许有波动但要有过渡。'));
+  }
+  if (allowNarrative && presets.roleHope) {
+    lines.push(getTGBreakPromptContent('✔️角色防绝望', '【角色防绝望】角色可以不满、抗拒、嘴硬，但不要写成彻底绝望或自我放弃。'));
+  }
+  const matchup = context?.matchup || context?.gameResult?.matchup || context?.matchupContext || null;
+  if (allowNarrative && presets.gameInteraction && matchup) {
+    const userTeam = matchup.userTeam?.name || matchup.userTeam?.abbr || '主队';
+    const oppTeam = matchup.opponentTeam?.name || matchup.opponentTeam?.abbr || '对手';
+    lines.push(`【比赛互动】本场对阵 ${userTeam} 和 ${oppTeam}。必须同时写出主角、队友、对手核心或教练的反应，至少包含 2 个非主角角色的互动；赢球写庆祝、尊重或挑衅，输球写复盘、失落或对手回应。不要把整场比赛写成主角独白。`);
+    lines.push(`【对位数据】${JSON.stringify({
+      gameId: matchup.gameId,
+      phase: matchup.phase,
+      round: matchup.round,
+      userIsHome: matchup.userIsHome,
+      win: matchup.win,
+      score: matchup.score,
+      flow: matchup.flow,
+      userTeam: matchup.userTeam,
+      opponentTeam: matchup.opponentTeam
+    })}`);
+  }
+  return lines.join('\n');
 }
 function personaHandle(key) {
   const p = SOCIAL_PERSONAS[key] || SOCIAL_PERSONAS.neutral;
@@ -2482,6 +3429,8 @@ function generateFallbackDailyTweets(context, count = rng(6, 12)) {
   const posts = [];
   const c = context || buildDailySocialContext(null);
   const game = c.gameResult;
+  const gameStory = c.gameStory || null;
+  const closeGame = !!gameStory?.closeGame;
 
   // --- 互联网内容（无论有没有比赛都生成） ---
   const inet1 = generateInternetPosts(c);
@@ -2504,11 +3453,52 @@ function generateFallbackDailyTweets(context, count = rng(6, 12)) {
 
   // --- 比赛日：加入玩家相关帖子 ---
   if (game) {
+    const recapTail = closeGame
+      ? '这场球一直咬到最后才分出胜负。'
+      : '这场球更像全场四节节奏推进出来的结果。';
+    const winTexts = closeGame ? [
+      `${c.player.name}今天把收官处理住了，硬仗就是这么拿下的。`,
+      `这一场打到最后才分出胜负，${c.player.name}没掉链子。`,
+      `${c.player.name}在末段站住了，这才是赢球的关键。`,
+      `加时/收官都扛住了，${c.player.name}今天是真硬。`,
+      `${c.player.name}今天把最后几回合都处理得很成熟。`,
+      `赢球靠的是整场执行，${c.player.name}今天没让比赛跑偏。`,
+      `${c.player.name}今天不是单节爆发，是全场都在压节奏。`,
+      `这场赢球不是运气，是整场都咬得够紧。`
+    ] : [
+      `${c.player.name}今天整场都很稳，赢球靠的是全场输出。`,
+      `赢球不是靠一节，${c.player.name}四节都在线。`,
+      `${c.player.name}把比赛从头带到尾，节奏控制得很成熟。`,
+      `这场赢球更像全队执行到位，不是单点爆发。`,
+      `${game.pts}分${game.reb}板${game.ast}助，${c.player.name}今天是全场主线。`,
+      `买票值了，${c.player.name}这一场是完整发挥。`,
+      `赢了！${c.player.name}今天把整场强度都顶住了。`,
+      `${c.player.name}今天不是一节发力，是四节都在发力。`
+    ];
+    const lossTexts = closeGame ? [
+      `末段没咬住，前面铺垫再好也白搭。`,
+      `关键回合处理得不够果断，最后差一口气。`,
+      `一场咬到最后的球，还是在细节上输了。`,
+      `${c.player.name}前面打得还行，但最后几回合还是没守住。`,
+      `这种球就得看收官，今天显然差了点。`,
+      `比赛一直打到最后，${c.player.name}还是没把胜负拽回来。`,
+      `输了不怪某一节，整场执行都得更稳。`,
+      `差的不是一个回合，是收尾那一下的稳定性。`
+    ] : [
+      `输了球先别盯着某一节，整场执行都要更稳。`,
+      `${c.player.name}今天是全场都没把节奏拿住，不是最后一攻的问题。`,
+      `这场输球看的是整场，不是单独一节。`,
+      `防守和选择都得从头修。`,
+      `${c.player.name}今天需要把整场的细节处理得更顺。`,
+      `比分只是结果，过程里有太多回合该打得更聪明。`,
+      `这场球的核心不是“第四节”，是整场的节奏都没抢回来。`,
+      `要调整的是整场输出，不是只盯着末段。`
+    ];
     posts.push({
       author: personaHandle('news'),
       persona: SOCIAL_PERSONAS.news.type,
       tone: 'neutral',
-      text: `${c.team.abbr} ${game.teamPts}-${game.oppPts} ${game.opp}，${c.player.name} ${game.pts}分${game.reb}板${game.ast}助，评级 ${gradeLetter(game.grade)}。`,
+      text: `${c.team.abbr} ${game.teamPts}-${game.oppPts} ${game.opp}，${c.player.name} ${game.pts}分${game.reb}板${game.ast}助，评级 ${gradeLetter(game.grade)}。${recapTail}`,
       likes: rng(220, 1200),
       reposts: rng(40, 320),
       comments: makeFallbackComments('赛后快报', game.win ? 'positive' : 'negative', 4)
@@ -2518,32 +3508,8 @@ function generateFallbackDailyTweets(context, count = rng(6, 12)) {
       persona: game.win ? SOCIAL_PERSONAS.fan.type : SOCIAL_PERSONAS.hater.type,
       tone: game.win ? 'supportive' : 'critical',
       text: game.win
-        ? pick([
-          `${c.player.name}今天打得真硬，继续这样冲季后赛。`,
-          `赢球就是舒服，${c.player.name}状态在线！`,
-          `${c.player.name} ${game.pts}分带队赢球，这才是该有的样子。`,
-          `${c.player.name}关键时刻没软，这就是球星的担当。`,
-          `队伍赢了最重要，${c.player.name}今天打得很稳。`,
-          `${c.player.name}今天攻防两端都有贡献，全面表现。`,
-          `这就是实力，${c.player.name}不需要解释，让数据说话。`,
-          `赢球心情好，${c.player.name}继续保持就能冲一波了。`,
-          `${game.pts}分${game.reb}板${game.ast}助，${c.player.name}今天的表现我给满分。`,
-          `看到${c.player.name}这样打球，买票看比赛值了。`,
-          `${c.player.name}今天第四节站出来了，这就是领袖气质。`,
-          `赢了！${c.player.name}今天节奏控制得很好，继续加油。`,
-        ])
-        : pick([
-          `输了球就别飘，防守和选择都要更稳一点。`,
-          `${c.player.name}今天${game.pts}分？就这数据还想赢球？`,
-          `输球不可怕，可怕的是看不到改变。`,
-          `${c.player.name}今天关键球处理得不好，经验还得攒。`,
-          `又输了…${c.player.name}需要反思一下投篮选择了。`,
-          `今天的比赛说明进攻不是唯一的，防守端漏洞太多。`,
-          `${c.player.name}在场球队净负${rng(5, 15)}分…教练组也该反思了。`,
-          `输球夜，不想说话。${c.player.name}明天加练吧。`,
-          `比分说明一切。${c.player.name}有能力但今天没发挥出来。`,
-          `这种比赛输了都不想看集锦了，${c.player.name}好好调整吧。`,
-        ]),
+        ? pick(winTexts)
+        : pick(lossTexts),
       likes: rng(80, 760),
       reposts: rng(10, 160),
       comments: makeFallbackComments('球迷反应', game.win ? 'positive' : 'negative', 3)
@@ -2553,7 +3519,7 @@ function generateFallbackDailyTweets(context, count = rng(6, 12)) {
   // --- 非比赛日：加入历史/当年新闻与联盟花边 ---
   if (!game) {
     // 基础训练/球队推文（降低概率）
-    if (Math.random() < 0.3) {
+    if (Math.random() < 0.18) {
       posts.push({
         author: personaHandle('news'),
         persona: SOCIAL_PERSONAS.news.type,
@@ -2731,12 +3697,50 @@ function parseDailySocialPostsFromRaw(raw) {
   }
   return normalizeDailySocialPosts(parsed);
 }
+function socialPostMentionsPlayer(post, context = null) {
+  const name = String(context?.player?.name || G.player?.name || '').trim();
+  if (!name) return false;
+  const text = cleanSocialText(post?.text || '');
+  return !!text && text.includes(name);
+}
+function dedupeSocialPosts(posts) {
+  const out = [];
+  const seen = new Set();
+  for (const post of Array.isArray(posts) ? posts : []) {
+    const text = cleanSocialText(post?.text || '');
+    if (!text) continue;
+    const key = `${text}|${String(post?.author || '')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(post);
+  }
+  return out;
+}
+function rebalanceDailySocialPosts(posts, context, targetCount) {
+  const base = dedupeSocialPosts(posts);
+  const desiredPlayerMax = context?.gameToday ? 2 : 1;
+  const playerIdx = [];
+  base.forEach((post, idx) => {
+    if (socialPostMentionsPlayer(post, context)) playerIdx.push(idx);
+  });
+  const reserve = dedupeSocialPosts(generateFallbackDailyTweets(context, Math.max(10, targetCount + 4)))
+    .filter(post => !socialPostMentionsPlayer(post, context));
+  let reserveIdx = 0;
+  while (playerIdx.length > desiredPlayerMax && reserveIdx < reserve.length) {
+    const idx = playerIdx.pop();
+    base[idx] = reserve[reserveIdx++];
+  }
+  while (base.length < targetCount && reserveIdx < reserve.length) {
+    base.push(reserve[reserveIdx++]);
+  }
+  return base.slice(0, targetCount);
+}
 async function generateDailyTweetsByGeminiNative(baseUrl, apiKey, model, context, count) {
   const modelName = normalizeModelNameForGemini(model);
   const endpoint = `${baseUrl}/models/${encodeURIComponent(modelName)}:generateContent`;
   const req = buildLLMRequestConfig(baseUrl, apiKey, endpoint, { jsonBody: true });
   const payload = {
-    systemInstruction: { parts: [{ text: llmSystemPrompt() }] },
+    systemInstruction: { parts: [{ text: llmSystemPrompt(context) }] },
     contents: [{ role: 'user', parts: [{ text: llmUserPromptPayload(context, count) }] }],
     generationConfig: {
       temperature: 0.9,
@@ -2766,7 +3770,7 @@ async function generateDailyTweetsByLLM(context, count = 7) {
     model,
     temperature: 0.9,
     messages: [
-      { role: 'system', content: llmSystemPrompt() },
+      { role: 'system', content: llmSystemPrompt(context) },
       { role: 'user', content: llmUserPromptPayload(context, count) }
     ],
     response_format: { type: 'json_object' }
@@ -2809,6 +3813,45 @@ async function generateDailySocialTweets(dayResult, { force = false } = {}) {
     // LLM 未开启或失败时不再生成模板推文，直接跳过
     return [];
   }
+  posts = posts.map(p => ({
+    ...p,
+    text: sanitizeDraftNarrativeText(p?.text || '', context),
+    comments: (Array.isArray(p?.comments) ? p.comments : []).map(c => ({
+      ...c,
+      text: sanitizeDraftNarrativeText(c?.text || '', context)
+    }))
+  }));
+  const added = posts.slice(0, 10).map(p => appendSocialPost({ ...p, day, season, year: G.year }));
+  const generatedCount = (G.social.posts || []).filter(p =>
+    parseNum(p?.season, 0) === season &&
+    parseNum(p?.day, -999) === day &&
+    !p?.isPlayer
+  ).length;
+  markSocialGeneratedDay(day, generatedCount, season);
+  G.social.lastGeneratedDay = day;
+  if (parseNum(G.social.pendingRequiredDay, -1) === day && generatedCount >= 5) G.social.pendingRequiredDay = -1;
+  if (added.length) addPhone('推特热榜', `今日生成 ${added.length} 条新推文，包含新闻/球迷/黑子/中立/数据流视角。`, 'social');
+  return added;
+}
+async function generateDailySocialTweetsSmart(dayResult, { force = false } = {}) {
+  ensureSocialState();
+  const day = parseNum(dayResult?.day, Math.max(0, parseNum(G.dayNum, 1) - 1));
+  const season = parseNum(dayResult?.season, G.season);
+  if (!force && hasGeneratedSocialForDay(day, season)) return [];
+  const context = buildDailySocialContext(dayResult);
+  const targetCount = rng(5, 10);
+  let posts = null;
+  try {
+    posts = await generateDailyTweetsByLLM(context, targetCount);
+  } catch (e) {
+    G.social.lastLLMError = String(e?.message || e);
+  }
+  if (Array.isArray(posts) && posts.length) G.social.lastLLMError = '';
+  if (!Array.isArray(posts) || !posts.length) {
+    posts = generateFallbackDailyTweets(context, targetCount);
+  }
+  if (!Array.isArray(posts) || !posts.length) return [];
+  posts = rebalanceDailySocialPosts(posts, context, targetCount);
   posts = posts.map(p => ({
     ...p,
     text: sanitizeDraftNarrativeText(p?.text || '', context),
@@ -3081,7 +4124,7 @@ function replyToSocialPost(postId, text) {
 }
 async function regenerateTodaySocialTweets() {
   const dayResult = { day: Math.max(0, parseNum(G.dayNum, 0) - 1), date: getDayDateString(Math.max(0, parseNum(G.dayNum, 0) - 1)), isGame: false, gameResult: null };
-  return generateDailySocialTweets(dayResult, { force: true });
+  return generateDailySocialTweetsSmart(dayResult, { force: true });
 }
 
 // ============ 交易与续约系统 ============
@@ -3777,9 +4820,205 @@ function simulateAIPlayerLine(player, minutes, teamRating, oppRating, opponentSa
   return line;
 }
 function estimateLeagueTeamScore(teamRating, oppRating) {
-  const pace = 96 + rng(-4, 4);
+  const pace = estimateLeagueGamePace(teamRating, oppRating);
   const offEff = 110 + (parseNum(teamRating, 75) - 75) * 0.52 - (parseNum(oppRating, 75) - 75) * 0.34 + rng(-5, 5);
   return clamp(Math.round((pace * offEff) / 100), 78, 132);
+}
+function estimateLeagueGamePace(teamRating, oppRating, { playoff = false } = {}) {
+  const t = parseNum(teamRating, 75);
+  const o = parseNum(oppRating, 75);
+  const avg = (t + o) / 2;
+  const style = (avg - 75) * 0.24;
+  const spreadDrag = Math.abs(t - o) * 0.06;
+  const playoffDrag = playoff ? 1.6 : 0;
+  return clamp(Math.round(95 + style - spreadDrag - playoffDrag + rng(-3, 3)), 88, 108);
+}
+function estimateLeagueGameTargets(teamA, teamB, { playoff = false } = {}) {
+  const pace = estimateLeagueGamePace(teamA, teamB, { playoff });
+  const possA = clamp(pace + rng(-3, 3), 82, 114);
+  const possB = clamp(pace + rng(-3, 3), 82, 114);
+  const offA = 109 + (parseNum(teamA, 75) - 75) * 0.58 - (parseNum(teamB, 75) - 75) * 0.32 + rng(-4, 4);
+  const offB = 109 + (parseNum(teamB, 75) - 75) * 0.58 - (parseNum(teamA, 75) - 75) * 0.32 + rng(-4, 4);
+  const scoreA = clamp(Math.round((possA * offA) / 100), 78, 136);
+  const scoreB = clamp(Math.round((possB * offB) / 100), 78, 136);
+  return { scoreA, scoreB, pace, possA, possB };
+}
+function normalizeSegmentWeights(baseWeights) {
+  const safe = (baseWeights || []).map(w => Math.max(0.12, parseNum(w, 0.25)));
+  const sum = safe.reduce((s, v) => s + v, 0) || 1;
+  return safe.map(v => v / sum);
+}
+function splitScoreByWeights(totalScore, rawWeights) {
+  const total = Math.max(0, Math.round(parseNum(totalScore, 0)));
+  const weights = normalizeSegmentWeights(rawWeights);
+  if (!weights.length) return [total];
+  const raw = weights.map(w => w * total);
+  const base = raw.map(v => Math.floor(v));
+  let remain = total - base.reduce((s, v) => s + v, 0);
+  const order = raw
+    .map((v, i) => ({ i, frac: v - base[i] }))
+    .sort((a, b) => b.frac - a.frac);
+  let ptr = 0;
+  while (remain > 0 && order.length) {
+    base[order[ptr % order.length].i]++;
+    remain--;
+    ptr++;
+  }
+  return base;
+}
+function buildRunNarratives(homeTeamId, awayTeamId, { closeGame = false, playoff = false } = {}) {
+  const homeAbbr = getTeam(homeTeamId)?.a || 'HOME';
+  const awayAbbr = getTeam(awayTeamId)?.a || 'AWAY';
+  const runs = [];
+  const runCount = closeGame ? rng(2, 4) : rng(1, 3);
+  for (let i = 0; i < runCount; i++) {
+    const isHomeRun = Math.random() < 0.5;
+    const runFor = rng(playoff ? 9 : 8, playoff ? 16 : 15);
+    const runAgainst = rng(0, closeGame ? 6 : 5);
+    const attack = Math.max(runFor, runAgainst + rng(3, 8));
+    const defend = Math.min(runAgainst, attack - 2);
+    const team = isHomeRun ? homeAbbr : awayAbbr;
+    runs.push(`${team} 打出 ${attack}-${defend} 攻击波`);
+  }
+  return runs;
+}
+function buildGameFlowDetail({ homeTeamId = 0, awayTeamId = 0, homeScore = 100, awayScore = 96, homeStrength = 75, awayStrength = 75, phase = 'regular' } = {}) {
+  const hScore = clamp(Math.round(parseNum(homeScore, 100)), 60, 145);
+  const aScore = clamp(Math.round(parseNum(awayScore, 96)), 60, 145);
+  const diff = Math.abs(hScore - aScore);
+  const playoff = String(phase || '').toLowerCase() === 'playoff';
+  const closeGame = diff <= 8;
+
+  const pace = estimateLeagueGamePace(homeStrength, awayStrength, { playoff });
+  const homePoss = clamp(pace + rng(-3, 3), 82, 114);
+  const awayPoss = clamp(pace + rng(-3, 3), 82, 114);
+  const homeOrtg = +((hScore / Math.max(homePoss, 1)) * 100).toFixed(1);
+  const awayOrtg = +((aScore / Math.max(awayPoss, 1)) * 100).toFixed(1);
+  const homeEfg = +(clamp(0.47 + ((homeOrtg - 108) * 0.0024) + (rng(-20, 20) / 1000), 0.42, 0.64) * 100).toFixed(1);
+  const awayEfg = +(clamp(0.47 + ((awayOrtg - 108) * 0.0024) + (rng(-20, 20) / 1000), 0.42, 0.64) * 100).toFixed(1);
+  const homeTovRate = +clamp(12.8 - ((parseNum(homeStrength, 75) - 75) * 0.12) + (rng(-14, 14) / 10), 9.2, 17.8).toFixed(1);
+  const awayTovRate = +clamp(12.8 - ((parseNum(awayStrength, 75) - 75) * 0.12) + (rng(-14, 14) / 10), 9.2, 17.8).toFixed(1);
+
+  const homeWeights = normalizeSegmentWeights([
+    0.24 + (rng(-15, 15) / 1000),
+    0.25 + (rng(-15, 15) / 1000),
+    0.23 + (rng(-15, 15) / 1000),
+    0.28 + (closeGame ? 0.015 : -0.005) + (rng(-12, 12) / 1000)
+  ]);
+  const awayWeights = normalizeSegmentWeights([
+    0.24 + (rng(-15, 15) / 1000),
+    0.25 + (rng(-15, 15) / 1000),
+    0.23 + (rng(-15, 15) / 1000),
+    0.28 + (closeGame ? 0.015 : -0.005) + (rng(-12, 12) / 1000)
+  ]);
+
+  let periodLabels = ['Q1', 'Q2', 'Q3', 'Q4'];
+  let homePeriods = [];
+  let awayPeriods = [];
+  let hasOvertime = false;
+  const otChance = playoff ? 0.22 : 0.12;
+  if (diff <= 6 && Math.random() < otChance) {
+    let otHome = clamp(rng(6, 14) + (hScore > aScore ? 1 : 0), 5, 18);
+    let otAway = clamp(rng(6, 14) + (aScore > hScore ? 1 : 0), 5, 18);
+    if (hScore > aScore && otHome <= otAway) otHome = Math.min(18, otAway + 1);
+    if (aScore > hScore && otAway <= otHome) otAway = Math.min(18, otHome + 1);
+    const regHome = hScore - otHome;
+    const regAway = aScore - otAway;
+    if (regHome >= 62 && regAway >= 62) {
+      homePeriods = splitScoreByWeights(regHome, homeWeights);
+      awayPeriods = splitScoreByWeights(regAway, awayWeights);
+      periodLabels = ['Q1', 'Q2', 'Q3', 'Q4', 'OT'];
+      homePeriods.push(otHome);
+      awayPeriods.push(otAway);
+      hasOvertime = true;
+    }
+  }
+  if (!homePeriods.length || !awayPeriods.length) {
+    homePeriods = splitScoreByWeights(hScore, homeWeights);
+    awayPeriods = splitScoreByWeights(aScore, awayWeights);
+  }
+
+  let swingSeed = 0;
+  let hCum = 0;
+  let aCum = 0;
+  let lastLeader = 0;
+  for (let i = 0; i < homePeriods.length; i++) {
+    hCum += parseNum(homePeriods[i], 0);
+    aCum += parseNum(awayPeriods[i], 0);
+    const leader = hCum === aCum ? 0 : (hCum > aCum ? 1 : -1);
+    if (leader !== 0 && lastLeader !== 0 && leader !== lastLeader) swingSeed++;
+    if (leader !== 0) lastLeader = leader;
+  }
+  const leadChanges = clamp(swingSeed * 2 + (closeGame ? rng(4, 10) : rng(1, 5)), 1, 26);
+  const winnerHome = hScore > aScore;
+  const winnerLead = clamp(diff + rng(6, 14), 6, 30);
+  const loserLead = clamp(rng(1, closeGame ? 8 : 6), 0, 14);
+  const biggestLeadHome = winnerHome ? winnerLead : loserLead;
+  const biggestLeadAway = winnerHome ? loserLead : winnerLead;
+  const clutch = hasOvertime || diff <= 7 || (diff <= 12 && Math.random() < 0.45);
+  const clutchMargin = clutch ? clamp(diff, 1, 12) : 0;
+
+  let summary = '';
+  if (hasOvertime) summary = '鏖战到加时才分出胜负。';
+  else if (diff <= 3) summary = '最后一攻决定了比赛。';
+  else if (diff <= 8) summary = '末节关键回合拉开分差。';
+  else if (diff <= 15) summary = '第三节打出分差，末节守住优势。';
+  else summary = '上半场建立优势，比赛节奏被完全掌控。';
+  if (playoff) summary = `季后赛强度拉满，${summary}`;
+
+  return {
+    phase: playoff ? 'playoff' : 'regular',
+    homeAbbr: getTeam(homeTeamId)?.a || 'HOME',
+    awayAbbr: getTeam(awayTeamId)?.a || 'AWAY',
+    periodLabels,
+    homePeriods,
+    awayPeriods,
+    hasOvertime,
+    pace,
+    homePoss,
+    awayPoss,
+    homeOrtg,
+    awayOrtg,
+    homeEfg,
+    awayEfg,
+    homeTovRate,
+    awayTovRate,
+    leadChanges,
+    biggestLeadHome,
+    biggestLeadAway,
+    clutch,
+    clutchMargin,
+    runs: buildRunNarratives(homeTeamId, awayTeamId, { closeGame, playoff }),
+    summary
+  };
+}
+function orientFlowForUser(flow, userIsHome) {
+  if (!flow || typeof flow !== 'object') return null;
+  const home = !!userIsHome;
+  return {
+    periodLabels: Array.isArray(flow.periodLabels) ? [...flow.periodLabels] : ['Q1', 'Q2', 'Q3', 'Q4'],
+    myPeriods: Array.isArray(home ? flow.homePeriods : flow.awayPeriods) ? [...(home ? flow.homePeriods : flow.awayPeriods)] : [],
+    oppPeriods: Array.isArray(home ? flow.awayPeriods : flow.homePeriods) ? [...(home ? flow.awayPeriods : flow.homePeriods)] : [],
+    hasOvertime: !!flow.hasOvertime,
+    pace: parseNum(flow.pace, 96),
+    myPoss: parseNum(home ? flow.homePoss : flow.awayPoss, 95),
+    oppPoss: parseNum(home ? flow.awayPoss : flow.homePoss, 95),
+    myOrtg: parseNum(home ? flow.homeOrtg : flow.awayOrtg, 110),
+    oppOrtg: parseNum(home ? flow.awayOrtg : flow.homeOrtg, 108),
+    myEfg: parseNum(home ? flow.homeEfg : flow.awayEfg, 50),
+    oppEfg: parseNum(home ? flow.awayEfg : flow.homeEfg, 50),
+    myTovRate: parseNum(home ? flow.homeTovRate : flow.awayTovRate, 13),
+    oppTovRate: parseNum(home ? flow.awayTovRate : flow.homeTovRate, 13),
+    leadChanges: parseNum(flow.leadChanges, 0),
+    myBiggestLead: parseNum(home ? flow.biggestLeadHome : flow.biggestLeadAway, 0),
+    oppBiggestLead: parseNum(home ? flow.biggestLeadAway : flow.biggestLeadHome, 0),
+    clutch: !!flow.clutch,
+    clutchMargin: parseNum(flow.clutchMargin, 0),
+    runs: Array.isArray(flow.runs) ? [...flow.runs] : [],
+    summary: String(flow.summary || ''),
+    myAbbr: home ? (flow.homeAbbr || 'ME') : (flow.awayAbbr || 'ME'),
+    oppAbbr: home ? (flow.awayAbbr || 'OPP') : (flow.homeAbbr || 'OPP')
+  };
 }
 function linesToGameDetailRows(lines, teamId) {
   return sortGameDetailRows((lines || []).map(({ player, stats }) => makeGameDetailRow(player, stats, teamId)));
@@ -3821,8 +5060,9 @@ function simulateLeagueMatchup(teamAId, teamBId, { roundIndex = 0, forceWinnerId
     targetA = clamp(Math.round(scoreOverride.scoreA), 60, 145);
     targetB = clamp(Math.round(scoreOverride.scoreB), 60, 145);
   } else {
-    targetA = estimateLeagueTeamScore(strA, strB);
-    targetB = estimateLeagueTeamScore(strB, strA);
+    const targetPack = estimateLeagueGameTargets(strA, strB, { playoff: false });
+    targetA = parseNum(targetPack.scoreA, estimateLeagueTeamScore(strA, strB));
+    targetB = parseNum(targetPack.scoreB, estimateLeagueTeamScore(strB, strA));
   }
   if (forceWinnerId === teamAId && targetA <= targetB) targetA = targetB + 1;
   if (forceWinnerId === teamBId && targetB <= targetA) targetB = targetA + 1;
@@ -3849,6 +5089,15 @@ function simulateLeagueMatchup(teamAId, teamBId, { roundIndex = 0, forceWinnerId
     if (Math.random() < 0.5) scoreA = Math.min(145, scoreA + 1);
     else scoreB = Math.min(145, scoreB + 1);
   }
+  const flow = buildGameFlowDetail({
+    homeTeamId: teamAId,
+    awayTeamId: teamBId,
+    homeScore: scoreA,
+    awayScore: scoreB,
+    homeStrength: strA,
+    awayStrength: strB,
+    phase: 'regular'
+  });
 
   const userTid = parseNum(userTeamId, 0);
   const shouldInjectUser = !!userGame && userTid > 0 && (teamAId === userTid || teamBId === userTid);
@@ -3908,18 +5157,35 @@ function simulateLeagueMatchup(teamAId, teamBId, { roundIndex = 0, forceWinnerId
     awayScore: scoreB,
     winTeamId: aWin ? teamAId : teamBId,
     userGame: !!shouldInjectUser,
+    flow,
     homeRows,
     awayRows
   });
   // 生成高光新闻（高分、三双等）
-  generateHighlightNews([...homeRows, ...awayRows], teamAId, teamBId);
-  return { aWin, scoreA, scoreB, gameId, homeRows, awayRows };
+  generateHighlightNews([...homeRows, ...awayRows], teamAId, teamBId, { scoreA, scoreB, flow });
+  return { aWin, scoreA, scoreB, gameId, homeRows, awayRows, flow };
 }
 // ============ APK风格高光新闻生成器 ============
-function generateHighlightNews(rows, homeId, awayId) {
+function generateHighlightNews(rows, homeId, awayId, gameInfo = null) {
   const homeTeam = (getTeam(homeId) || {}).a || '主队';
   const awayTeam = (getTeam(awayId) || {}).a || '客队';
   const newsGenerated = new Set();
+  if (gameInfo && Number.isFinite(parseNum(gameInfo.scoreA, NaN)) && Number.isFinite(parseNum(gameInfo.scoreB, NaN))) {
+    const flow = gameInfo.flow || {};
+    const homeScore = parseNum(gameInfo.scoreA, 0);
+    const awayScore = parseNum(gameInfo.scoreB, 0);
+    const finalMargin = Math.abs(homeScore - awayScore);
+    const closeGame = !!flow.hasOvertime || !!flow.clutch || finalMargin <= 7;
+    const recap = String(flow.summary || '').trim() || (closeGame
+      ? '末段一直咬到最后才分出胜负。'
+      : '全场四节节奏清晰，胜负在整体执行里逐步拉开。');
+    addNews(`📣 赛后快报：${homeTeam} ${homeScore}-${awayScore} ${awayTeam}，${recap}`, closeGame ? 'pos' : 'neu');
+    const labels = Array.isArray(flow.periodLabels) && flow.periodLabels.length ? flow.periodLabels : ['Q1', 'Q2', 'Q3', 'Q4'];
+    const homePeriods = Array.isArray(flow.homePeriods) ? flow.homePeriods : [];
+    const awayPeriods = Array.isArray(flow.awayPeriods) ? flow.awayPeriods : [];
+    const periodText = labels.map((label, idx) => `${label} ${parseNum(homePeriods[idx], 0)}-${parseNum(awayPeriods[idx], 0)}`).join('；');
+    if (periodText) addNews(`🧭 四节走势：${periodText}`, 'neu');
+  }
 
   // 按得分排序找最佳球员
   const validRows = rows.filter(r => r.status !== '缺阵' && r.status !== 'DNP');
@@ -4040,21 +5306,28 @@ function generateHighlightNews(rows, homeId, awayId) {
     }
   });
 }
-function estimateUserTeamScore(win, playerPts, myStrength, oppStrength) {
+function estimateUserTeamScore(win, playerPts, myStrength, oppStrength, { playoff = false } = {}) {
   const pPts = parseNum(playerPts, 0);
-  const baseTeam = estimateLeagueTeamScore(myStrength, oppStrength);
+  const estimatePack = estimateLeagueGameTargets(myStrength, oppStrength, { playoff });
+  const baseTeam = parseNum(estimatePack.scoreA, estimateLeagueTeamScore(myStrength, oppStrength));
   // 队友得分 = 基础估算 × (1 - 玩家占比)，玩家得分越高队友占比越低
   const teammatePct = clamp(0.78 - pPts / 350, 0.55, 0.82);
   const restPts = Math.round(baseTeam * teammatePct + rng(-4, 4));
   let my = clamp(restPts + pPts, 72, 145);
-  let opp = clamp(Math.round(estimateLeagueTeamScore(oppStrength, myStrength) + rng(-4, 4)), 72, 145);
+  let opp = clamp(Math.round(parseNum(estimatePack.scoreB, estimateLeagueTeamScore(oppStrength, myStrength)) + rng(-4, 4)), 72, 145);
   if (win && my <= opp) my = Math.min(145, opp + rng(1, 7));
   if (!win && opp <= my) opp = Math.min(145, my + rng(1, 7));
   if (my === opp) {
     if (win) my = Math.min(145, my + 1);
     else opp = Math.min(145, opp + 1);
   }
-  return { my, opp };
+  return {
+    my,
+    opp,
+    pace: parseNum(estimatePack.pace, 96),
+    myPoss: parseNum(estimatePack.possA, 95),
+    oppPoss: parseNum(estimatePack.possB, 95)
+  };
 }
 function getApproxUserLineFromRole(oppRating) {
   const attrs = {
@@ -4122,7 +5395,8 @@ function simulateLeagueRound(userGame) {
   let userBox = {
     myScore: score.my,
     oppScore: score.opp,
-    gameId: ''
+    gameId: '',
+    flow: null
   };
 
   matchups.forEach(m => {
@@ -4143,7 +5417,8 @@ function simulateLeagueRound(userGame) {
       userBox = {
         myScore: m.home === G.teamId ? res.scoreA : res.scoreB,
         oppScore: m.home === G.teamId ? res.scoreB : res.scoreA,
-        gameId: res.gameId || ''
+        gameId: res.gameId || '',
+        flow: orientFlowForUser(res.flow, m.home === G.teamId)
       };
       if (userGame.st) {
         const selfLine = ensureLeaguePlayerLine(G.teamId, { id: 'USER_SELF', name: G.player.name, pos: G.player.pos }, true);
@@ -4281,6 +5556,7 @@ function playGame(idx) {
       win: teamWin,
       teamPts: parseNum(box?.myScore, 0),
       oppPts: parseNum(box?.oppScore, 0),
+      flow: box?.flow || null,
       xp: 0
     });
     applyPostGameSocialEffects({ win: teamWin, grade: 50, stats: null, injured: true, playoff: false });
@@ -4331,7 +5607,8 @@ function playGame(idx) {
     win,
     xp: xpGain,
     teamPts: parseNum(box?.myScore, 0),
-    oppPts: parseNum(box?.oppScore, 0)
+    oppPts: parseNum(box?.oppScore, 0),
+    flow: box?.flow || null
   });
   applyPostGameSocialEffects({ win, grade, stats: st, injured: !!injured, playoff: false });
   // 事件士气修正
@@ -4347,6 +5624,7 @@ function playGame(idx) {
     injured,
     teamPts: parseNum(box?.myScore, 0),
     oppPts: parseNum(box?.oppScore, 0),
+    flow: box?.flow || null,
     gameId: box?.gameId || '',
     gameEvent: G._gameEvent || null,
     effortMode: G._effortMode || 'normal'
@@ -4402,7 +5680,7 @@ function playPlayoffGame() {
   const teamStr = Math.round((getTeamStrength(G.teamId) + teamBoost - toxicPenalty + Math.round((grade - 50) / 6)) * getMoraleMult());
   const winChance = clamp(teamStr / (teamStr + oppStr + 5), 0.25, 0.75);
   const win = Math.random() < winChance;
-  const score = estimateUserTeamScore(win, parseNum(st.pts, 0), getTeamStrength(G.teamId), oppStr + 5);
+  const score = estimateUserTeamScore(win, parseNum(st.pts, 0), getTeamStrength(G.teamId), oppStr + 5, { playoff: true });
   const myScore = parseNum(score.my, 0);
   const oppScore = parseNum(score.opp, 0);
   const userHome = !!G._isHome;
@@ -4410,6 +5688,16 @@ function playPlayoffGame() {
   const awayTeamId = userHome ? opp.id : G.teamId;
   const homeScore = userHome ? myScore : oppScore;
   const awayScore = userHome ? oppScore : myScore;
+  const flow = buildGameFlowDetail({
+    homeTeamId,
+    awayTeamId,
+    homeScore,
+    awayScore,
+    homeStrength: userHome ? getTeamStrength(G.teamId) : oppStr + 5,
+    awayStrength: userHome ? oppStr + 5 : getTeamStrength(G.teamId),
+    phase: 'playoff'
+  });
+  const flowForUser = orientFlowForUser(flow, userHome);
   const gameNo = (Array.isArray(s.games) ? s.games.length : 0) + 1;
   const gameId = `P_S${G.season}_R${G.playoffs.round}_G${gameNo}_T${G.teamId}_O${opp.id}`;
 
@@ -4458,13 +5746,14 @@ function playPlayoffGame() {
     awayScore,
     winTeamId: win ? G.teamId : opp.id,
     userGame: true,
+    flow,
     homeRows,
     awayRows
   });
 
   if (win) s.myWins++; else s.oppWins++;
   updateTeamMorale(win);
-  s.games.push({ ...st, grade, win, teamPts: myScore, oppPts: oppScore, gameId });
+  s.games.push({ ...st, grade, win, teamPts: myScore, oppPts: oppScore, gameId, flow: flowForUser });
   // 季后赛体力系统：模拟休息日恢复 + 比赛消耗
   // 季后赛通常有1-2天休息，先恢复大量体力
   recoverStamina({ rest: true });
@@ -4484,7 +5773,18 @@ function playPlayoffGame() {
   // 模拟背景比赛（其他系列赛）
   simulateBackgroundPlayoffGames();
 
-  return { st: { ...st, teamPts: myScore, oppPts: oppScore }, grade, win, opp, xp: xpGain, myWins: s.myWins, oppWins: s.oppWins, gameId, effortMode: G._effortMode || 'normal' };
+  return {
+    st: { ...st, teamPts: myScore, oppPts: oppScore },
+    grade,
+    win,
+    opp,
+    xp: xpGain,
+    myWins: s.myWins,
+    oppWins: s.oppWins,
+    gameId,
+    flow: flowForUser,
+    effortMode: G._effortMode || 'normal'
+  };
 }
 
 function simulateBackgroundPlayoffGames() {
@@ -5503,7 +6803,6 @@ function executeUserTradeRequest(proposal) {
   const incomingAssets = incomingNpc.slice();
   if (!validateTradePackageContract(outgoingAssets, incomingAssets)) return { ok: false, reason: 'contract' };
   if (!validateTradePackageInjury(outgoingAssets, incomingAssets)) return { ok: false, reason: 'injury' };
-  if (!validateTradePackageSalary(outgoingAssets, incomingAssets, parseNum(req.salaryTolerance, 0.22))) return { ok: false, reason: 'salary' };
   if (!validateTradePackageSalaryCap(targetId, outgoingAssets, incomingAssets, 0.02)) return { ok: false, reason: 'salary_cap' };
   if (!validateTradePackagePositions(targetId, outgoingAssets, incomingAssets)) return { ok: false, reason: 'positions' };
   if (!validateTradePackageMeta(outgoingAssets, incomingAssets)) return { ok: false, reason: 'value_rule' };
