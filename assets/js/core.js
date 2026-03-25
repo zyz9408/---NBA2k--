@@ -1,5 +1,37 @@
 // core.js
 // ============ GAME DATA ============
+
+const DEFAULT_LLM_PRESET_CONFIG = {
+  enabled: true,
+  antiTalk: true,
+  strictTurnTaking: false,
+  styleEnabled: true,
+  style: '白描',
+  antiOmniscience: true,
+  antiVariable: true,
+  emotionControl: true,
+  roleHope: true,
+  gameInteraction: true,
+  dataFirst: true
+};
+
+function normalizeLLMPresetConfig(raw = {}) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  return {
+    enabled: source.enabled !== false,
+    antiTalk: source.antiTalk !== false,
+    strictTurnTaking: source.strictTurnTaking === true,
+    styleEnabled: source.styleEnabled !== false,
+    style: String(source.style || DEFAULT_LLM_PRESET_CONFIG.style || '').trim() || DEFAULT_LLM_PRESET_CONFIG.style,
+    antiOmniscience: source.antiOmniscience !== false,
+    antiVariable: source.antiVariable !== false,
+    emotionControl: source.emotionControl !== false,
+    roleHope: source.roleHope !== false,
+    gameInteraction: source.gameInteraction !== false,
+    dataFirst: source.dataFirst !== false
+  };
+}
+
 const TEAMS = [
   { id: 1, n: "Celtics", z: "凯尔特人", a: "BOS", c: "East", cl: "#007A33", r: 88 },
   { id: 2, n: "Nets", z: "篮网", a: "BKN", c: "East", cl: "#000", r: 75 },
@@ -227,6 +259,7 @@ let G = {
       baseUrl: 'https://api.openai.com/v1',
       model: 'gpt-4.1-mini',
       apiKey: '',
+      imageModel: '',
       presets: {
         enabled: true,
         antiTalk: true,
@@ -249,6 +282,8 @@ let G = {
   settings: { simSpeed: 1 },
   nomadCount: 0
 };
+
+if (typeof globalThis !== 'undefined') globalThis.G = G;
 
 const LEAGUE = {
   loaded: false,
@@ -304,6 +339,8 @@ const pct = v => (v * 100).toFixed(1) + "%";
 const ovr = attrs => { const vals = Object.values(attrs); return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) };
 
 function barClass(v) { return v >= 75 ? 'hi' : v >= 55 ? 'md' : 'lo' }
+function badgeTierClass(lv) { return ['t-none', 'b-bronze', 'b-silver', 'b-gold', 'b-hof'][clamp(parseNum(lv, 0), 0, 4)] || 't-none'; }
+function badgeTierName(lv) { return ['无', '铜', '银', '金', '名人堂'][clamp(parseNum(lv, 0), 0, 4)] || '无'; }
 function gradeClass(g) { return g >= 90 ? 'grade-a' : g >= 75 ? 'grade-b' : g >= 55 ? 'grade-c' : g >= 35 ? 'grade-d' : 'grade-f' }
 function gradeLetter(g) { return g >= 95 ? 'A+' : g >= 90 ? 'A' : g >= 85 ? 'A-' : g >= 80 ? 'B+' : g >= 75 ? 'B' : g >= 70 ? 'B-' : g >= 65 ? 'C+' : g >= 55 ? 'C' : g >= 45 ? 'D+' : g >= 35 ? 'D' : 'F' }
 
@@ -1416,6 +1453,13 @@ function hasCjkText(v) {
 function cleanText(v) {
   return String(v || '').trim();
 }
+function cleanSocialText(v) {
+  return String(v || '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 // 英文名音译为中文名的映射表
 const EN_TO_CN_SYLLABLE = {
   'le': '勒', 'la': '拉', 'li': '利', 'lo': '洛', 'lu': '卢', 'ly': '利',
@@ -1762,6 +1806,57 @@ function getApkNpcYearDelta(player, coach) {
   delta = Math.min(delta, potGap);
   return clamp(delta, -6, 10);
 }
+function applyOvrDeltaToAttrs(attrs, delta = 0, potential = 99, age = 24) {
+  if (!attrs || typeof attrs !== 'object') return attrs;
+  const change = Math.trunc(parseNum(delta, 0));
+  if (!change) return attrs;
+
+  const keys = Object.keys(attrs).filter(k => Number.isFinite(parseNum(attrs[k], NaN)));
+  if (!keys.length) return attrs;
+
+  const startOvr = ovr(attrs);
+  const cap = clamp(parseNum(potential, 99), 25, 99);
+  const targetOvr = change > 0 ? Math.min(startOvr + Math.abs(change), cap) : Math.max(25, startOvr - Math.abs(change));
+
+  const growthPriority = age <= 26
+    ? ['shotExt', 'shotInt', 'pass', 'speed', 'reb', 'blk', 'stl', 'strength', 'physique']
+    : age <= 30
+      ? ['shotExt', 'shotInt', 'pass', 'reb', 'stl', 'blk', 'speed', 'strength', 'physique']
+      : ['shotExt', 'shotInt', 'pass', 'reb', 'stl', 'blk', 'strength', 'speed', 'physique'];
+  const declinePriority = age >= 34
+    ? ['speed', 'physique', 'strength', 'shotExt', 'shotInt', 'pass', 'reb', 'stl', 'blk']
+    : ['speed', 'physique', 'strength', 'shotExt', 'shotInt', 'pass', 'reb', 'stl', 'blk'];
+
+  const pickKey = (ordered, wantsRaise) => {
+    const orderedKeys = ordered.filter(k => keys.includes(k));
+    const available = orderedKeys.filter(k => wantsRaise ? parseNum(attrs[k], 0) < 99 : parseNum(attrs[k], 0) > 25);
+    if (available.length) return available[0];
+    const sorted = keys.slice().sort((a, b) => wantsRaise
+      ? parseNum(attrs[a], 0) - parseNum(attrs[b], 0)
+      : parseNum(attrs[b], 0) - parseNum(attrs[a], 0));
+    return sorted.find(k => wantsRaise ? parseNum(attrs[k], 0) < 99 : parseNum(attrs[k], 0) > 25) || null;
+  };
+
+  let guard = 0;
+  while (guard++ < 600) {
+    const curOvr = ovr(attrs);
+    if (change > 0 && curOvr >= targetOvr) break;
+    if (change < 0 && curOvr <= targetOvr) break;
+
+    const wantsRaise = change > 0;
+    const key = pickKey(wantsRaise ? growthPriority : declinePriority, wantsRaise);
+    if (!key) break;
+
+    const current = parseNum(attrs[key], 0);
+    const step = wantsRaise ? (curOvr < targetOvr - 3 ? 2 : 1) : (curOvr > targetOvr + 3 ? 2 : 1);
+    const next = wantsRaise ? clamp(current + step, 20, 99) : clamp(current - step, 20, 99);
+    if (next === current) break;
+    attrs[key] = next;
+  }
+
+  return attrs;
+}
+
 function applyNpcSeasonDevelopment(player, coach) {
   const attrs = player.attrs && Object.keys(player.attrs).length ? { ...player.attrs } : parsePlayerAttrs(player);
   const potential = clamp(parseNum(player.potential, 75), 50, 99);
@@ -2044,9 +2139,19 @@ function getBadgeRequirementStatusText(player, badgeOrId) {
 // 重新计算并赋予玩家徽章 (Deterministic)
 function recalcPlayerBadges(player) {
   const newBadges = {};
+  const currentBadges = Array.isArray(player?.badges)
+    ? player.badges.reduce((acc, id) => {
+      const badgeId = String(id || '').trim();
+      if (!BADGES.some(b => b.id === badgeId)) return acc;
+      acc[badgeId] = Math.max(acc[badgeId] || 0, 1);
+      return acc;
+    }, {})
+    : ((player?.badges && typeof player.badges === 'object') ? player.badges : {});
 
   BADGES.forEach(badge => {
-    const level = getBadgeLevel(player, badge);
+    const computedLevel = getBadgeLevel(player, badge);
+    const storedLevel = clamp(parseNum(currentBadges[badge.id], 0), 0, 4);
+    const level = Math.max(computedLevel, storedLevel);
     if (level > 0) {
       newBadges[badge.id] = level;
     }
@@ -2197,6 +2302,90 @@ function getPlayerBadgeList(player) {
     String(a.badge.n).localeCompare(String(b.badge.n), 'zh-CN')
   );
   return out;
+}
+
+// ============ UPGRADE / XP SPENDING FUNCTIONS ============
+// 属性升级XP花费（2K风格递增曲线）
+function getUpgradeCost(currentValue) {
+  const v = parseNum(currentValue, 50);
+  if (v >= 99) return Infinity;
+  if (v >= 95) return 50;
+  if (v >= 90) return 35;
+  if (v >= 85) return 25;
+  if (v >= 80) return 18;
+  if (v >= 75) return 14;
+  if (v >= 70) return 10;
+  if (v >= 60) return 7;
+  return 5;
+}
+
+// 花费XP提升属性（返回是否成功）
+function spendXP(attrKey, cost) {
+  const p = G.player;
+  if (!p || !p.attrs) return false;
+  const curVal = parseNum(p.attrs[attrKey], 50);
+  if (curVal >= 99) return false;
+  const c = parseNum(cost, getUpgradeCost(curVal));
+  if (parseNum(p.xp, 0) < c) return false;
+  p.xp = parseNum(p.xp, 0) - c;
+  p.attrs[attrKey] = Math.min(99, curVal + 1);
+  p.rating = ovr(p.attrs);
+  p.att = p.rating;
+  p.def = p.rating;
+  // 重新计算徽章（属性变化可能解锁/升级徽章）
+  recalcPlayerBadges(p);
+  return true;
+}
+
+// 徽章升级XP花费：0=None→Bronze 30, Bronze→Silver 80, Silver→Gold 180, Gold→HOF 400
+function getBadgeUpgradeCost(currentLevel) {
+  const lv = clamp(parseNum(currentLevel, 0), 0, 4);
+  if (lv >= 4) return 0;
+  return [30, 80, 180, 400][lv]; // 下一级费用
+}
+
+// 执行徽章升级（返回是否成功）
+function upgradeBadge(badgeId) {
+  const p = G.player;
+  if (!p) return false;
+  const badge = badgeById(badgeId);
+  if (!badge) return false;
+  if (!p.badges || typeof p.badges !== 'object') p.badges = {};
+  const lv = clamp(parseNum(p.badges[badgeId], 0), 0, 4);
+  if (lv >= 4) return false;
+  // 检查基础要求（首次解锁必须满足要求，已拥有则允许升级）
+  if (lv === 0 && !isBadgeRequirementMet(p, badgeId, { allowLegendFallback: false })) return false;
+  const cost = getBadgeUpgradeCost(lv);
+  if (parseNum(p.xp, 0) < cost) return false;
+  p.xp = parseNum(p.xp, 0) - cost;
+  p.badges[badgeId] = lv + 1;
+  recalcPlayerBadges(p);
+  return true;
+}
+
+// 倾向升级XP花费
+function getTendencyUpgradeCost(currentValue) {
+  const v = parseNum(currentValue, 55);
+  if (v >= 100) return Infinity;
+  if (v >= 90) return 20;
+  if (v >= 80) return 15;
+  return 10;
+}
+
+// 花费XP提升倾向值（返回是否成功）
+function spendTendencyXP(tendencyKey, cost) {
+  const p = G.player;
+  if (!p) return false;
+  if (!p.tendencies || typeof p.tendencies !== 'object') p.tendencies = {};
+  const curVal = parseNum(p.tendencies[tendencyKey], 55);
+  if (curVal >= 100) return false;
+  const c = parseNum(cost, getTendencyUpgradeCost(curVal));
+  if (parseNum(p.xp, 0) < c) return false;
+  p.xp = parseNum(p.xp, 0) - c;
+  p.tendencies[tendencyKey] = Math.min(100, curVal + 1);
+  // 倾向变化可能影响徽章解锁
+  recalcPlayerBadges(p);
+  return true;
 }
 
 function cloneRealRookie(base, pick, draftYear = G.year) {

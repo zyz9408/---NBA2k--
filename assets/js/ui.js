@@ -67,31 +67,96 @@ async function createStep1() {
   createStep = 1; renderCreate();
 }
 
+function normalizeAvatarCropRect(rect, width, height) {
+  const iw = Math.max(1, Math.floor(parseNum(width, 0)));
+  const ih = Math.max(1, Math.floor(parseNum(height, 0)));
+  const rawSw = Math.max(1, Math.floor(parseNum(rect?.sw ?? rect?.width, iw)));
+  const rawSh = Math.max(1, Math.floor(parseNum(rect?.sh ?? rect?.height, ih)));
+  const sw = Math.max(1, Math.min(iw, rawSw));
+  const sh = Math.max(1, Math.min(ih, rawSh));
+  const maxSx = Math.max(0, iw - sw);
+  const maxSy = Math.max(0, ih - sh);
+  const sx = Math.max(0, Math.min(maxSx, Math.round(parseNum(rect?.sx ?? rect?.x, 0))));
+  const sy = Math.max(0, Math.min(maxSy, Math.round(parseNum(rect?.sy ?? rect?.y, 0))));
+  return { sx, sy, sw, sh };
+}
+
+async function detectAvatarFaceBox(img) {
+  const Detector = window.FaceDetector;
+  if (typeof Detector !== 'function') return null;
+  try {
+    const detector = new Detector({ fastMode: true, maxDetectedFaces: 1 });
+    const faces = await detector.detect(img);
+    if (!Array.isArray(faces) || !faces.length) return null;
+    const face = faces.slice().sort((a, b) => {
+      const aw = parseNum(a?.boundingBox?.width, 0);
+      const ah = parseNum(a?.boundingBox?.height, 0);
+      const bw = parseNum(b?.boundingBox?.width, 0);
+      const bh = parseNum(b?.boundingBox?.height, 0);
+      return (bw * bh) - (aw * ah);
+    })[0];
+    const box = face?.boundingBox || {};
+    const iw = img.naturalWidth || img.width || 0;
+    const ih = img.naturalHeight || img.height || 0;
+    return normalizeAvatarCropRect({
+      sx: parseNum(box.x, 0),
+      sy: parseNum(box.y, 0),
+      sw: parseNum(box.width, 0),
+      sh: parseNum(box.height, 0)
+    }, iw, ih);
+  } catch (err) {
+    return null;
+  }
+}
+
+function getAvatarCropRect(img, faceBox = null) {
+  const iw = Math.max(1, Math.floor(img.naturalWidth || img.width || 1));
+  const ih = Math.max(1, Math.floor(img.naturalHeight || img.height || 1));
+  const side = Math.max(1, Math.min(iw, ih));
+  const clampSquare = (sx, sy) => normalizeAvatarCropRect({ sx, sy, sw: side, sh: side }, iw, ih);
+  if (faceBox && parseNum(faceBox.sw, 0) > 0 && parseNum(faceBox.sh, 0) > 0) {
+    const faceCx = parseNum(faceBox.sx, 0) + parseNum(faceBox.sw, 0) / 2;
+    const faceCy = parseNum(faceBox.sy, 0) + parseNum(faceBox.sh, 0) / 2;
+    return clampSquare(faceCx - side / 2, faceCy - side * 0.34);
+  }
+  if (ih > iw * 1.08) {
+    const bias = Math.max(0, Math.min(ih - side, Math.round((ih - side) * 0.08)));
+    return clampSquare((iw - side) / 2, bias);
+  }
+  return clampSquare((iw - side) / 2, (ih - side) / 2);
+}
+
+function drawAvatarCrop(img, crop, targetSize = 128) {
+  const size = Math.max(32, Math.floor(parseNum(targetSize, 128)));
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return canvas;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, size, size);
+  return canvas;
+}
+
 function handleAvatarUpload(input) {
-  const file = input.files[0];
+  const file = input.files && input.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = function (e) {
     const img = new Image();
-    img.onload = function () {
-      // 缩放到128x128，减少存档大小
-      const canvas = document.createElement('canvas');
-      canvas.width = 128;
-      canvas.height = 128;
-      const ctx = canvas.getContext('2d');
-      // 等比缩放，整张图放入128x128
-      const scale = Math.min(128 / img.width, 128 / img.height);
-      const dw = Math.round(img.width * scale);
-      const dh = Math.round(img.height * scale);
-      const dx = Math.round((128 - dw) / 2);
-      const dy = Math.round((128 - dh) / 2);
-      ctx.drawImage(img, 0, 0, img.width, img.height, dx, dy, dw, dh);
-      G.player.avatar = canvas.toDataURL('image/jpeg', 0.8);
+    img.onload = async function () {
+      const faceBox = await detectAvatarFaceBox(img);
+      const crop = getAvatarCropRect(img, faceBox);
+      const canvas = drawAvatarCrop(img, crop, 128);
+      G.player.avatar = canvas.toDataURL('image/jpeg', 0.9);
       G.player.photo = G.player.avatar;
-      // 更新预览
       const preview = $('avatarPreview');
       const placeholder = $('avatarPlaceholder');
-      if (preview) { preview.src = G.player.avatar; preview.style.display = 'block'; }
+      if (preview) {
+        preview.src = G.player.avatar;
+        preview.style.display = 'block';
+      }
       if (placeholder) placeholder.style.display = 'none';
     };
     img.src = e.target.result;
@@ -2483,6 +2548,244 @@ function doRejectTradeOffer() {
   updateHeader();
 }
 
+// ============ COMMERCE PAGE ============
+let _commerceTab = 'overview';
+function setCommerceTab(tab) {
+  _commerceTab = tab;
+  renderCommerce();
+}
+function renderCommerce() {
+  if (typeof ensureEconomyState === 'function') ensureEconomyState();
+  if (typeof ensureSocialState === 'function') ensureSocialState();
+  const pg = $('commercePage');
+  const tab = _commerceTab;
+  const tabBtn = (id, label) => `<button class="btn btn-sm ${tab === id ? 'btn-gold' : 'btn-pri'}" style="padding:6px 12px" onclick="setCommerceTab('${id}')">${label}</button>`;
+  let content = '';
+  if (tab === 'overview') content = renderCommerceOverview();
+  else if (tab === 'endorse') content = renderCommerceEndorse();
+  else if (tab === 'assets') content = renderCommerceAssets();
+  else if (tab === 'logs') content = renderCommerceLogs();
+  pg.innerHTML = `
+  <div style="max-width:720px;margin:0 auto">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+      ${tabBtn('overview', '概览')}
+      ${tabBtn('endorse', '代言')}
+      ${tabBtn('assets', '资产')}
+      ${tabBtn('logs', '动态')}
+    </div>
+    ${content}
+  </div>`;
+}
+function renderCommerceOverview() {
+  const shop = typeof buildEconomyShopView === 'function' ? buildEconomyShopView() : null;
+  const endorseView = typeof buildEndorsementOffersView === 'function' ? buildEndorsementOffersView() : null;
+  const s = endorseView?.summary || {};
+  const sh = shop || {};
+  const signatureShoe = typeof getSignatureShoeCurrentState === 'function' && s.signatureShoe
+    ? getSignatureShoeCurrentState(s.signatureShoe) : null;
+  return `
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title">财务概览</div>
+    <div class="grid g3">
+      <div class="stat-box"><div class="stat-val">$${phoneFmtM(sh.cash || 0)}</div><div class="stat-lbl">现金</div></div>
+      <div class="stat-box"><div class="stat-val">$${phoneFmtM(G.player.salary)}</div><div class="stat-lbl">年薪</div></div>
+      <div class="stat-box"><div class="stat-val">${parseNum(s.activeCount, 0)}</div><div class="stat-lbl">代言数</div></div>
+      <div class="stat-box"><div class="stat-val">$${phoneFmtM(s.totalDailyIncome || 0)}</div><div class="stat-lbl">日常分成</div></div>
+      <div class="stat-box"><div class="stat-val">$${phoneFmtM(s.totalGameIncome || 0)}</div><div class="stat-lbl">比赛日分成</div></div>
+      <div class="stat-box"><div class="stat-val">${parseNum(s.marketScore, 0).toFixed(1)}</div><div class="stat-lbl">市场分</div></div>
+    </div>
+    <div class="t-2 fs-sm mt-12">声望 ${parseNum(s.fame, 0)} | 信任 ${parseNum(s.trust, 0)} | 档位 ${s.marketLabel || '未评级'}</div>
+  </div>
+  ${signatureShoe ? `
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title">签名鞋</div>
+    <div style="text-align:center;margin-bottom:12px">
+      <img src="${signatureShoe.image}" alt="${signatureShoe.name}" style="max-width:200px;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.3)" />
+    </div>
+    <div class="fw-b" style="text-align:center">${signatureShoe.name}</div>
+    <div class="t-2 fs-sm" style="text-align:center">${signatureShoe.brand} · ${signatureShoe.styleLabel} · L${signatureShoe.level}</div>
+    <div class="t-2 fs-sm mt-8" style="text-align:center">属性：${formatEffectText(signatureShoe.boosts || {})}</div>
+    <div class="t-2 fs-sm" style="text-align:center">日常 $${phoneFmtM(signatureShoe.dailyIncome)} | 比赛日 $${phoneFmtM(signatureShoe.gameIncome)}</div>
+    <div class="t-2 fs-sm" style="text-align:center">点数 ${signatureShoe.pointsUsed}/${signatureShoe.pointsBudget}${signatureShoe.remainingPoints > 0 ? `（剩余 ${signatureShoe.remainingPoints} 点）` : ''}</div>
+  </div>` : ''}
+  ${(endorseView?.activeDeals || []).length ? `
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title">已签约代言</div>
+    ${(endorseView.activeDeals || []).map(deal => `
+      <div class="ev pos" style="margin-bottom:8px">
+        <div class="flex fb">
+          <div><div class="fw-b">${deal.brand}</div><div class="t-2 fs-xs">${deal.category} · ${deal.product}</div></div>
+          <span class="badge b-ok">生效中</span>
+        </div>
+        <div class="t-2 fs-sm mt-8">剩余 ${parseNum(deal.remainingDays, 0)} 天 | 日常 $${phoneFmtM(deal.baseDailyIncome)} | 累计 $${phoneFmtM(deal.earned)}</div>
+      </div>`).join('')}
+  </div>` : ''}
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title">团队</div>
+    <div class="t-2 fs-sm">体能教练：${sh.staminaCurrent?.name || '未聘请'} (Lv.${sh.staminaLevel || 0})</div>
+    <div class="t-2 fs-sm">训练教练：${sh.trainingCurrent?.name || '未聘请'} (Lv.${sh.trainingLevel || 0})</div>
+  </div>`;
+}
+function renderCommerceEndorse() {
+  const view = typeof buildEndorsementOffersView === 'function' ? buildEndorsementOffersView() : null;
+  if (!view) return '<div class="card"><div class="t-2">代言系统未加载</div></div>';
+  const s = view.summary || {};
+  const resultMsg = G._commerceEndorseResult ? `<div class="ev ${G._commerceEndorseResult.ok ? 'pos' : 'neg'}" style="margin-bottom:10px">${G._commerceEndorseResult.message}</div>` : '';
+  const renderOffer = (offer) => {
+    const statusMeta = {
+      active: { text: '生效中', cls: 'b-ok' },
+      available: { text: '可签约', cls: 'b-gold' },
+      locked: { text: '未解锁', cls: 'b-pri' },
+      rejected: { text: '本季已拒绝', cls: 'b-no' }
+    };
+    const st = statusMeta[offer.status] || statusMeta.locked;
+    const active = offer.active || null;
+    const activeShoe = active?.shoe || null;
+    return `
+      <div class="ev ${offer.status === 'active' ? 'pos' : offer.status === 'locked' ? 'neu' : 'neu'}" style="margin-bottom:8px;opacity:${offer.status === 'locked' ? 0.78 : 1}">
+        <div class="flex fb">
+          <div><div class="fw-b">${offer.brand}</div><div class="t-2 fs-xs">${offer.product} · ${offer.category}</div></div>
+          <span class="badge ${st.cls}">${st.text}</span>
+        </div>
+        <div class="t-2 fs-sm mt-8">签约金 $${phoneFmtM(offer.signingBonus)} | 日常 $${phoneFmtM(offer.dailyIncome)} | 比赛日 $${phoneFmtM(offer.gameIncome)} | 合约 ${parseNum(offer.termDays, 0)} 天</div>
+        <div class="t-2 fs-xs mt-8">解锁：市场分≥${parseNum(offer.marketScore, 0)} / 声望≥${parseNum(offer.minFame, 0)} / 信任≥${parseNum(offer.minTrust, 0)}</div>
+        ${offer.status === 'available' ? `
+          <div class="grid g2 mt-12">
+            <button class="btn btn-gold btn-sm" onclick="doCommerceAcceptEndorsement('${offer.id}')">签约</button>
+            <button class="btn btn-pri btn-sm" onclick="doCommerceRejectEndorsement('${offer.id}')">拒绝</button>
+          </div>` : ''}
+        ${offer.status === 'active' && offer.shoeEligible && !activeShoe ? `
+          <div class="grid g2 mt-12">
+            <button class="btn btn-gold btn-sm" onclick="doCommerceCreateShoe('${offer.id}', 'speed')">速度型</button>
+            <button class="btn btn-pri btn-sm" onclick="doCommerceCreateShoe('${offer.id}', 'scoring')">得分型</button>
+            <button class="btn btn-pri btn-sm" onclick="doCommerceCreateShoe('${offer.id}', 'defense')">防守型</button>
+            <button class="btn btn-cyan btn-sm" onclick="doCommerceCreateShoe('${offer.id}', 'allaround')">全能型</button>
+          </div>` : ''}
+        ${offer.status === 'active' && active ? `
+          <div class="t-2 fs-xs mt-12">累计 $${phoneFmtM(active.earned)} · 剩余 ${parseNum(active.remainingDays, 0)} 天</div>
+          ${activeShoe ? `<div class="t-2 fs-xs mt-4">签名鞋：${activeShoe.name} · ${formatEffectText(activeShoe.boosts || {})}</div>` : ''}
+        ` : ''}
+        ${offer.status === 'locked' ? `<div class="t-2 fs-xs mt-8">原因：${offer.lockReason || '暂未达标'}</div>` : ''}
+      </div>`;
+  };
+  return `
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title">代言市场</div>
+    ${resultMsg}
+    <div class="grid g4">
+      <div class="stat-box"><div class="stat-val">${parseNum(s.marketScore, 0).toFixed(1)}</div><div class="stat-lbl">市场分</div></div>
+      <div class="stat-box"><div class="stat-val">${s.marketLabel || '未评级'}</div><div class="stat-lbl">档位</div></div>
+      <div class="stat-box"><div class="stat-val">${s.activeCount || 0}</div><div class="stat-lbl">已签约</div></div>
+      <div class="stat-box"><div class="stat-val">${s.availableCount || 0}</div><div class="stat-lbl">可签约</div></div>
+    </div>
+    <div class="t-2 fs-sm mt-12">声望 ${parseNum(s.fame, 0)} | 信任 ${parseNum(s.trust, 0)} | 荣誉分 ${parseNum(s.honorScore, 0)}</div>
+  </div>
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title">50 个代言品牌池</div>
+    ${view.categories.map(cat => `
+      <div class="mt-16">
+        <div class="fw-b mb-12">${cat.name} <span class="badge b-pri">${cat.items.length} 个</span></div>
+        ${cat.items.map(renderOffer).join('')}
+      </div>
+    `).join('')}
+  </div>`;
+}
+function renderCommerceAssets() {
+  const shop = typeof buildEconomyShopView === 'function' ? buildEconomyShopView() : null;
+  if (!shop) return '<div class="card"><div class="t-2">资产系统未加载</div></div>';
+  const purchaseMsg = G._commerceAssetResult ? `<div class="ev ${G._commerceAssetResult.ok ? 'pos' : 'neg'}" style="margin-bottom:10px">${G._commerceAssetResult.message}</div>` : '';
+  return `
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title">团队升级</div>
+    ${purchaseMsg}
+    <div class="grid g2">
+      <div class="stat-box"><div class="stat-val">$${phoneFmtM(shop.cash)}</div><div class="stat-lbl">现金</div></div>
+      <div class="stat-box"><div class="stat-val">$${phoneFmtM(G.player.salary)}</div><div class="stat-lbl">年薪</div></div>
+    </div>
+    <div class="mt-16">
+      <div class="fw-b">体能教练：Lv.${shop.staminaLevel}（${shop.staminaCurrent?.name || '未聘请'}）</div>
+      <div class="t-2 fs-sm mt-12">休息恢复 +${parseNum(shop.staminaCurrent?.restBonus, 0)} | 赛后恢复 +${parseNum(shop.staminaCurrent?.gameBonus, 0)} | 伤病系数 ×${parseNum(shop.staminaCurrent?.injuryMult, 1).toFixed(2)}</div>
+      ${shop.staminaNext ? `<button class="btn btn-pri mt-12" onclick="doCommerceBuyStamina()">升级到 ${shop.staminaNext.name}（$${phoneFmtM(shop.staminaNext.cost)}）</button>` : '<div class="t-2 fs-sm mt-12">已满级</div>'}
+    </div>
+    <div class="mt-16">
+      <div class="fw-b">训练教练：Lv.${shop.trainingLevel}（${shop.trainingCurrent?.name || '未聘请'}）</div>
+      <div class="t-2 fs-sm mt-12">训练 XP 倍率 ×${parseNum(shop.trainingCurrent?.xpMult, 1).toFixed(2)}</div>
+      ${shop.trainingNext ? `<button class="btn btn-pri mt-12" onclick="doCommerceBuyTraining()">升级到 ${shop.trainingNext.name}（$${phoneFmtM(shop.trainingNext.cost)}）</button>` : '<div class="t-2 fs-sm mt-12">已满级</div>'}
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title">奢侈品</div>
+    ${shop.luxury.map(it => `
+      <div class="ev neu" style="margin-bottom:8px">
+        <div class="flex fb">
+          <span class="fw-b">${it.name}</span>
+          <span class="t-2">$${phoneFmtM(it.cost)}</span>
+        </div>
+        <div class="t-2 fs-sm mt-12">声望 ${it.fame >= 0 ? '+' : ''}${it.fame}，信任 ${it.trust >= 0 ? '+' : ''}${it.trust}</div>
+        ${it.owned ? '<span class="badge b-ok mt-12">已拥有</span>' : `<button class="btn btn-cyan btn-sm mt-12" onclick="doCommerceBuyLuxury('${it.id}')">购买</button>`}
+      </div>
+    `).join('')}
+  </div>`;
+}
+function renderCommerceLogs() {
+  const logs = G.economy?.logs || [];
+  const events = typeof getRecentCommercialEvents === 'function' ? getRecentCommercialEvents(10) : [];
+  return `
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title">商业动态</div>
+    ${events.length ? events.map(e => `
+      <div class="ev ${e.type === 'purchase' ? 'neu' : 'pos'}" style="margin-bottom:8px">
+        <div class="fw-b">${e.displayLabel || e.label || ''}</div>
+        <div class="t-2 fs-sm mt-8">${e.detail || ''}</div>
+      </div>`).join('') : '<div class="t-2 fs-sm">暂无商业动态</div>'}
+  </div>
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title">财务流水</div>
+    ${logs.length ? logs.slice(0, 15).map(l => `<div class="t-2 fs-sm" style="margin-bottom:4px">S${l.season || ''} D${l.day || ''} ${l.text}</div>`).join('') : '<div class="t-2 fs-sm">暂无流水</div>'}
+  </div>`;
+}
+function doCommerceAcceptEndorsement(offerId) {
+  if (typeof acceptEndorsementOffer !== 'function') return;
+  const res = acceptEndorsementOffer(offerId);
+  G._commerceEndorseResult = { ok: !!res.ok, message: res.message || (res.ok ? '签约成功' : '签约失败') };
+  updateHeader();
+  renderCommerce();
+}
+function doCommerceRejectEndorsement(offerId) {
+  if (typeof rejectEndorsementOffer !== 'function') return;
+  const res = rejectEndorsementOffer(offerId);
+  G._commerceEndorseResult = { ok: !!res.ok, message: res.message || (res.ok ? '已拒绝' : '操作失败') };
+  renderCommerce();
+}
+function doCommerceCreateShoe(offerId, styleKey) {
+  if (typeof createSignatureShoeForOffer !== 'function') return;
+  const res = createSignatureShoeForOffer(offerId, styleKey);
+  G._commerceEndorseResult = { ok: !!res.ok, message: res.message || (res.ok ? '球鞋打造完成' : '球鞋打造失败') };
+  updateHeader();
+  renderCommerce();
+}
+function doCommerceBuyStamina() {
+  if (typeof buyStaminaCoach !== 'function') return;
+  const res = buyStaminaCoach();
+  G._commerceAssetResult = { ok: !!res.ok, message: res.message || (res.ok ? '购买成功' : '购买失败') };
+  updateHeader();
+  renderCommerce();
+}
+function doCommerceBuyTraining() {
+  if (typeof buyTrainingCoach !== 'function') return;
+  const res = buyTrainingCoach();
+  G._commerceAssetResult = { ok: !!res.ok, message: res.message || (res.ok ? '购买成功' : '购买失败') };
+  updateHeader();
+  renderCommerce();
+}
+function doCommerceBuyLuxury(itemId) {
+  if (typeof buyLuxuryItem !== 'function') return;
+  const res = buyLuxuryItem(itemId);
+  G._commerceAssetResult = { ok: !!res.ok, message: res.message || (res.ok ? '购买成功' : '购买失败') };
+  updateHeader();
+  renderCommerce();
+}
+
 // ============ SAVE PAGE ============
 function buildSaveObj() {
   const saveObj = { ...G };
@@ -2909,7 +3212,7 @@ function navTo(page) {
   const renderers = {
     home: renderHome, stats: renderStats,
     matches: renderMatchCenter, roster: renderRoster, upgrade: renderUpgrade, trade: renderTrade, awards: renderAwards,
-    phone: renderPhone, save: renderSave
+    phone: renderPhone, save: renderSave, commerce: renderCommerce
   };
   if (renderers[page]) renderers[page]();
 }

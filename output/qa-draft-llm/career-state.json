@@ -1,0 +1,16 @@
+{
+  "phase": "season",
+  "season": 1,
+  "year": 2026,
+  "gameNum": 0,
+  "scheduleLength": 82,
+  "homeActive": true,
+  "createActive": false,
+  "mainNavVisible": "flex",
+  "draftSource": "llm",
+  "simMatchupFn": "function",
+  "playGameFn": "function",
+  "leagueRound": 0,
+  "modalCount": 0,
+  "mainText": "🏀\nNBA Career Sim\n赛季: 2026-2027 (第1赛季)\n球队: 猛龙\nOVR: 67\n主页\n比赛中心\n数据\n阵容\n加点\n交易\n荣誉\n手机\n存档\n商业中心\n📅 第1天 | 🏀 比赛: 1/82 VS 篮网 (主场)\n划水\n正常\n拼命\n▶ 比赛并推演剧情\n📜 生涯日志\n欢迎来到《篮球生涯模拟器》。你的传奇，从这里开始——\\n点击【推进日程】开启新的一天或直接去打比赛。\nAI????\n19岁 | 控球后卫 | OVR 67\n0-0\n战绩\n得分\n0.0\n篮板\n0.0\n助攻\n0.0\n薪金\n$8.78M\n抢断\n0.0\n盖帽\n0.0\n失误\n0.0\n命中\n0%\n天赋\n🧲 篮板之王\n存款\n$8.78M\n声望\n10\n信任\n50\n士气\n⚖️50\n体力: 100%\n👋 宣布退役 (结束生涯)\n📰 最新资讯\n暂无新闻"
+}

@@ -1,0 +1,12 @@
+{
+  "innerWidth": 1024,
+  "innerHeight": 1200,
+  "scrollWidth": 1024,
+  "clientWidth": 1024,
+  "scrollHeight": 1659,
+  "overflowX": false,
+  "overflowY": true,
+  "mainMenuActive": true,
+  "shellText": "🏀\nCAREER LAUNCHER\nNBA Career Sim\n从建档、赛季推进、商业经营到签名鞋，全都在同一个生涯里完成。\n剧情驱动\nLLM 赛事文本\n商业中心\n签名鞋定制\n模式\n生涯启动器\n建档 / 读档 / 开局\n状态\n可继续\n新生涯或读取存档\n联动\n已接入\n推文 / 商业 / 选秀\n开始新生涯\n读取存档\n建档后会进入完整职业链路：球员属性、球探报告、赛季剧情、商业代言和签名鞋都会联动。\n赛季剧情\n比赛和赛后内容由剧情系统驱动，支持 LLM 生成更细的故事线。\n商业系统\n代言、奢侈品和签名鞋都在商业中心里统一管理。\n社媒推文\n比赛结果会同步到手机推文流和 LLM 上下文。\n建模配置\n主菜单先保存一份模型草稿，再同步到运行配置。\n版本 v1.2\nLocal Save\nAI Draft\nCommercial Hub\n模型控制台\n用于赛季前球探、赛后剧情和社媒生成。建议开局前先配置一次。\n启用 \n启用\n关闭\nModel \nBase URL  API Key \n保存设置\n测试连通性并读取模型\nTGbreak 预设参数\n参考 TGbreak V1.0.7，把防抢话、文风和比赛互动拆成可",
+  "consoleHeight": 817.5625
+}
