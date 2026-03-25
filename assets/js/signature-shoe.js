@@ -243,8 +243,7 @@ async function generateSignatureShoeImageByGeminiNative(prompt, { baseUrl, apiKe
     }],
     generationConfig: {
       responseModalities: ['IMAGE'],
-      maxOutputTokens: 8192,
-      aspectRatio: '1:1'
+      maxOutputTokens: 8192
     }
   };
   try {

@@ -2564,12 +2564,14 @@ function renderCommerce() {
   if (tab === 'overview') content = renderCommerceOverview();
   else if (tab === 'endorse') content = renderCommerceEndorse();
   else if (tab === 'assets') content = renderCommerceAssets();
+  else if (tab === 'shoe') content = renderCommerceShoe();
   else if (tab === 'logs') content = renderCommerceLogs();
   pg.innerHTML = `
   <div style="max-width:720px;margin:0 auto">
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
       ${tabBtn('overview', '概览')}
       ${tabBtn('endorse', '代言')}
+      ${tabBtn('shoe', '签名鞋')}
       ${tabBtn('assets', '资产')}
       ${tabBtn('logs', '动态')}
     </div>
@@ -2727,8 +2729,104 @@ function renderCommerceAssets() {
     `).join('')}
   </div>`;
 }
-function renderCommerceLogs() {
-  const logs = G.economy?.logs || [];
+function renderCommerceShoe() {
+  if (typeof getEndorsementState !== 'function') return '<div class="card"><div class="t-2">签名鞋系统未加载</div></div>';
+  const state = getEndorsementState();
+  const shoeContracts = (state.active || []).filter(c => c && c.shoeEligible);
+  const shoeResult = G._commerceShoeResult || null;
+  const resultMsg = shoeResult ? `<div class="ev ${shoeResult.ok ? 'pos' : 'neg'}" style="margin-bottom:12px">${shoeResult.message}</div>` : '';
+
+  if (!shoeContracts.length) {
+    return `
+    <div class="card">
+      <div class="card-title">签名鞋</div>
+      ${resultMsg}
+      <div class="t-2 fs-sm">暂无球鞋代言。先在「代言」标签签约带有<span class="badge b-gold" style="margin:0 4px">鞋类</span>标记的代言（运动装备类），即可在此打造签名鞋。</div>
+    </div>`;
+  }
+
+  return shoeContracts.map(contract => {
+    const shoe = typeof getSignatureShoeCurrentState === 'function' ? getSignatureShoeCurrentState(contract) : null;
+    const upgradeStatus = typeof getSignatureShoeUpgradeStatus === 'function' ? getSignatureShoeUpgradeStatus(contract, shoe) : null;
+    const cid = String(contract.id);
+
+    if (!shoe) {
+      return `
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title">${contract.brand} · ${contract.product}</div>
+        ${resultMsg}
+        <div class="t-2 fs-sm mb-12">球鞋代言已签约，可以打造你的签名鞋。</div>
+        <div class="grid g2">
+          <button class="btn btn-gold btn-sm" onclick="doCommerceCreateShoe('${cid}','speed')">速度型</button>
+          <button class="btn btn-pri btn-sm" onclick="doCommerceCreateShoe('${cid}','scoring')">得分型</button>
+          <button class="btn btn-pri btn-sm" onclick="doCommerceCreateShoe('${cid}','defense')">防守型</button>
+          <button class="btn btn-cyan btn-sm" onclick="doCommerceCreateShoe('${cid}','allaround')">全能型</button>
+        </div>
+      </div>`;
+    }
+
+    const allocs = shoe.allocations || {};
+    const slotLabels = { speed: '速度', shooting: '投射', finishing: '终结', playmaking: '组织', defense: '防守' };
+    const allocRows = Object.entries(slotLabels).map(([key, label]) => {
+      const val = parseNum(allocs[key], 0);
+      return `
+      <div style="display:flex;align-items:center;gap:0;margin-bottom:10px">
+        <span style="width:52px;font-size:.85em;color:var(--t2)">${label}</span>
+        <div style="flex:1;height:6px;background:rgba(255,255,255,.08);border-radius:3px;margin:0 10px;position:relative">
+          <div style="width:${Math.round(val / Math.max(parseNum(shoe.pointsBudget,5),1) * 100)}%;height:100%;background:var(--gold);border-radius:3px;transition:width .2s"></div>
+        </div>
+        <span class="fw-b" style="width:20px;text-align:center;font-size:.95em">${val}</span>
+        <button onclick="doCommerceAdjustAlloc('${cid}','${key}',-1)" style="margin-left:8px;width:26px;height:26px;border-radius:6px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#fff;cursor:pointer;font-size:1em;line-height:1;display:flex;align-items:center;justify-content:center">−</button>
+        <button onclick="doCommerceAdjustAlloc('${cid}','${key}',1)" style="margin-left:4px;width:26px;height:26px;border-radius:6px;border:1px solid rgba(255,210,0,.45);background:rgba(255,200,0,.10);color:var(--gold);cursor:pointer;font-size:1em;line-height:1;display:flex;align-items:center;justify-content:center">＋</button>
+      </div>`;
+    }).join('');
+
+    const upStatus = upgradeStatus || {};
+    const upgradeBlock = upStatus.currentLevel < 5 ? `
+      <div class="mt-16">
+        <div class="fw-b mb-8">升级到 L${upStatus.nextLevel || (upStatus.currentLevel + 1)}</div>
+        <div class="t-2 fs-sm">条件：${upStatus.targetText || '暂无信息'}</div>
+        ${upStatus.canUpgrade
+          ? `<button class="btn btn-gold mt-12" onclick="doCommerceUpgradeShoe('${cid}')">立即升级</button>`
+          : `<div class="t-2 fs-sm mt-8 neg">未达标：${(upStatus.reasons || []).join(' / ')}</div>`}
+      </div>` : '<div class="t-2 fs-sm mt-12 t-2">已达最高等级 L5</div>';
+
+    return `
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title">签名鞋 · ${contract.brand}</div>
+      ${resultMsg}
+      <div style="text-align:center;margin-bottom:12px">
+        <img src="${shoe.image}" alt="${shoe.name}" style="max-width:180px;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.35)" />
+      </div>
+      <div class="fw-b" style="text-align:center">${shoe.name}</div>
+      <div class="t-2 fs-sm" style="text-align:center">${shoe.brand} · ${shoe.styleLabel} · L${shoe.level}</div>
+      <div class="t-2 fs-sm mt-8" style="text-align:center">日常 $${phoneFmtM(shoe.dailyIncome)} | 比赛日 $${phoneFmtM(shoe.gameIncome)}</div>
+      <div class="t-2 fs-sm" style="text-align:center">属性：${formatEffectText(shoe.boosts || {})}</div>
+
+      <div class="mt-16">
+        <div class="fw-b mb-8">属性分配（剩余 ${parseNum(shoe.remainingPoints, 0)} / ${parseNum(shoe.pointsBudget, 5)} 点）</div>
+        ${allocRows}
+      </div>
+
+      <div class="mt-16">
+        <div class="fw-b mb-8">改名</div>
+        <div style="display:flex;gap:8px">
+          <input id="shoeRename_${cid}" class="form-control" value="${shoe.name}" style="flex:1" maxlength="28" />
+          <button class="btn btn-pri btn-sm" onclick="doCommerceRenameShoe('${cid}')">确认</button>
+        </div>
+      </div>
+
+      ${upgradeBlock}
+
+      <div class="mt-16">
+        <div class="fw-b mb-8">球鞋外形提示词（可选）</div>
+        <textarea id="shoeImageHint_${cid}" class="form-control" rows="2" placeholder="例：黑金配色，鞋面有龙纹，低帮设计，镂空侧翼" style="font-size:.85em">${shoe.imagePrompt ? '' : ''}</textarea>
+        <button class="btn btn-cyan mt-12" onclick="doCommerceGenShoeImage('${cid}')">🎨 生成/更新球鞋图片</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function renderCommerceLogs() {  const logs = G.economy?.logs || [];
   const events = typeof getRecentCommercialEvents === 'function' ? getRecentCommercialEvents(10) : [];
   return `
   <div class="card" style="margin-bottom:12px">
@@ -2783,6 +2881,75 @@ function doCommerceBuyLuxury(itemId) {
   const res = buyLuxuryItem(itemId);
   G._commerceAssetResult = { ok: !!res.ok, message: res.message || (res.ok ? '购买成功' : '购买失败') };
   updateHeader();
+  renderCommerce();
+}
+function doCommerceAdjustAlloc(contractId, slotKey, delta) {
+  if (typeof adjustSignatureShoeAllocation !== 'function') return;
+  const res = adjustSignatureShoeAllocation(contractId, slotKey, delta);
+  G._commerceShoeResult = { ok: !!res.ok, message: res.message || (res.ok ? '已调整' : '调整失败') };
+  renderCommerce();
+}
+function doCommerceSetShoeStyle(contractId, styleKey) {
+  if (typeof setSignatureShoeStyle !== 'function') return;
+  const res = setSignatureShoeStyle(contractId, styleKey);
+  G._commerceShoeResult = { ok: !!res.ok, message: res.message || (res.ok ? '风格已切换' : '切换失败') };
+  renderCommerce();
+}
+function doCommerceRenameShoe(contractId) {
+  if (typeof renameSignatureShoe !== 'function') return;
+  const input = document.getElementById('shoeRename_' + contractId);
+  const name = input ? input.value.trim() : '';
+  if (!name) return;
+  const res = renameSignatureShoe(contractId, name);
+  G._commerceShoeResult = { ok: !!res.ok, message: res.message || (res.ok ? '改名成功' : '改名失败') };
+  renderCommerce();
+}
+function doCommerceUpgradeShoe(contractId) {
+  if (typeof upgradeSignatureShoeContract !== 'function') return;
+  const res = upgradeSignatureShoeContract(contractId);
+  G._commerceShoeResult = { ok: !!res.ok, message: res.message || (res.ok ? '升级成功' : '升级失败') };
+  updateHeader();
+  renderCommerce();
+}
+async function doCommerceGenShoeImage(contractId) {
+  if (typeof generateSignatureShoeImageForOffer !== 'function') return;
+  const hintEl = document.getElementById('shoeImageHint_' + contractId);
+  const extraHint = hintEl ? hintEl.value.trim() : '';
+  G._commerceShoeResult = { ok: true, message: '正在生成图片...' };
+  renderCommerce();
+  try {
+    let res;
+    if (extraHint && typeof resolveEndorsementContract === 'function' && typeof buildSignatureShoeImagePrompt === 'function' && typeof generateSignatureShoeImageByLLM === 'function' && typeof updateSignatureShoeProject === 'function') {
+      const contract = resolveEndorsementContract(contractId);
+      const shoe = contract ? getSignatureShoeCurrentState(contract) : null;
+      if (contract && shoe) {
+        const basePrompt = buildSignatureShoeImagePrompt(contract, shoe);
+        const fullPrompt = basePrompt + '. Custom appearance: ' + extraHint;
+        const llm = G.social?.llm || {};
+        const baseUrl = typeof normalizeLLMBaseUrl === 'function' ? normalizeLLMBaseUrl(llm.baseUrl) : (llm.baseUrl || '');
+        const isGemini = typeof isGoogleGeminiEndpoint === 'function' && isGoogleGeminiEndpoint(baseUrl);
+        const defaultModel = isGemini ? 'gemini-3.1-flash-image-preview' : 'gpt-image-1';
+        const imageModel = (llm.imageModel || '').trim() || defaultModel;
+        const llmResult = await generateSignatureShoeImageByLLM(fullPrompt, { model: imageModel });
+        const image = llmResult.ok && llmResult.image ? llmResult.image : typeof buildSignatureShoeFallbackImage === 'function' ? buildSignatureShoeFallbackImage(contract, shoe) : '';
+        res = updateSignatureShoeProject(contract, {
+          image,
+          imagePrompt: fullPrompt,
+          imageModel: llmResult.ok ? (llmResult.model || imageModel) : 'fallback',
+          imageStatus: llmResult.ok ? 'llm' : 'fallback',
+          imageUpdatedAt: Date.now()
+        }, { action: '签名鞋生图', detail: extraHint, buzz: true });
+        res = { ok: !!res.ok, message: llmResult.ok ? `图片已生成（${llmResult.model || imageModel}）` : `已使用本地样图：${llmResult.message || ''}` };
+      } else {
+        res = await generateSignatureShoeImageForOffer(contractId);
+      }
+    } else {
+      res = await generateSignatureShoeImageForOffer(contractId);
+    }
+    G._commerceShoeResult = { ok: !!res.ok, message: res.message || (res.ok ? '图片已生成' : '生成失败') };
+  } catch (e) {
+    G._commerceShoeResult = { ok: false, message: `生成失败：${e?.message || e}` };
+  }
   renderCommerce();
 }
 
