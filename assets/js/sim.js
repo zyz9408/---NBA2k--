@@ -809,6 +809,108 @@ function buildGameStoryNarrativeContext(result, matchup) {
   return { closeGame, finalMargin, hasOvertime, lines };
 }
 
+function buildMatchRecapPromptContext(result, matchup, narrative) {
+  const gameRes = result?.gameResult || result || {};
+  const opp = getTeam(gameRes.opp) || {};
+  const win = gameRes.win ? '胜利' : '失败';
+  const st = gameRes.st || {};
+  const userTeam = matchup?.userTeam?.name || matchup?.userTeam?.abbr || G.team?.z || '我方';
+  const oppTeam = matchup?.opponentTeam?.name || matchup?.opponentTeam?.abbr || opp.z || opp.a || '对手';
+  let text = `玩家${G.player.name}(${getPos(G.player.pos).n})效力于${userTeam}。\n`;
+  text += `本场对阵${oppTeam}，最终比分 ${userTeam} ${parseNum(gameRes.teamPts, 0)} - ${parseNum(gameRes.oppPts, 0)} ${oppTeam}，结果：${win}。\n`;
+  text += `个人数据：${parseNum(st.pts, 0)}分 ${parseNum(st.reb, 0)}板 ${parseNum(st.ast, 0)}助 ${parseNum(st.stl, 0)}断 ${parseNum(st.blk, 0)}帽，命中 ${parseNum(st.fgm, 0)}/${parseNum(st.fga, 0)}，三分 ${parseNum(st.tpm, 0)}/${parseNum(st.tpa, 0)}。\n`;
+  if (narrative?.lines?.length) {
+    text += `\n【比赛走势信息】\n${narrative.lines.join('\n')}\n`;
+  }
+  return text.trim();
+}
+
+async function generateMatchRecapByLLM(result, { force = false } = {}) {
+  ensureSocialState();
+  if (!result?.isGame || !result?.gameResult) return { ok: false, message: '非比赛日' };
+  const gameId = String(result?.gameResult?.gameId || result?.gameResult?.id || '');
+  if (!force && gameId && G._gameRecapMap && G._gameRecapMap[gameId]) {
+    return { ok: true, recap: G._gameRecapMap[gameId], cached: true };
+  }
+  const llm = G.social.llm || {};
+  if (!llm.enabled || !llm.apiKey) {
+    return { ok: false, message: 'LLM 未启用或缺少 API Key' };
+  }
+
+  const baseUrl = normalizeLLMBaseUrl(llm.baseUrl);
+  const model = String(llm.model || 'gpt-4.1-mini').trim();
+  const matchup = result.matchup || buildMatchupContextForLLM(result, { limit: 4 });
+  const narrative = buildGameStoryNarrativeContext(result, matchup);
+  const promptContext = buildMatchRecapPromptContext(result, matchup, narrative);
+
+  let sysPrompt = `你是篮球比赛战报解说员。
+请基于输入的比赛信息写一段 120-180 字的比赛战报，要求：
+- 必须提到比分、比赛走势（四节/关键连段/焦灼与否）
+- 必须提到玩家个人数据
+- 不允许虚构不存在的绝杀/逆转
+- 风格燃、干净、有节奏
+输出 JSON：
+{
+  "headline": "20字以内标题",
+  "recap": "战报正文"
+}`;
+
+  const storySysPrompt = [sysPrompt, buildLLMPromptPresetSection({ context: { matchup }, scope: 'story' })]
+    .filter(Boolean)
+    .join('\n\n');
+
+  let raw = '';
+  try {
+    if (isGoogleGeminiEndpoint(baseUrl)) {
+      const modelName = normalizeModelNameForGemini(model);
+      const endpoint = `${baseUrl}/models/${encodeURIComponent(modelName)}:generateContent`;
+      const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint, { jsonBody: true });
+      const payload = {
+        systemInstruction: { parts: [{ text: storySysPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: promptContext }] }],
+        generationConfig: { temperature: 0.6, responseMimeType: 'application/json' }
+      };
+      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const data = await readJSONResponseSafe(res, '比赛战报');
+      raw = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text).join('') || '';
+    } else {
+      const payload = {
+        model,
+        temperature: 0.6,
+        messages: [
+          { role: 'system', content: storySysPrompt },
+          { role: 'user', content: promptContext }
+        ],
+        response_format: { type: 'json_object' }
+      };
+      const endpoint = `${baseUrl}/chat/completions`;
+      const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
+      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const data = await readJSONResponseSafe(res, '比赛战报');
+      raw = data?.choices?.[0]?.message?.content || '';
+    }
+
+    let parsed = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = null;
+    }
+    const headline = String(parsed?.headline || '').trim() || '比赛战报';
+    const recap = String(parsed?.recap || raw || '').trim();
+    if (!recap) throw new Error('LLM 战报为空');
+
+    const recapObj = { headline, recap, model, at: Date.now(), gameId };
+    if (!G._gameRecapMap) G._gameRecapMap = {};
+    if (gameId) G._gameRecapMap[gameId] = recapObj;
+    return { ok: true, recap: recapObj };
+  } catch (err) {
+    const message = String(err?.message || err || '比赛战报生成失败');
+    G.social.lastLLMError = message;
+    return { ok: false, message };
+  }
+}
+
 async function generateDailyStoryByLLM(result) {
   ensureSocialState();
   const llm = G.social.llm || {};

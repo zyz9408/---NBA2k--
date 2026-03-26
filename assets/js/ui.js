@@ -1,36 +1,102 @@
 // ui.js
 // ============ CREATE PAGE UI ============
 let createStep = 0;
+function getCreateStepItems() {
+  return [
+    { id: 0, label: '建档', sub: '身份录入' },
+    { id: 1, label: '体型', sub: '身体框架' },
+    { id: 2, label: '模板', sub: '比赛风格' },
+    { id: 3, label: '天赋', sub: '初始评级' },
+    { id: 4, label: '徽章', sub: 'X-Factor' },
+    { id: 5, label: '选秀', sub: '生涯起点' }
+  ];
+}
+
+function renderCreateStageHeader(title, subtitle, kicker = '篮球生涯') {
+  const steps = getCreateStepItems();
+  const activeIndex = Math.max(0, Math.min(createStep, steps.length - 1));
+  return `
+    <div class="create-stage-head">
+      <div class="create-stage-copy">
+        <div class="create-stage-kicker">${kicker}</div>
+        <h1 class="create-stage-title">${title}</h1>
+        <div class="create-stage-subtitle">${subtitle}</div>
+      </div>
+      <div class="create-stage-progress" aria-label="创建进度">
+        ${steps.map((step, index) => `
+          <div class="create-progress-item ${index === activeIndex ? 'active' : ''} ${index < activeIndex ? 'done' : ''}">
+            <div class="create-progress-index">${index + 1}</div>
+            <div class="create-progress-copy">
+              <div class="create-progress-label">${step.label}</div>
+              <div class="create-progress-sub">${step.sub}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function renderCreate() {
   const pg = $('createPage');
   if (createStep === 0) {
     pg.innerHTML = `
-    <div class="card tc">
-      <h1 class="t-gold" style="font-size:32px;margin-bottom:8px">🏀 NBA球员生涯模拟器</h1>
-      <p class="t-2 mb-16">创建你的球员，开启传奇生涯</p>
-      ${renderLocalFileHint()}
-      <div style="max-width:400px;margin:0 auto">
-        <div class="form-group" style="text-align:center">
-          <label>球员头像</label>
-          <div style="position:relative;width:100px;height:100px;margin:8px auto;border-radius:50%;overflow:hidden;border:3px solid var(--gold);background:#1a1a2e;cursor:pointer" onclick="document.getElementById('avatarInput').click()" title="点击上传头像">
-            <img id="avatarPreview" src="${G.player.avatar || G.player.photo || ''}" style="width:100%;height:100%;object-fit:cover;display:${(G.player.avatar || G.player.photo) ? 'block' : 'none'}">
-            <div id="avatarPlaceholder" style="display:${(G.player.avatar || G.player.photo) ? 'none' : 'flex'};align-items:center;justify-content:center;width:100%;height:100%;font-size:36px;color:var(--gold)">📷</div>
+    <div class="create-page-shell">
+      ${renderCreateStageHeader('新秀登记', '从球员身份开始，建立属于你的第一份球探档案。', 'Draft Combine')}
+      <div class="create-intro-grid">
+        <div class="card create-intro-panel">
+          <div class="create-hero-copy">
+            <div class="create-hero-mark">🏀</div>
+            <div>
+              <div class="create-hero-kicker">Rookie Journey</div>
+              <div class="create-hero-title">进入选秀夜之前，先把你的标签定下来。</div>
+            </div>
           </div>
-          <input type="file" id="avatarInput" accept="image/*" style="display:none" onchange="handleAvatarUpload(this)">
-          <div class="t-2 fs-xs">点击上传头像（可选）</div>
+          <div class="create-hero-story">
+            从起始年份、位置、头像到姓名，这一步决定你会以什么身份踏进联盟。界面已按窄屏重排，手机和小窗口也不会再把表单挤爆。
+          </div>
+          <div class="create-hero-stats">
+            <div class="create-hero-stat">
+              <div class="create-hero-stat-label">起点</div>
+              <div class="create-hero-stat-value">选秀前夜</div>
+            </div>
+            <div class="create-hero-stat">
+              <div class="create-hero-stat-label">目标</div>
+              <div class="create-hero-stat-value">成为乐透焦点</div>
+            </div>
+            <div class="create-hero-stat">
+              <div class="create-hero-stat-label">风格</div>
+              <div class="create-hero-stat-value">篮球生涯模式</div>
+            </div>
+          </div>
+          ${renderLocalFileHint()}
+          <div class="create-hero-note">建议先上传头像再开档，全身图会自动裁到头部区域。</div>
         </div>
-        <div class="form-group"><label>球员姓名</label>
-          <input class="form-control" id="cName" placeholder="输入你的名字" value="${G.player.name}"></div>
-        <div class="form-group"><label>开始剧本（年份）</label>
-          <select class="form-control" id="cStartYear">
-            ${getAvailableScriptYears().map(y => `<option value="${y}" ${y === parseNum(G.startYear, G.year) ? 'selected' : ''}>${y}年</option>`).join('')}
-          </select>
+        <div class="card create-form-panel">
+          <div class="create-avatar-stage">
+            <div class="create-avatar-ring" onclick="document.getElementById('avatarInput').click()" title="点击上传头像">
+              <img id="avatarPreview" src="${G.player.avatar || G.player.photo || ''}" class="create-avatar-preview" style="display:${(G.player.avatar || G.player.photo) ? 'block' : 'none'}">
+              <div id="avatarPlaceholder" class="create-avatar-placeholder" style="display:${(G.player.avatar || G.player.photo) ? 'none' : 'flex'}">📷</div>
+            </div>
+            <input type="file" id="avatarInput" accept="image/*" style="display:none" onchange="handleAvatarUpload(this)">
+            <div class="create-avatar-copy">
+              <div class="create-avatar-title">球员头像</div>
+              <div class="create-avatar-sub">可选上传，系统会自动聚焦头部</div>
+            </div>
+          </div>
+          <div class="form-group"><label>球员姓名</label>
+            <input class="form-control" id="cName" placeholder="输入你的名字" value="${G.player.name}"></div>
+          <div class="form-group"><label>开始剧本（年份）</label>
+            <select class="form-control" id="cStartYear">
+              ${getAvailableScriptYears().map(y => `<option value="${y}" ${y === parseNum(G.startYear, G.year) ? 'selected' : ''}>${y}年</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group"><label>选择位置</label>
+            <select class="form-control" id="cPos">
+              ${POS.map(p => `<option value="${p.id}">${p.n} - ${p.z}</option>`).join('')}
+            </select></div>
+          <button class="btn btn-gold create-next-btn" onclick="createStep1()">进入体测营 →</button>
         </div>
-        <div class="form-group"><label>选择位置</label>
-          <select class="form-control" id="cPos">
-            ${POS.map(p => `<option value="${p.id}">${p.n} - ${p.z}</option>`).join('')}
-          </select></div>
-        <button class="btn btn-gold" onclick="createStep1()" style="width:100%">下一步 →</button>
       </div>
     </div>`;
   } else if (createStep === 1) {
@@ -166,17 +232,27 @@ function handleAvatarUpload(input) {
 
 function renderBodyType() {
   $('createPage').innerHTML = `
-  <div class="card"><div class="card-title">📏 选择体型</div>
-    <div class="grid g5" id="bodyGrid">
+  <div class="create-page-shell">
+    ${renderCreateStageHeader('身体模板', '选择体型会影响你在选秀报告中的第一印象，以及后续身高、体重和臂展范围。', 'Draft Combine')}
+    <div class="card create-stage-card">
+      <div class="card-title">📏 选择体型</div>
+      <div class="create-card-note">更宽的肩线、更长的臂展，还是灵活轻快的后场模型，都在这里定调。</div>
+      <div class="create-choice-grid create-choice-grid-body" id="bodyGrid">
       ${BODY_TYPES.map(b => `
-        <div class="choice-card" onclick="selectBody('${b.id}')">
-          <div class="fs-lg fw-b">${b.n}</div>
+        <div class="choice-card create-choice-card" onclick="selectBody('${b.id}')">
+          <div class="create-choice-top">
+            <div class="fs-lg fw-b">${b.n}</div>
+            <div class="badge b-gold">体测模板</div>
+          </div>
           <div class="t-2 fs-sm mt-12">${b.d}</div>
-          <div class="t-2 fs-sm mt-12">身高: ${b.hRange[0]}-${b.hRange[1]}cm</div>
-          <div class="t-2 fs-sm">体重: ${b.wRange[0]}-${b.wRange[1]}kg</div>
-          <div class="mt-12">${Object.entries(b.boost).map(([k, v]) => `<span class="tag tag-gold">+${v} ${ATTRS.find(a => a.k === k)?.n || k}</span>`).join('')}</div>
-          <div>${Object.entries(b.nerf).map(([k, v]) => `<span class="tag" style="background:var(--danger)">${v} ${ATTRS.find(a => a.k === k)?.n || k}</span>`).join('')}</div>
+          <div class="create-choice-meta">
+            <span>身高 ${b.hRange[0]}-${b.hRange[1]}cm</span>
+            <span>体重 ${b.wRange[0]}-${b.wRange[1]}kg</span>
+          </div>
+          <div class="create-tag-row mt-12">${Object.entries(b.boost).map(([k, v]) => `<span class="tag tag-gold">+${v} ${ATTRS.find(a => a.k === k)?.n || k}</span>`).join('')}</div>
+          <div class="create-tag-row">${Object.entries(b.nerf).map(([k, v]) => `<span class="tag create-tag-danger">${v} ${ATTRS.find(a => a.k === k)?.n || k}</span>`).join('')}</div>
         </div>`).join('')}
+      </div>
     </div>
   </div>`;
 }
@@ -194,16 +270,23 @@ function renderTemplateSelect() {
   const pos = getPos(G.player.pos);
   const templates = getTemplatesForPos(G.player.pos);
   $('createPage').innerHTML = `
-  <div class="card"><div class="card-title">🎯 选择模版${pos ? ` (${pos.n} ${pos.z})` : ''}</div>
-    <div class="grid g3" id="tplGrid">
+  <div class="create-page-shell">
+    ${renderCreateStageHeader('比赛模板', '决定你的球风标签，让球探一眼看出你是控场核心、锋线终结者还是全面持球手。', pos ? `${pos.n} / ${pos.z}` : 'Player Archetype')}
+    <div class="card create-stage-card">
+      <div class="card-title">🎯 选择模版${pos ? ` (${pos.n} ${pos.z})` : ''}</div>
+      <div class="create-card-note">模板将影响初始属性倾向、球探对位想象以及模拟中的成长方向。</div>
+      <div class="create-choice-grid create-choice-grid-template" id="tplGrid">
       ${templates.map(t => `
-        <div class="choice-card" onclick="selectTemplate('${t.id}')">
-          <div class="fs-lg fw-b">${t.n}</div>
-          <div class="t-2 fs-sm">${t.z}</div>
+        <div class="choice-card create-choice-card" onclick="selectTemplate('${t.id}')">
+          <div class="create-choice-top">
+            <div class="fs-lg fw-b">${t.n}</div>
+            <div class="badge b-cyan">${t.z}</div>
+          </div>
           <div class="t-2 fs-sm mt-12">${t.d}</div>
-          <div class="mt-12">${Object.entries(t.boost).map(([k, v]) => `<span class="tag tag-gold">+${v} ${ATTRS.find(a => a.k === k)?.n || k}</span>`).join('')}</div>
-          <div>${Object.entries(t.nerf).map(([k, v]) => `<span class="tag" style="background:var(--danger)">${v} ${ATTRS.find(a => a.k === k)?.n || k}</span>`).join('')}</div>
+          <div class="create-tag-row mt-12">${Object.entries(t.boost).map(([k, v]) => `<span class="tag tag-gold">+${v} ${ATTRS.find(a => a.k === k)?.n || k}</span>`).join('')}</div>
+          <div class="create-tag-row">${Object.entries(t.nerf).map(([k, v]) => `<span class="tag create-tag-danger">${v} ${ATTRS.find(a => a.k === k)?.n || k}</span>`).join('')}</div>
         </div>`).join('')}
+      </div>
     </div>
   </div>`;
 }
@@ -219,22 +302,36 @@ function selectTemplate(id) {
 function renderAttrRoll() {
   const a = G.player.attrs;
   $('createPage').innerHTML = `
-  <div class="card"><div class="card-title">🎲 天赋抽取 (无限重抽)</div>
-    <div class="grid g2">
-      <div>
-        <div class="stat-box mb-16"><div class="stat-val t-gold">${ovr(a)}</div><div class="stat-lbl">综合评分 OVR</div></div>
-        <div class="stat-box"><div class="stat-val t-cyan">${G.player.potential}</div><div class="stat-lbl">潜力 POT</div></div>
-        <div class="mt-16 tc">
+  <div class="create-page-shell">
+    ${renderCreateStageHeader('新秀评测', '反复重抽直到你满意为止，选出第一份真正像样的新秀属性面板。', 'Scouting Report')}
+    <div class="create-roll-grid">
+      <div class="card create-roll-summary">
+        <div class="card-title">🎲 天赋抽取</div>
+        <div class="create-card-note">这里允许无限重抽。想冲高上限就继续刷，想保底稳进联盟也可以直接锁定。</div>
+        <div class="create-roll-scoreboard">
+          <div class="create-score-card gold">
+            <div class="create-score-label">综合评分</div>
+            <div class="create-score-value">${ovr(a)}</div>
+            <div class="create-score-note">OVR</div>
+          </div>
+          <div class="create-score-card cyan">
+            <div class="create-score-label">成长上限</div>
+            <div class="create-score-value">${G.player.potential}</div>
+            <div class="create-score-note">POT</div>
+          </div>
+        </div>
+        <div class="create-roll-actions">
           <button class="btn btn-gold" onclick="doReroll()">🎲 重新抽取</button>
-          <button class="btn btn-ok mt-12" onclick="confirmAttrs()" style="width:100%">✓ 确认属性</button>
+          <button class="btn btn-ok" onclick="confirmAttrs()">✓ 确认属性</button>
         </div>
       </div>
-      <div>
+      <div class="card create-roll-detail">
+        <div class="card-title">📊 球探拆解</div>
         ${ATTRS.map(at => `
-          <div class="flex fb" style="margin-bottom:8px">
-            <span class="fs-sm" style="width:50px">${at.n}</span>
-            <div class="bar" style="flex:1;margin:0 8px"><div class="bar-fill ${barClass(a[at.k])}" style="width:${a[at.k]}%"></div></div>
-            <span class="fw-b" style="width:30px;text-align:right">${a[at.k]}</span>
+          <div class="create-attr-row">
+            <span class="fs-sm create-attr-label">${at.n}</span>
+            <div class="bar create-attr-bar"><div class="bar-fill ${barClass(a[at.k])}" style="width:${a[at.k]}%"></div></div>
+            <span class="fw-b create-attr-value">${a[at.k]}</span>
           </div>`).join('')}
       </div>
     </div>
@@ -256,14 +353,18 @@ function confirmAttrs() {
 function renderXFactorReveal() {
   const xf = getXFactor(G.player.xfactor) || { icon: '❔', n: '未知天赋', d: '该天赋未能正确加载' };
   $('createPage').innerHTML = `
-  <div class="card tc">
-    <div class="card-title fc" style="justify-content:center">✨ X-Factor 天赋揭晓</div>
-    <div class="xfactor-card" style="max-width:400px;margin:20px auto">
-      <div style="font-size:64px">${xf.icon}</div>
-      <div class="fs-lg fw-b t-purple mt-12">${xf.n}</div>
-      <div class="t-2 mt-12">${xf.d}</div>
+  <div class="create-page-shell">
+    ${renderCreateStageHeader('X-Factor 揭晓', '你的核心天赋已经浮出水面，这会是新秀赛季最鲜明的个人标识。', 'Special Trait')}
+    <div class="card create-reveal-card tc">
+      <div class="card-title fc" style="justify-content:center">✨ X-Factor 天赋揭晓</div>
+      <div class="xfactor-card create-xfactor-panel">
+        <div class="create-xfactor-icon">${xf.icon}</div>
+        <div class="fs-lg fw-b t-purple mt-12">${xf.n}</div>
+        <div class="t-2 mt-12">${xf.d}</div>
+      </div>
+      <div class="create-hero-note">下一步将生成选秀夜结果，并根据当前年份载入对应联盟环境。</div>
+      <button class="btn btn-gold mt-16 create-next-btn" onclick="gotoDraft()">进入选秀 →</button>
     </div>
-    <button class="btn btn-gold mt-16" onclick="gotoDraft()">进入选秀 →</button>
   </div>`;
 }
 
@@ -292,21 +393,27 @@ function renderDraftResult() {
   const allResults = Array.isArray(board?.results) ? board.results : [];
   const tierText = board ? (board.tier === 'big' ? '大年' : board.tier === 'weak' ? '小年' : '正常年') : '';
   $('createPage').innerHTML = `
-  <div class="card tc">
-    <div class="card-title fc" style="justify-content:center">🎉 选秀结果</div>
-    <div class="team-logo" style="width:80px;height:80px;font-size:20px;background:${t.cl};margin:16px auto">${teamLogoMarkup(t, 80)}</div>
-    <div class="fs-lg fw-b mt-12">${board?.year || G.year}年NBA选秀</div>
-    <div class="t-gold" style="font-size:36px;font-weight:900;margin:12px 0">第${G.draftPick}顺位</div>
-    <div class="fs-lg">${t.z} ${t.n}</div>
-    <div class="t-2 mt-12">${G.player.name} | ${getPos(G.player.pos).n} | OVR ${ovr(G.player.attrs)}</div>
-    <div class="t-2 fs-sm mt-12">合同: ${G.player.contractYears}年 / $${formatSalaryM(G.player.salary)}M</div>
-    ${board ? `<div class="t-2 fs-sm mt-12">同届: ${board.classSize || allResults.length}人竞争 (${tierText})</div>` : ''}
-    ${scout ? `
-      <div class="card mt-16" style="text-align:left;background:rgba(0,0,0,.18)">
+  <div class="create-page-shell">
+    ${renderCreateStageHeader('选秀夜', '球队已经做出决定。这里是你的顺位、球探总结，以及同届新秀榜单。', 'Draft Night')}
+    <div class="create-draft-grid">
+      <div class="card create-draft-hero">
+        <div class="card-title fc" style="justify-content:center">🎉 选秀结果</div>
+        <div class="team-logo create-draft-logo" style="background:${t.cl};margin:16px auto">${teamLogoMarkup(t, 80)}</div>
+        <div class="fs-lg fw-b mt-12">${board?.year || G.year}年NBA选秀</div>
+        <div class="create-draft-pick">第${G.draftPick}顺位</div>
+        <div class="fs-lg">${t.z} ${t.n}</div>
+        <div class="t-2 mt-12">${G.player.name} | ${getPos(G.player.pos).n} | OVR ${ovr(G.player.attrs)}</div>
+        <div class="t-2 fs-sm mt-12">合同: ${G.player.contractYears}年 / $${formatSalaryM(G.player.salary)}M</div>
+        ${board ? `<div class="t-2 fs-sm mt-12">同届: ${board.classSize || allResults.length}人竞争 (${tierText})</div>` : ''}
+        <button class="btn btn-gold mt-16 create-next-btn" onclick="startCareer()" style="font-size:18px;padding:14px 40px">开始生涯 🏀</button>
+      </div>
+      <div class="create-draft-side">
+      ${scout ? `
+      <div class="card create-draft-report" style="text-align:left;background:rgba(0,0,0,.18)">
         <div class="card-title">🧾 球探报道</div>
         <div class="fw-b" style="font-size:15px;color:var(--gold);margin-bottom:8px">${scout.title || '球队球探报告'}</div>
         <div class="t-2" style="line-height:1.7;margin-bottom:14px;padding:10px 12px;background:rgba(255,255,255,.04);border-radius:6px">${scout.summary || ''}</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <div class="create-report-grid" style="margin-bottom:14px">
           <div style="padding:10px 12px;background:rgba(40,167,69,.12);border-radius:8px;border:1px solid rgba(40,167,69,.3)">
             <div class="fw-b" style="color:#28a745;margin-bottom:6px">💪 优势</div>
             ${Array.isArray(scout.strengths) ? scout.strengths.map(s => `<div style="padding:4px 0;font-size:13px">• ${s}</div>`).join('') : '<div class="t-2">-</div>'}
@@ -319,18 +426,22 @@ function renderDraftResult() {
         ${scout.projection ? `<div style="padding:10px 12px;background:rgba(253,185,39,.08);border-radius:6px;border-left:3px solid var(--gold);margin-bottom:10px"><span class="fw-b" style="color:var(--gold)">📈 前景预测：</span><span class="t-2">${scout.projection}</span></div>` : ''}
         ${scout.comparable ? `<div style="padding:10px 12px;background:rgba(23,162,184,.08);border-radius:6px;border-left:3px solid var(--cyan)"><span class="fw-b" style="color:var(--cyan)">🔄 球员模版：</span><span class="t-2">${scout.comparable}</span></div>` : ''}
       </div>
-    ` : ''}
-    ${allResults.length ? `
-      <div class="tbl mt-16" style="text-align:left;max-height:360px;overflow-y:auto">
+      ` : ''}
+      ${allResults.length ? `
+      <div class="card create-draft-board">
+        <div class="card-title">📋 同届榜单</div>
+        <div class="tbl" style="text-align:left;max-height:360px;overflow-y:auto">
         <table>
           <thead><tr><th>顺位</th><th>球队</th><th>球员</th><th>位置</th><th>OVR</th><th>POT</th></tr></thead>
           <tbody>
             ${allResults.map(r => `<tr class="${r.user ? 'hl-row' : ''}"><td>${r.pick}</td><td>${r.team || '--'}</td><td>${r.user ? `⭐ ${r.name}` : r.name}</td><td>${r.pos}</td><td>${r.rating}</td><td>${r.potential}</td></tr>`).join('')}
           </tbody>
         </table>
+        </div>
       </div>
-    `: ''}
-    <button class="btn btn-gold mt-16" onclick="startCareer()" style="font-size:18px;padding:14px 40px">开始生涯 🏀</button>
+      `: ''}
+      </div>
+    </div>
   </div>`;
 }
 
@@ -851,6 +962,16 @@ function renderGameResultCard(res) {
   const teamAbbr = G.team?.a || 'HOME';
   const oppAbbr = res?.opp?.a || res?.opp?.z || 'AWAY';
   const flowHtml = renderUserGameFlow(res?.flow);
+  const recapData = res?.gameRecap
+    || (res?.gameId && G._gameRecapMap ? G._gameRecapMap[res.gameId] : null)
+    || (G._latestGameRecap && G._latestGameRecap.gameId === res.gameId ? G._latestGameRecap : null);
+  const recapHtml = recapData
+    ? `
+    <div class="sim-flow-card mt-12">
+      <div class="fw-b">${recapData.headline || '比赛战报'} <span class="badge b-cyan" style="margin-left:6px">AI</span></div>
+      <div class="t-2 fs-sm mt-8" style="line-height:1.7">${recapData.recap || ''}</div>
+    </div>`
+    : '';
   const resultSvg = renderResultBadgeSvg({ win: !!res.win });
 
   return `
@@ -870,6 +991,7 @@ function renderGameResultCard(res) {
       投篮: ${res.st.fgm}/${res.st.fga} | 三分: ${res.st.tpm}/${res.st.tpa} | 罚球: ${res.st.ftm}/${res.st.fta} | +${parseNum(res.xp, 0)}XP
     </div>
     ${flowHtml}
+    ${recapHtml}
     ${evBanner}
     ${res.gameId ? `<div class="tc mt-12"><button class="btn btn-cyan btn-sm" onclick="showLeagueGameDetailModal('${res.gameId}')">查看本场双方数据</button></div>` : ''}
   </div>`;
@@ -978,6 +1100,13 @@ async function doSimulateDay() {
       await generateDailyStoryByLLM(result);
     }
     // ===================================
+    if (result.isGame && typeof generateMatchRecapByLLM === 'function') {
+      const recap = await generateMatchRecapByLLM(result);
+      if (recap?.ok && recap.recap) {
+        result.gameRecap = recap.recap;
+        G._latestGameRecap = recap.recap;
+      }
+    }
 
     G._latestDayResult = result;
     updateHeader();
@@ -2273,11 +2402,8 @@ function renderPhoneEndorseTab() {
         <div class="t-2 fs-sm mt-8">剩余 ${parseNum(deal.remainingDays, 0)} 天 | 基础日入 $${phoneFmtM(deal.baseDailyIncome)} | 比赛日 $${phoneFmtM(deal.baseGameIncome)} | 累计 $${phoneFmtM(deal.earned)}</div>
         ${shoe ? `<div class="t-2 fs-sm mt-8">自创球鞋：${shoe.name}</div><div class="t-2 fs-sm mt-4">属性：${formatEffectText(shoe.boosts || {})}</div><div class="t-2 fs-sm mt-4">额外分成：日常 $${phoneFmtM(shoe.dailyIncome)} | 比赛日 $${phoneFmtM(shoe.gameIncome)}</div>` : (deal.shoeEligible ? '<div class="t-2 fs-sm mt-8">这份球鞋代言还可以继续打造你的签名鞋。</div>' : '')}
         ${deal.shoeEligible ? `
-          <div class="grid g2 mt-12">
-            <button class="btn btn-gold btn-sm" onclick="doPhoneCreateSignatureShoe('${deal.id}', 'speed')">速度型</button>
-            <button class="btn btn-pri btn-sm" onclick="doPhoneCreateSignatureShoe('${deal.id}', 'scoring')">得分型</button>
-            <button class="btn btn-pri btn-sm" onclick="doPhoneCreateSignatureShoe('${deal.id}', 'defense')">防守型</button>
-            <button class="btn btn-cyan btn-sm" onclick="doPhoneCreateSignatureShoe('${deal.id}', 'allaround')">全能型</button>
+          <div class="mt-12">
+            <button class="btn btn-gold btn-sm" onclick="doPhoneCreateSignatureShoe('${deal.id}')">创建签名鞋</button>
           </div>` : ''}
       </div>`;
   }).join('') : '<div class="t-2 fs-sm">暂无已签约代言</div>';
@@ -2311,11 +2437,8 @@ function renderPhoneEndorseTab() {
           </div>` : ''}
         ${offer.status === 'active' && offer.shoeEligible ? `
           <div class="t-2 fs-xs mt-12">球鞋代言可继续打造签名鞋，属性会直接加到球员身上。</div>
-          <div class="grid g2 mt-8">
-            <button class="btn btn-gold btn-sm" onclick="doPhoneCreateSignatureShoe('${offer.id}', 'speed')">速度型</button>
-            <button class="btn btn-pri btn-sm" onclick="doPhoneCreateSignatureShoe('${offer.id}', 'scoring')">得分型</button>
-            <button class="btn btn-pri btn-sm" onclick="doPhoneCreateSignatureShoe('${offer.id}', 'defense')">防守型</button>
-            <button class="btn btn-cyan btn-sm" onclick="doPhoneCreateSignatureShoe('${offer.id}', 'allaround')">全能型</button>
+          <div class="mt-8">
+            <button class="btn btn-gold btn-sm" onclick="doPhoneCreateSignatureShoe('${offer.id}')">创建签名鞋</button>
           </div>` : ''}
         ${offer.status === 'active' && active ? `
           <div class="t-2 fs-xs mt-12">累计入账 $${phoneFmtM(active.earned)} · 剩余 ${parseNum(active.remainingDays, 0)} 天</div>
@@ -2517,7 +2640,7 @@ function doPhoneRejectEndorsement(offerId) {
 }
 function doPhoneCreateSignatureShoe(offerId, styleKey) {
   if (typeof createSignatureShoeForOffer !== 'function') return;
-  const res = createSignatureShoeForOffer(offerId, styleKey);
+  const res = createSignatureShoeForOffer(offerId, styleKey || 'allaround');
   G._phoneEndorseResult = { ok: !!res.ok, message: res.message || (res.ok ? '球鞋打造完成' : '球鞋打造失败') };
   updateHeader();
   renderPhone();
@@ -2657,11 +2780,8 @@ function renderCommerceEndorse() {
             <button class="btn btn-pri btn-sm" onclick="doCommerceRejectEndorsement('${offer.id}')">拒绝</button>
           </div>` : ''}
         ${offer.status === 'active' && offer.shoeEligible && !activeShoe ? `
-          <div class="grid g2 mt-12">
-            <button class="btn btn-gold btn-sm" onclick="doCommerceCreateShoe('${offer.id}', 'speed')">速度型</button>
-            <button class="btn btn-pri btn-sm" onclick="doCommerceCreateShoe('${offer.id}', 'scoring')">得分型</button>
-            <button class="btn btn-pri btn-sm" onclick="doCommerceCreateShoe('${offer.id}', 'defense')">防守型</button>
-            <button class="btn btn-cyan btn-sm" onclick="doCommerceCreateShoe('${offer.id}', 'allaround')">全能型</button>
+          <div class="mt-12">
+            <button class="btn btn-gold btn-sm" onclick="doCommerceCreateShoe('${offer.id}')">创建签名鞋</button>
           </div>` : ''}
         ${offer.status === 'active' && active ? `
           <div class="t-2 fs-xs mt-12">累计 $${phoneFmtM(active.earned)} · 剩余 ${parseNum(active.remainingDays, 0)} 天</div>
@@ -2756,11 +2876,8 @@ function renderCommerceShoe() {
         <div class="card-title">${contract.brand} · ${contract.product}</div>
         ${resultMsg}
         <div class="t-2 fs-sm mb-12">球鞋代言已签约，可以打造你的签名鞋。</div>
-        <div class="grid g2">
-          <button class="btn btn-gold btn-sm" onclick="doCommerceCreateShoe('${cid}','speed')">速度型</button>
-          <button class="btn btn-pri btn-sm" onclick="doCommerceCreateShoe('${cid}','scoring')">得分型</button>
-          <button class="btn btn-pri btn-sm" onclick="doCommerceCreateShoe('${cid}','defense')">防守型</button>
-          <button class="btn btn-cyan btn-sm" onclick="doCommerceCreateShoe('${cid}','allaround')">全能型</button>
+        <div class="mt-8">
+          <button class="btn btn-gold btn-sm" onclick="doCommerceCreateShoe('${cid}')">创建签名鞋</button>
         </div>
       </div>`;
     }
@@ -2857,7 +2974,7 @@ function doCommerceRejectEndorsement(offerId) {
 }
 function doCommerceCreateShoe(offerId, styleKey) {
   if (typeof createSignatureShoeForOffer !== 'function') return;
-  const res = createSignatureShoeForOffer(offerId, styleKey);
+  const res = createSignatureShoeForOffer(offerId, styleKey || 'allaround');
   G._commerceEndorseResult = { ok: !!res.ok, message: res.message || (res.ok ? '球鞋打造完成' : '球鞋打造失败') };
   updateHeader();
   renderCommerce();
@@ -2967,6 +3084,8 @@ function buildSaveObj() {
   // 清理临时状态
   delete saveObj._simulatingDay;
   delete saveObj._latestDayResult;
+  delete saveObj._latestGameRecap;
+  delete saveObj._gameRecapMap;
   delete saveObj._gameEvent;
   delete saveObj._effortMode;
   delete saveObj._mainMenuLLMResult;
@@ -3514,97 +3633,158 @@ function renderMainMenu() {
   $('mainMenuPage').classList.add('active');
 
   const menuHtml = `
-    <div class="flex f-col fc" style="height:100vh;background:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)">
-      <div class="logo mb-24" style="transform:scale(1.5)"><div class="logo-icon">🏀</div><span>NBA Career Sim</span></div>
-      <div class="card tc" style="width:300px;padding:30px">
-        <button class="btn btn-gold mb-16" style="width:100%;height:50px;font-size:18px" onclick="startNewGame()">开始新生涯</button>
-        
-        <div style="position:relative;width:100%">
-          <button class="btn btn-pri" style="width:100%;height:50px;font-size:18px">读取存档</button>
-          <input type="file" id="saveFileInput" accept=".json" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer" onchange="importSave(this)">
-        </div>
-        
-        <div class="t-2 mt-24 fs-sm">版本 v1.2 | Local Save</div>
-      </div>
-      <div class="card mt-16" style="width:min(720px,92vw);padding:20px">
-        <div class="card-title">🤖 大模型配置（主页）</div>
-        <div class="t-2 fs-sm">用于选秀前球探报道与赛季社媒生成。建议在开始新生涯前先配置。</div>
-        <div class="grid g2 mt-12">
-          <div>
-            <label class="t-2 fs-sm">启用</label>
-            <select id="menuLlmEnabled" class="form-control" onchange="persistMainMenuLLMDraft()">
-              <option value="1" ${llmView.enabled ? 'selected' : ''}>启用</option>
-              <option value="0" ${!llmView.enabled ? 'selected' : ''}>关闭</option>
-            </select>
+    <div class="main-menu-page">
+      <div class="main-menu-shell">
+        <section class="card main-menu-panel main-menu-hero">
+          <div class="main-menu-brand">
+            <div class="main-menu-mark">🏀</div>
+            <div>
+              <div class="main-menu-kicker">Career Launcher</div>
+              <div class="main-menu-title">NBA Career Sim</div>
+              <div class="main-menu-subtitle">从训练馆到镁光灯，打造你的篮球生涯。这里是新秀入口，也是你每次回归的更衣室。</div>
+            </div>
           </div>
-          <div>
-            <label class="t-2 fs-sm">Model</label>
-            <input id="menuLlmModel" class="form-control" list="menuLlmModelList" value="${llmView.model || 'gpt-4.1-mini'}" oninput="persistMainMenuLLMDraft()" />
-            <datalist id="menuLlmModelList">
-              ${modelOptions.map(m => `<option value="${m}"></option>`).join('')}
-            </datalist>
+          <div class="main-menu-pills">
+            <span class="main-menu-pill gold">选秀夜入口</span>
+            <span class="main-menu-pill cyan">赛季叙事驱动</span>
+            <span class="main-menu-pill purple">商业成长线</span>
           </div>
-        </div>
-        <label class="t-2 fs-sm mt-12">Base URL</label>
-        <input id="menuLlmBase" class="form-control" value="${llmView.baseUrl || 'https://api.openai.com/v1'}" oninput="persistMainMenuLLMDraft()" />
-        <label class="t-2 fs-sm mt-12">API Key</label>
-        <input id="menuLlmKey" class="form-control" type="password" value="${llmView.apiKey || ''}" placeholder="sk-... / AIza..." oninput="persistMainMenuLLMDraft()" />
-        <div class="grid g2 mt-12">
-          <button class="btn btn-pri" onclick="doMainMenuSaveLLMSettings()">保存设置</button>
-          <button class="btn btn-cyan" onclick="doMainMenuTestLLMConnectivity()">测试连通性并读取模型</button>
-        </div>
-        ${llmResult}
-        ${G.social?.lastLLMError ? `<div class="t-2 fs-sm mt-12">最近错误: ${G.social.lastLLMError}</div>` : ''}
-        
-        <div class="card-title mt-24">TGbreak 预设参数</div>
-        <div class="t-2 fs-sm">参考 TGbreak V1.0.7，把防抢话、文风和比赛互动拆成可开关的预设。</div>
-        <label class="flex ai-c gap-8 pointer mt-12">
-          <input type="checkbox" id="menuLlmPresetEnabled" ${presetView.enabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-          <span>启用预设参数</span>
-        </label>
-        <div class="grid g2 mt-12">
-          <label class="flex ai-c gap-8 pointer">
-            <input type="checkbox" id="menuLlmPresetAntiTalk" ${presetView.antiTalk ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-            <span>防抢话</span>
-          </label>
-          <label class="flex ai-c gap-8 pointer">
-            <input type="checkbox" id="menuLlmPresetStrictTurnTaking" ${presetView.strictTurnTaking ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-            <span>超级防抢话</span>
-          </label>
-          <label class="flex ai-c gap-8 pointer">
-            <input type="checkbox" id="menuLlmPresetStyleEnabled" ${presetView.styleEnabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-            <span>启用文风</span>
-          </label>
-          <label class="flex ai-c gap-8 pointer">
-            <input type="checkbox" id="menuLlmPresetGameInteraction" ${presetView.gameInteraction ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-            <span>比赛互动</span>
-          </label>
-          <label class="flex ai-c gap-8 pointer">
-            <input type="checkbox" id="menuLlmPresetDataFirst" ${presetView.dataFirst ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-            <span>双方数据优先</span>
-          </label>
-          <label class="flex ai-c gap-8 pointer">
-            <input type="checkbox" id="menuLlmPresetAntiOmniscience" ${presetView.antiOmniscience ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-            <span>防全知</span>
-          </label>
-          <label class="flex ai-c gap-8 pointer">
-            <input type="checkbox" id="menuLlmPresetAntiVariable" ${presetView.antiVariable ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-            <span>防变量出错</span>
-          </label>
-          <label class="flex ai-c gap-8 pointer">
-            <input type="checkbox" id="menuLlmPresetEmotionControl" ${presetView.emotionControl ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-            <span>防极端情绪</span>
-          </label>
-          <label class="flex ai-c gap-8 pointer">
-            <input type="checkbox" id="menuLlmPresetRoleHope" ${presetView.roleHope ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-            <span>角色防绝望</span>
-          </label>
-        </div>
-        <label class="t-2 fs-sm mt-12">文风</label>
-        <select id="menuLlmPresetStyle" class="form-control" onchange="persistMainMenuLLMDraft()">
-          ${presetStyleOptions.map(style => `<option value="${style}" ${presetView.style === style ? 'selected' : ''}>${style}</option>`).join('')}
-        </select>
-        <div class="t-2 fs-sm mt-8">文风会作为系统提示注入；关闭“启用文风”后，只保留事实类预设。</div>
+          <div class="main-menu-actions">
+            <button class="btn btn-gold main-menu-primary" onclick="startNewGame()">开始新生涯</button>
+            <div class="main-menu-file btn btn-pri">
+              读取存档
+              <input type="file" id="saveFileInput" accept=".json" onchange="importSave(this)">
+            </div>
+          </div>
+          <div class="main-menu-tagline">版本 v1.2 | Local Save | 建议先完成右侧模型配置后再开档</div>
+          <div class="main-menu-stat-grid">
+            <div class="main-menu-stat">
+              <div class="main-menu-stat-label">模式</div>
+              <div class="main-menu-stat-value">生涯叙事</div>
+              <div class="main-menu-stat-note">从新秀到全明星的完整剧本</div>
+            </div>
+            <div class="main-menu-stat">
+              <div class="main-menu-stat-label">节奏</div>
+              <div class="main-menu-stat-value">赛季推进</div>
+              <div class="main-menu-stat-note">日程、交易、奖项全流程</div>
+            </div>
+            <div class="main-menu-stat">
+              <div class="main-menu-stat-label">加成</div>
+              <div class="main-menu-stat-value">商业系统</div>
+              <div class="main-menu-stat-note">代言、奢侈品与签名鞋</div>
+            </div>
+          </div>
+          <div class="main-menu-feature-grid">
+            <div class="main-menu-feature gold">
+              <div class="main-menu-feature-title">选秀夜剧情</div>
+              <div class="main-menu-feature-copy">基于年份与球探报告生成分位与生涯起点。</div>
+            </div>
+            <div class="main-menu-feature cyan">
+              <div class="main-menu-feature-title">球员成长</div>
+              <div class="main-menu-feature-copy">属性、潜力与 X-Factor 推动长期进化。</div>
+            </div>
+            <div class="main-menu-feature purple">
+              <div class="main-menu-feature-title">社媒动态</div>
+              <div class="main-menu-feature-copy">赛季舆论与城市故事持续刷新。</div>
+            </div>
+            <div class="main-menu-feature red">
+              <div class="main-menu-feature-title">商业兑现</div>
+              <div class="main-menu-feature-copy">代言和签名鞋带来成长加成与现金流。</div>
+            </div>
+          </div>
+          <div class="main-menu-footer">
+            <span class="badge b-gold">本地存档</span>
+            <span class="badge b-cyan">可自定义模型</span>
+            <span class="badge b-purple">生成式叙事</span>
+          </div>
+        </section>
+
+        <section class="card main-menu-panel main-menu-console">
+          <div class="card-title">🤖 大模型配置（主页）</div>
+          <div class="t-2 fs-sm">用于选秀前球探报道与赛季社媒生成。建议在开始新生涯前先配置。</div>
+          <div class="main-menu-console-grid mt-12">
+            <div>
+              <label class="t-2 fs-sm">启用</label>
+              <select id="menuLlmEnabled" class="form-control" onchange="persistMainMenuLLMDraft()">
+                <option value="1" ${llmView.enabled ? 'selected' : ''}>启用</option>
+                <option value="0" ${!llmView.enabled ? 'selected' : ''}>关闭</option>
+              </select>
+            </div>
+            <div>
+              <label class="t-2 fs-sm">Model</label>
+              <input id="menuLlmModel" class="form-control" list="menuLlmModelList" value="${llmView.model || 'gpt-4.1-mini'}" oninput="persistMainMenuLLMDraft()" />
+              <datalist id="menuLlmModelList">
+                ${modelOptions.map(m => `<option value="${m}"></option>`).join('')}
+              </datalist>
+            </div>
+          </div>
+          <label class="t-2 fs-sm mt-12">Base URL</label>
+          <input id="menuLlmBase" class="form-control" value="${llmView.baseUrl || 'https://api.openai.com/v1'}" oninput="persistMainMenuLLMDraft()" />
+          <label class="t-2 fs-sm mt-12">API Key</label>
+          <input id="menuLlmKey" class="form-control" type="password" value="${llmView.apiKey || ''}" placeholder="sk-... / AIza..." oninput="persistMainMenuLLMDraft()" />
+          <div class="main-menu-console-actions">
+            <button class="btn btn-pri" onclick="doMainMenuSaveLLMSettings()">保存设置</button>
+            <button class="btn btn-cyan" onclick="doMainMenuTestLLMConnectivity()">测试连通性并读取模型</button>
+          </div>
+          <div class="main-menu-status">
+            ${llmResult}
+            ${G.social?.lastLLMError ? `<div class="t-2 fs-sm mt-12">最近错误: ${G.social.lastLLMError}</div>` : ''}
+          </div>
+
+          <details class="main-menu-advanced">
+            <summary>TGbreak 预设参数</summary>
+            <div class="main-menu-advanced-body">
+              <div class="main-menu-advanced-note">参考 TGbreak V1.0.7，把防抢话、文风和比赛互动拆成可开关的预设。</div>
+              <label class="flex ai-c gap-8 pointer">
+                <input type="checkbox" id="menuLlmPresetEnabled" ${presetView.enabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+                <span>启用预设参数</span>
+              </label>
+              <div class="main-menu-advanced-grid mt-12">
+                <label class="flex ai-c gap-8 pointer">
+                  <input type="checkbox" id="menuLlmPresetAntiTalk" ${presetView.antiTalk ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+                  <span>防抢话</span>
+                </label>
+                <label class="flex ai-c gap-8 pointer">
+                  <input type="checkbox" id="menuLlmPresetStrictTurnTaking" ${presetView.strictTurnTaking ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+                  <span>超级防抢话</span>
+                </label>
+                <label class="flex ai-c gap-8 pointer">
+                  <input type="checkbox" id="menuLlmPresetStyleEnabled" ${presetView.styleEnabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+                  <span>启用文风</span>
+                </label>
+                <label class="flex ai-c gap-8 pointer">
+                  <input type="checkbox" id="menuLlmPresetGameInteraction" ${presetView.gameInteraction ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+                  <span>比赛互动</span>
+                </label>
+                <label class="flex ai-c gap-8 pointer">
+                  <input type="checkbox" id="menuLlmPresetDataFirst" ${presetView.dataFirst ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+                  <span>双方数据优先</span>
+                </label>
+                <label class="flex ai-c gap-8 pointer">
+                  <input type="checkbox" id="menuLlmPresetAntiOmniscience" ${presetView.antiOmniscience ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+                  <span>防全知</span>
+                </label>
+                <label class="flex ai-c gap-8 pointer">
+                  <input type="checkbox" id="menuLlmPresetAntiVariable" ${presetView.antiVariable ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+                  <span>防变量出错</span>
+                </label>
+                <label class="flex ai-c gap-8 pointer">
+                  <input type="checkbox" id="menuLlmPresetEmotionControl" ${presetView.emotionControl ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+                  <span>防极端情绪</span>
+                </label>
+                <label class="flex ai-c gap-8 pointer">
+                  <input type="checkbox" id="menuLlmPresetRoleHope" ${presetView.roleHope ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+                  <span>角色防绝望</span>
+                </label>
+              </div>
+              <label class="t-2 fs-sm mt-12">文风</label>
+              <select id="menuLlmPresetStyle" class="form-control main-menu-select" onchange="persistMainMenuLLMDraft()">
+                ${presetStyleOptions.map(style => `<option value="${style}" ${presetView.style === style ? 'selected' : ''}>${style}</option>`).join('')}
+              </select>
+              <div class="t-2 fs-sm mt-8">文风会作为系统提示注入；关闭“启用文风”后，只保留事实类预设。</div>
+            </div>
+          </details>
+        </section>
       </div>
     </div>
   `;
