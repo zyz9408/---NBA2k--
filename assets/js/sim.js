@@ -14,7 +14,183 @@ const EFFORT_MODES = [
   { id: 'normal', n: '普通', icon: '⚡', desc: '正常发挥', staminaMult: 1.0, attrMult: 1.0, injuryMult: 1.0, xpMult: 1.0, color: '#fdb927' },
   { id: 'conserve', n: '省力', icon: '🛡️', desc: '保存体力，表现有所降低', staminaMult: 0.55, attrMult: 0.88, injuryMult: 0.6, xpMult: 0.7, color: '#17a2b8' }
 ];
-function getEffortMode(id) { return EFFORT_MODES.find(m => m.id === id) || EFFORT_MODES[1]; }
+function normalizeEffortModeId(id) {
+  const raw = String(id || '').trim().toLowerCase();
+  if (raw === 'hard') return 'allout';
+  if (raw === 'slack') return 'conserve';
+  return raw || 'normal';
+}
+function getEffortMode(id) {
+  const normalized = normalizeEffortModeId(id);
+  return EFFORT_MODES.find(m => m.id === normalized) || EFFORT_MODES[1];
+}
+
+function getScheduleGameDay(gameIndex = G.gameNum) {
+  const idx = Math.max(0, Math.floor(parseNum(gameIndex, G.gameNum)));
+  if (Array.isArray(G.gameDays) && G.gameDays.length > idx) return parseNum(G.gameDays[idx], idx * 2);
+  return idx * 2;
+}
+
+function countRecentGamesInSpan(gameIndex, spanDays, { includeCurrent = true } = {}) {
+  const idx = Math.max(0, Math.floor(parseNum(gameIndex, 0)));
+  const gameDay = getScheduleGameDay(idx);
+  let count = includeCurrent ? 1 : 0;
+  for (let i = idx - 1; i >= 0; i--) {
+    const prevDay = getScheduleGameDay(i);
+    if (gameDay - prevDay > spanDays) break;
+    count++;
+  }
+  return count;
+}
+
+function getRecentPlayedMinutesLoad(limit = 4) {
+  const recent = Array.isArray(G.results) ? G.results.slice(-Math.max(1, parseNum(limit, 4))) : [];
+  const minutes = recent
+    .filter(item => item && !item.injured)
+    .map(item => parseNum(item?.st?.mins, parseNum(item?.mins, 0)))
+    .filter(value => value > 0);
+  if (!minutes.length) return clamp(parseNum(G._currentRoleMinutes, 26), 18, 40);
+  return minutes.reduce((sum, value) => sum + value, 0) / minutes.length;
+}
+
+function summarizeFatigueContext(ctx = {}) {
+  const parts = [];
+  if (ctx.backToBack) parts.push('背靠背');
+  if (ctx.threeInFour) parts.push('3天2赛/4天3赛强度');
+  if (ctx.fourInSix) parts.push('6天4赛强度');
+  if (!ctx.home) parts.push(`客场${Math.max(1, parseNum(ctx.roadTripLength, 1))}连客`);
+  else if (parseNum(ctx.homeStandLength, 0) >= 3) parts.push(`连续${parseNum(ctx.homeStandLength, 0)}个主场`);
+  if (parseNum(ctx.restDays, 0) >= 2) parts.push(`${parseNum(ctx.restDays, 0)}天休整`);
+  return parts.length ? parts.join(' / ') : '常规负荷';
+}
+
+function sampleGenericFatigueContext({ teamId = 0, home = false, roundIndex = 0, phase = 'regular' } = {}) {
+  const isPlayoffs = String(phase || '').trim() === 'playoffs';
+  let roll = Math.random();
+  let restDays = 1;
+  if (isPlayoffs) {
+    if (roll < 0.10) restDays = 0;
+    else if (roll < 0.54) restDays = 1;
+    else if (roll < 0.84) restDays = 2;
+    else restDays = 3;
+  } else {
+    if (roll < 0.14) restDays = 0;
+    else if (roll < 0.59) restDays = 1;
+    else if (roll < 0.86) restDays = 2;
+    else restDays = 3;
+  }
+  const backToBack = restDays === 0;
+  const threeInFour = backToBack ? Math.random() < 0.42 : Math.random() < 0.18;
+  const fourInSix = (backToBack || threeInFour) ? Math.random() < 0.22 : Math.random() < 0.08;
+  let roadTripLength = 0;
+  let homeStandLength = 0;
+  if (home) {
+    homeStandLength = Math.random() < 0.34 ? rng(3, 5) : rng(1, 3);
+  } else {
+    roadTripLength = Math.random() < 0.36 ? rng(3, 5) : rng(1, 3);
+  }
+  let loadScore = 0;
+  if (backToBack) loadScore += 6;
+  if (threeInFour) loadScore += 3;
+  if (fourInSix) loadScore += 2;
+  if (!home) loadScore += 1;
+  if (roadTripLength >= 3) loadScore += Math.min(4, roadTripLength - 2);
+  const skillPenalty = clamp(Math.round(loadScore * 0.62 - Math.min(restDays, 2)), 0, 10);
+  const pacePenalty = clamp(Math.round(loadScore * 0.36), 0, 7);
+  const energyPenalty = clamp(Math.round(loadScore * 1.4), 0, 16);
+  const injuryMult = +(1 + loadScore * 0.045 + (backToBack ? 0.05 : 0)).toFixed(2);
+  const summary = summarizeFatigueContext({ backToBack, threeInFour, fourInSix, home, roadTripLength, homeStandLength, restDays });
+  return {
+    teamId: parseNum(teamId, 0),
+    roundIndex: parseNum(roundIndex, 0),
+    home: !!home,
+    gameDay: NaN,
+    restDays,
+    backToBack,
+    threeInFour,
+    fourInSix,
+    roadTripLength,
+    homeStandLength,
+    recentMinutes: 30,
+    loadScore,
+    skillPenalty,
+    pacePenalty,
+    energyPenalty,
+    injuryMult,
+    summary,
+    synthetic: true
+  };
+}
+
+function buildScheduleFatigueContext({ teamId = 0, home = false, roundIndex = 0, phase = 'regular', userTeamId = 0 } = {}) {
+  const tid = parseNum(teamId, 0);
+  const ridx = Math.max(0, Math.floor(parseNum(roundIndex, 0)));
+  const phaseKey = String(phase || 'regular').trim() || 'regular';
+  const canUseUserSchedule = tid > 0
+    && tid === parseNum(G.teamId, 0)
+    && phaseKey === 'regular'
+    && Array.isArray(G.schedule)
+    && Array.isArray(G.gameDays)
+    && G.schedule.length > ridx
+    && G.gameDays.length > ridx;
+  if (!canUseUserSchedule) {
+    return sampleGenericFatigueContext({ teamId: tid, home, roundIndex: ridx, phase: phaseKey });
+  }
+  const game = G.schedule[ridx] || {};
+  const gameDay = getScheduleGameDay(ridx);
+  const prevDay = ridx > 0 ? getScheduleGameDay(ridx - 1) : -3;
+  const restDays = Math.max(0, gameDay - prevDay - 1);
+  const backToBack = restDays === 0;
+  const gamesIn4 = countRecentGamesInSpan(ridx, 3, { includeCurrent: true });
+  const gamesIn6 = countRecentGamesInSpan(ridx, 5, { includeCurrent: true });
+  const threeInFour = gamesIn4 >= 3;
+  const fourInSix = gamesIn6 >= 4;
+  let roadTripLength = 0;
+  let homeStandLength = 0;
+  for (let i = ridx; i >= 0; i--) {
+    const item = G.schedule[i] || {};
+    if (!!item.home !== !!game.home) break;
+    if (item.home) homeStandLength++;
+    else roadTripLength++;
+  }
+  const recentMinutes = getRecentPlayedMinutesLoad(4);
+  const currentStamina = clamp(parseNum(G.player?.stamina, 100), 0, 100);
+  let loadScore = 0;
+  if (backToBack) loadScore += 6;
+  if (threeInFour) loadScore += 3;
+  if (fourInSix) loadScore += 2;
+  if (!game.home) loadScore += 1;
+  if (!game.home && roadTripLength >= 3) loadScore += Math.min(4, roadTripLength - 2);
+  if (recentMinutes >= 38) loadScore += 3;
+  else if (recentMinutes >= 34) loadScore += 2;
+  else if (recentMinutes >= 30) loadScore += 1;
+  if (currentStamina <= 70) loadScore += Math.round((70 - currentStamina) / 8);
+  const skillPenalty = clamp(Math.round(loadScore * 0.66 - Math.min(restDays, 2)), 0, 11);
+  const pacePenalty = clamp(Math.round(loadScore * 0.40), 0, 8);
+  const energyPenalty = clamp(Math.round(loadScore * 1.55), 0, 18);
+  const injuryMult = +(1 + loadScore * 0.05 + (backToBack ? 0.06 : 0) + (roadTripLength >= 4 ? 0.04 : 0)).toFixed(2);
+  const summary = summarizeFatigueContext({ backToBack, threeInFour, fourInSix, home: !!game.home, roadTripLength, homeStandLength, restDays });
+  return {
+    teamId: tid,
+    roundIndex: ridx,
+    home: !!game.home,
+    gameDay,
+    restDays,
+    backToBack,
+    threeInFour,
+    fourInSix,
+    roadTripLength,
+    homeStandLength,
+    recentMinutes: +recentMinutes.toFixed(1),
+    loadScore,
+    skillPenalty,
+    pacePenalty,
+    energyPenalty,
+    injuryMult,
+    summary,
+    synthetic: false
+  };
+}
 
 
 
@@ -142,9 +318,198 @@ function collectRoleEffects(roles = []) {
     acc.astMod += parseNum(role?.astMod, 0);
     acc.threeMod += parseNum(role?.threeMod, 0);
     acc.insideMod += parseNum(role?.insideMod, 0);
+    acc.rebMod += parseNum(role?.rebMod, 0);
+    acc.stlMod += parseNum(role?.stlMod, 0);
+    acc.blkMod += parseNum(role?.blkMod, 0);
     if (role?.minRange) { acc.minRange = role.minRange; acc.minTarget = parseNum(role.minTarget, acc.minTarget); }
     return acc;
-  }, { usageMod: 0, astMod: 0, threeMod: 0, insideMod: 0, minTarget: 17, minRange: null });
+  }, { usageMod: 0, astMod: 0, threeMod: 0, insideMod: 0, rebMod: 0, stlMod: 0, blkMod: 0, minTarget: 17, minRange: null });
+}
+function buildCoachSystemRoleEffect(player, coachFx = {}) {
+  const systemId = String(coachFx?.systemId || 'balance').trim() || 'balance';
+  const systemLabel = String(coachFx?.systemLabel || '均衡体系').trim() || '均衡体系';
+  const attrs = usagePlayerAttrs(player);
+  const pos = clamp(parseNum(player?.pos, 3), 1, 5);
+  const shotExt = parseNum(attrs.shotExt, 55);
+  const shotInt = parseNum(attrs.shotInt, 55);
+  const pass = parseNum(attrs.pass, 55);
+  const reb = parseNum(attrs.reb, 55);
+  const stl = parseNum(attrs.stl, 55);
+  const blk = parseNum(attrs.blk, 55);
+  const speed = parseNum(attrs.speed, 55);
+  const physique = parseNum(attrs.physique, 55);
+  const perimeterCut = pos <= 3 ? 70 : 65;
+  const role = {
+    type: 'coachSystem',
+    name: `${systemLabel}适配`,
+    usageMod: parseNum(coachFx?.usageByPos?.[pos], 0),
+    astMod: 0,
+    threeMod: 0,
+    insideMod: 0,
+    rebMod: 0,
+    stlMod: 0,
+    blkMod: 0
+  };
+
+  switch (systemId) {
+    case 'defense':
+      role.name = pos >= 4 ? '防守支柱' : '防守拼图';
+      role.rebMod += pos >= 4 ? 0.45 : 0.12;
+      role.stlMod += pos <= 3 ? 0.16 : 0.08;
+      role.blkMod += pos >= 4 ? 0.18 : 0.04;
+      if (pos >= 3 && (stl + blk) < 115) {
+        role.name = '防守错配';
+        role.usageMod -= 0.02;
+        role.stlMod -= 0.10;
+        role.blkMod -= 0.10;
+      }
+      break;
+    case 'grit':
+      role.name = pos >= 4 ? '硬仗蓝领' : '强硬后场';
+      role.insideMod += pos >= 4 ? 0.03 : 0.01;
+      role.rebMod += pos >= 4 ? 0.38 : 0.10;
+      if (pos >= 4 && (physique + reb) < 145) {
+        role.name = '磨阵错配';
+        role.usageMod -= 0.03;
+        role.insideMod -= 0.02;
+        role.rebMod += 0.12;
+      }
+      break;
+    case 'pace_space':
+      if (shotExt >= perimeterCut) {
+        role.name = pos >= 4 ? '空间内线' : '空间适配';
+        role.usageMod += pos <= 3 ? 0.018 : 0.008;
+        role.threeMod += 0.028;
+        role.astMod += pos <= 3 ? 0.12 : 0.04;
+      } else {
+        role.name = '空间错配';
+        role.usageMod -= pos <= 3 ? 0.05 : 0.035;
+        role.threeMod -= 0.02;
+        if (pos >= 4) role.rebMod += 0.28;
+      }
+      break;
+    case 'perimeter_star':
+      if (pos <= 2 && (pass + shotExt) >= 145) {
+        role.name = '外核引擎';
+        role.usageMod += 0.035;
+        role.astMod += 0.26;
+        role.threeMod += 0.024;
+      } else if (pos <= 2) {
+        role.name = '外核错配';
+        role.usageMod -= 0.055;
+        role.astMod -= 0.18;
+        role.threeMod -= 0.015;
+      } else if (pos === 3) {
+        role.name = '侧翼终结';
+        role.usageMod += 0.012;
+        role.threeMod += 0.012;
+      } else {
+        role.name = '吃饼蓝领';
+        role.usageMod -= 0.03;
+        role.rebMod += 0.18;
+      }
+      break;
+    case 'interior_star':
+      if (pos >= 4 && (shotInt + reb) >= 140) {
+        role.name = '内线支点';
+        role.usageMod += 0.035;
+        role.insideMod += 0.032;
+        role.rebMod += 0.30;
+        role.blkMod += 0.10;
+      } else if (pos >= 4) {
+        role.name = '内核错配';
+        role.usageMod -= 0.04;
+        role.insideMod -= 0.02;
+        role.rebMod += 0.16;
+      } else {
+        role.name = '弱侧喂饼';
+        role.usageMod -= 0.015;
+        role.astMod += 0.08;
+      }
+      break;
+    case 'triangle':
+      if (pos === 1 && pass >= 72) {
+        role.name = '三角发牌手';
+        role.usageMod += 0.01;
+        role.astMod += 0.22;
+      } else if (pos >= 2 && pass >= 60) {
+        role.name = '三角联动';
+        role.usageMod += 0.008;
+        role.astMod += 0.20;
+        role.insideMod += 0.015;
+      } else if (pos >= 2) {
+        role.name = '三角错配';
+        role.usageMod -= 0.02;
+        role.astMod -= 0.12;
+      }
+      break;
+    case 'seven_seconds':
+      if (pos <= 3 && (speed + physique) >= 140) {
+        role.name = '快攻推进';
+        role.usageMod += 0.03;
+        role.astMod += pos === 1 ? 0.18 : 0.08;
+        role.threeMod += 0.02;
+      } else if (pos <= 3) {
+        role.name = '跑轰错配';
+        role.usageMod -= 0.045;
+        role.threeMod -= 0.01;
+      } else {
+        role.name = '转换终结';
+        role.usageMod -= 0.015;
+        role.insideMod += 0.01;
+      }
+      break;
+    case 'balance':
+    default:
+      if (pos <= 3 && pass >= 70) {
+        role.name = '体系通才';
+        role.astMod += 0.10;
+        role.usageMod += 0.005;
+      } else if (pos >= 4 && reb >= 75) {
+        role.name = '内线蓝领';
+        role.rebMod += 0.18;
+      }
+      break;
+  }
+  return role;
+}
+function buildCoachRelationshipRoleEffect(player, coachFx = {}) {
+  const isUser = !!player?.isSelf || String(player?.id || '') === 'USER_SELF';
+  if (!isUser || typeof getUserCoachTreatmentProfile !== 'function') return null;
+  const coach = typeof getTeamCoach === 'function' ? getTeamCoach(parseNum(G?.teamId, 0)) : null;
+  const treatment = getUserCoachTreatmentProfile(player, coach);
+  const pos = clamp(parseNum(player?.pos, 3), 1, 5);
+  const role = {
+    type: 'coachRelationship',
+    name: treatment.label,
+    usageMod: parseNum(treatment.usageDelta, 0),
+    astMod: parseNum(treatment.creationDelta, 0),
+    threeMod: 0,
+    insideMod: 0,
+    rebMod: 0,
+    stlMod: 0,
+    blkMod: 0
+  };
+  const systemId = String(coachFx?.systemId || coach?.systemId || 'balance').trim() || 'balance';
+  if (parseNum(treatment.fitScore, 50) >= 70) {
+    if (systemId === 'pace_space' || systemId === 'perimeter_star' || systemId === 'seven_seconds') {
+      role.threeMod += pos <= 3 ? 0.012 : 0.006;
+    } else if (systemId === 'interior_star' || systemId === 'grit') {
+      role.insideMod += pos >= 4 ? 0.014 : 0.006;
+      role.rebMod += pos >= 4 ? 0.10 : 0.03;
+    } else if (systemId === 'triangle') {
+      role.astMod += pos <= 3 ? 0.05 : 0.02;
+    }
+  } else if (parseNum(treatment.fitScore, 50) <= 42) {
+    role.usageMod -= 0.012;
+    if (systemId === 'pace_space' || systemId === 'perimeter_star' || systemId === 'seven_seconds') {
+      role.threeMod -= 0.010;
+    }
+    if (systemId === 'interior_star' || systemId === 'grit') {
+      role.insideMod -= 0.010;
+    }
+  }
+  return role;
 }
 
 // ============ 球员角色计算 (7层体系 + 技能附加) ============
@@ -177,20 +542,59 @@ function getPlayerRole(player, roster, coachFx, usageContext = null) {
   const defBias = parseNum(coachFx?.defensiveBias, 0);
   if (stl + blk >= 130 && defBias >= 0) roles.push({ type: 'defender', name: '防守悍将' });
 
+  roles.push(buildCoachSystemRoleEffect(player, coachFx));
+  const relationshipRole = buildCoachRelationshipRoleEffect(player, coachFx);
+  if (relationshipRole) roles.push(relationshipRole);
+
   return roles;
 }
 
 // 体力恢复计算
 function recoverStamina(options = {}) {
-  const base = options.rest ? rng(18, 28) : rng(3, 8);
+  const ecoFx = options.ecoFx || (typeof getEconomyEffects === 'function' ? getEconomyEffects() : { restStaminaBonus: 0, gameStaminaBonus: 0 });
   const xfFx = getPlayerXFactorEffect(G.player);
+  const badgeFx = getBadgeEffects(G.player);
   const regen = parseNum(xfFx.staminaRegen, 0);
-
-  // Physique Bonus: (Physique - 60) / 8.  80 physique -> +2.5. 99 -> +5.
+  const badgeRegen = parseNum(badgeFx.staminaRegen, 0);
   const physique = parseNum(G.player.attrs?.physique, 60);
-  const phyBonus = Math.max(0, Math.round((physique - 60) / 8));
+  const age = parseNum(G.player.age, 22);
+  const phyBonus = Math.max(0, Math.round((physique - 60) / 9));
+  const agePenalty = Math.max(0, Math.round((age - 30) * 0.3));
+  const base = options.rest ? rng(10, 16) : rng(2, 5);
+  const coachBonus = options.rest ? parseNum(ecoFx.restStaminaBonus, 0) : parseNum(ecoFx.gameStaminaBonus, 0);
+  const total = clamp(Math.round(base + coachBonus + regen + badgeRegen + phyBonus - agePenalty), 1, options.rest ? 26 : 10);
+  G.player.stamina = clamp(G.player.stamina + total, 0, 100);
+  return total;
+}
 
-  G.player.stamina = clamp(G.player.stamina + base + regen + phyBonus, 0, 100);
+function calculateUserGameStaminaLoss(stats = {}, fatigueContext = null, gameMod = null) {
+  const effortCfg = getEffortMode(G._effortMode);
+  const xfFx = getPlayerXFactorEffect(G.player);
+  const badgeFx = getBadgeEffects(G.player);
+  const ecoFx = getEconomyEffects();
+  const physique = parseNum(G.player.attrs?.physique, 60);
+  const speed = parseNum(G.player.attrs?.speed, 55);
+  const currentStamina = clamp(parseNum(G.player.stamina, 100), 0, 100);
+  let loss = 6
+    + parseNum(stats.mins, 0) * 0.31
+    + (parseNum(stats.fga, 0) + parseNum(stats.fta, 0) * 0.35) * 0.20
+    + (parseNum(stats.reb, 0) + parseNum(stats.ast, 0)) * 0.08
+    + (parseNum(stats.stl, 0) + parseNum(stats.blk, 0) + parseNum(stats.tov, 0)) * 0.24;
+  if (parseNum(stats.pts, 0) >= 30) loss += 1.2;
+  if (fatigueContext?.backToBack) loss += 3;
+  if (fatigueContext?.threeInFour) loss += 1.5;
+  if (fatigueContext?.fourInSix) loss += 1.2;
+  if (fatigueContext && !fatigueContext.home) loss += 0.8;
+  if (parseNum(fatigueContext?.roadTripLength, 0) >= 3) loss += Math.min(3, (parseNum(fatigueContext?.roadTripLength, 0) - 2) * 0.9);
+  if (gameMod?.foulTrouble) loss -= 1.2;
+  loss += Math.max(0, (72 - currentStamina) * 0.05);
+  loss -= Math.max(0, (physique - 60) * 0.08);
+  loss -= Math.max(0, (speed - 65) * 0.03);
+  loss -= parseNum(ecoFx.fatigueRelief, 0) * 14;
+  loss *= effortCfg.staminaMult || 1;
+  loss *= parseNum(xfFx.staminaCostMult, 1);
+  loss *= parseNum(badgeFx.staminaCostMult, 1);
+  return clamp(Math.round(loss), 7, 34);
 }
 
 // 获取玩家当前角色效果（供simGameStats使用）
@@ -453,6 +857,10 @@ function assignToDraft() {
   const teamId = simulateDraft();
   G.teamId = teamId;
   G.team = getTeam(teamId);
+  G.player.draft = parseNum(G.year, G.startYear || 2025) * 100 + parseNum(G.draftPick, 0);
+  G.player.draftPick = parseNum(G.draftPick, 0);
+  G.player.yearsLeague = 0;
+  G.player.rookie = true;
   const c = rookieContractByPick(G.draftPick);
   G.player.salary = c.salary;
   G.player.contractYears = c.years;
@@ -691,7 +1099,11 @@ async function generateDraftScoutingReportByLLM(context) {
 function getLuxuryItemsNames() {
   ensureEconomyState();
   if (!G.economy.ownedItems || !G.economy.ownedItems.length) return "无";
-  return G.economy.ownedItems.join('、');
+  const names = (G.economy.ownedItems || []).map(id => {
+    const item = LUXURY_MARKET.find(x => String(x.id) === String(id));
+    return item?.name || String(id || '').trim();
+  }).filter(Boolean);
+  return names.length ? names.join('、') : '无';
 }
 
 function formatGameStoryPeriodLines(flow = {}) {
@@ -1349,6 +1761,7 @@ function getEffectiveAttr(key) {
 
 function simGameStats(oppRating) {
   const fx = getBadgeEffects(G.player);
+  const coachFx = getCoachEffects(G.teamId);
   const attrs = { ...G.player.attrs };
   if (fx.attrBoost) {
     Object.entries(fx.attrBoost).forEach(([k, v]) => {
@@ -1389,15 +1802,17 @@ function simGameStats(oppRating) {
   // === 出手分配 (APK风格: 倾向控制出手量, 技能控制命中率) ===
   const usageExtra = parseNum(fx.usageBoost, 0);
   const usage = clamp(0.27 + ((ovrVal - 70) * 0.003) + (diff / 80) + usageExtra + roleFx.usageMod, 0.18, 0.52) * posUsageFactor(pos);
-  const fga = clamp(Math.round(mins * usage * effortMult) + rng(-2, 2), 4, 28);
+  const fga = clamp(Math.round(mins * usage * effortMult * clamp(Math.pow(parseNum(coachFx.paceMult, 1), 0.55), 0.90, 1.10)) + rng(-2, 2), 4, 28);
 
   // 三分出手率: 受倾向ex + 三分技能 + 位置偏好 + 角色加成
-  const threeRate = clamp(0.08 + parseNum(attrs.shotExt, 55) / 260 + (tendencyEx - 50) / 500 + posThreeBias(pos) + roleFx.threeMod, 0.04, 0.58);
+  const threeRateBase = 0.08 + parseNum(attrs.shotExt, 55) / 260 + (tendencyEx - 50) / 500 + posThreeBias(pos) + roleFx.threeMod;
+  const threeRate = clamp(threeRateBase * clamp(parseNum(coachFx.threeRateMult, 1), 0.82, 1.28), 0.04, 0.60);
   const tpa = clamp(Math.round(fga * threeRate) + rng(-1, 1), 0, Math.min(14, fga));
   const nonThree = Math.max(0, fga - tpa);
 
   // 内线出手比例: 受倾向in + 内线技能, 中投倾向mid降低内线比例 + 角色加成
-  const inShare = clamp(0.32 + parseNum(attrs.shotInt, 55) / 290 + (tendencyIn - 50) / 500 - (tendencyMid - 50) / 550 - (threeRate * 0.18) + roleFx.insideMod, 0.22, 0.76);
+  const inShareBase = 0.32 + parseNum(attrs.shotInt, 55) / 290 + (tendencyIn - 50) / 500 - (tendencyMid - 50) / 550 - (threeRate * 0.18) + roleFx.insideMod;
+  const inShare = clamp(inShareBase * clamp(parseNum(coachFx.paintRateMult, 1), 0.82, 1.24), 0.22, 0.76);
   const shotsIn = clamp(Math.round(nonThree * inShare), 0, nonThree);
   const shotsDo = Math.max(0, nonThree - shotsIn); // 中距离
 
@@ -1432,16 +1847,16 @@ function simGameStats(oppRating) {
   const ftm = shotFrResult(frPct, fta - evExtraFTA) + evExtraFTM;
 
   // === 其他数据 (位置系数 + 技能) ===
-  const astBase = (mins / 36) * (0.7 + parseNum(attrs.pass, 55) / 24) * posAstFactor(pos);
-  const rebBase = (mins / 36) * (1.1 + parseNum(attrs.reb, 55) / 18) * posRebFactor(pos);
-  const stlBase = (mins / 36) * (parseNum(attrs.stl, 55) / 48) * posStlFactor(pos);
-  const blkBase = (mins / 36) * (parseNum(attrs.blk, 55) / 48) * posBlkFactor(pos);
+  const astBase = (mins / 36) * (0.7 + parseNum(attrs.pass, 55) / 24) * posAstFactor(pos) * clamp(parseNum(coachFx.astMult, 1), 0.90, 1.24);
+  const rebBase = (mins / 36) * (1.1 + parseNum(attrs.reb, 55) / 18) * posRebFactor(pos) * clamp(parseNum(coachFx.rebMult, 1), 0.90, 1.24);
+  const stlBase = (mins / 36) * (parseNum(attrs.stl, 55) / 48) * posStlFactor(pos) * clamp(parseNum(coachFx.stocksMult, 1), 0.90, 1.24);
+  const blkBase = (mins / 36) * (parseNum(attrs.blk, 55) / 48) * posBlkFactor(pos) * clamp(parseNum(coachFx.stocksMult, 1), 0.90, 1.24);
   const tovBase = (mins / 36) * (1 + fga / 8 + (pos <= 2 ? 0.65 : 0.25) - parseNum(attrs.pass, 55) / 95 - roleFx.astMod * 0.08);
 
   const ast = clamp(Math.round(astBase + roleFx.astMod + parseNum(fx.astFlat, 0)) + rng(-2, 2), 0, 14);
-  const reb = clamp(Math.round(rebBase + parseNum(fx.rebFlat, 0)) + rng(-1, 2), 0, 20);
-  const stl = clamp(Math.round(stlBase + parseNum(fx.stlFlat, 0)) + rng(0, 1) + parseNum(evMod.stl, 0), 0, 8);
-  const blk = clamp(Math.round(blkBase + parseNum(fx.blkFlat, 0)) + rng(0, 1) + parseNum(evMod.blk, 0), 0, 8);
+  const reb = clamp(Math.round(rebBase + roleFx.rebMod + parseNum(fx.rebFlat, 0)) + rng(-1, 2), 0, 20);
+  const stl = clamp(Math.round(stlBase + roleFx.stlMod + parseNum(fx.stlFlat, 0)) + rng(0, 1) + parseNum(evMod.stl, 0), 0, 8);
+  const blk = clamp(Math.round(blkBase + roleFx.blkMod + parseNum(fx.blkFlat, 0)) + rng(0, 1) + parseNum(evMod.blk, 0), 0, 8);
   const tov = clamp(Math.round(tovBase * clamp(parseNum(fx.tovMult, 1), 0.55, 1.8)) + rng(0, 2) + parseNum(evMod.extraTOV, 0), 0, 10);
 
   let line = clampLineStats({ mins, reb, ast, stl, blk, tov, fgm, fga: totalFga, tpm: exOk, tpa, ftm, fta, pts: 0 });
@@ -1532,24 +1947,33 @@ function calcGrade(st) {
   return clamp(Math.round(g), 0, 99);
 }
 
-function checkInjury() {
+function checkInjury({ gameContext = null, gameStats = null, gameMod = null } = {}) {
   const fx = getPlayerXFactorEffect(G.player);
   const badgeFx = getBadgeEffects(G.player);
   const staminaStatus = getStaminaStatus(G.player.stamina);
   const ecoFx = getEconomyEffects();
-  let chance = 0.008;
+  const recentMinutes = getRecentPlayedMinutesLoad(4);
+  const age = parseNum(G.player.age, 22);
+  let chance = 0.0065;
   if (fx.injuryMult) chance *= fx.injuryMult;
   if (badgeFx.injuryMult) chance *= badgeFx.injuryMult;
   // 使用体力状态的伤病倍率
   chance *= staminaStatus.injuryMult;
   chance *= clamp(parseNum(ecoFx.injuryMult, 1), 0.7, 1.2);
-  if (parseNum(G._currentRoleMinutes, 24) >= 34) chance *= 1.18;
+  if (parseNum(gameStats?.mins, parseNum(G._currentRoleMinutes, 24)) >= 34) chance *= 1.14;
+  if (parseNum(gameStats?.mins, 0) >= 38) chance *= 1.06;
+  if (recentMinutes >= 35) chance *= 1.08;
+  if (age >= 31) chance *= 1 + Math.min(0.10, (age - 30) * 0.012);
+  if (gameContext?.backToBack) chance *= 1.12;
+  if (gameContext?.threeInFour) chance *= 1.07;
+  if (parseNum(gameContext?.roadTripLength, 0) >= 4) chance *= 1.05;
+  if (gameMod?.issueTag) chance *= 1.12;
   // 努力程度影响伤病概率
   const effortCfg = getEffortMode(G._effortMode);
   chance *= effortCfg.injuryMult;
   if (Math.random() < chance) {
     const severe = Math.random() < 0.14;
-    const games = severe ? rng(14, 45) : rng(2, 10);
+    const games = Math.max(1, Math.round((severe ? rng(14, 45) : rng(2, 10)) * clamp(parseNum(ecoFx.injuryDaysMult, 1), 0.72, 1)));
     const type = severe ? pick(["ACL撕裂", "跟腱断裂", "骨折"]) : pick(["脚踝扭伤", "肌肉拉伤", "膝盖酸痛"]);
     G.player.injury = { active: true, games, type };
     addNews(`💔 ${G.player.name}遭遇${type}，预计缺阵${games}场！`, 'neg');
@@ -1715,11 +2139,512 @@ function allocateIntegerShares(total, weights = []) {
   return out;
 }
 
-function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = false } = {}) {
+function buildSimRotationContext(teamId, { includeUser = false } = {}) {
+  const tid = parseNum(teamId, 0);
+  const team = getTeam(tid) || {};
+  const teamName = String(team.z || team.n || '--').trim();
+  const abbr = String(team.a || team.abbr || '--').trim();
+  const coachFx = getCoachEffects(tid);
+  let rotation = getGameRotationSnapshot(tid, { includeUser: !!includeUser || tid === parseNum(G.teamId, 0) });
+  if (!rotation.length) {
+    const fallbackPlayers = [...(getTeamPlayers(tid) || [])];
+    if (fallbackPlayers.length) {
+      rotation = fallbackPlayers.slice(0, 10).map((p, idx) => ({
+        id: p.id,
+        name: p.name,
+        pos: parseNum(p.pos, 3),
+        pos2: parseNum(p.pos2, 0),
+        minutes: clamp(28 - idx * 2, 6, 36),
+        rating: parseNum(p.rating, 65),
+        teamTier: idx < 5 ? 'starter' : 'bench',
+        isSelf: false
+      }));
+    }
+  }
+  const rosterLookup = new Map((getTeamPlayers(tid) || []).map(p => [String(p.id), p]));
+  const simPlayers = rotation.map(p => {
+    const src = p.isSelf
+      ? (typeof createUserRosterSnapshot === 'function' ? createUserRosterSnapshot() : G.player)
+      : (rosterLookup.get(String(p.id)) || p);
+    return {
+      ...src,
+      id: p.id,
+      name: p.name || src?.name,
+      pos: parseNum(p.pos, parseNum(src?.pos, 3)),
+      pos2: parseNum(p.pos2, parseNum(src?.pos2, 0)),
+      rating: parseNum(p.rating, parseNum(src?.rating, 65)),
+      minutes: parseNum(p.minutes, 18),
+      rotationRole: p.rotationRole,
+      teamTier: p.teamTier,
+      isSelf: !!p.isSelf
+    };
+  });
+  return { teamId: tid, team, teamName, abbr, coachFx, rotation, simPlayers };
+}
+
+function weightedRotationAverage(players, selector, fallback = 55) {
+  const list = Array.isArray(players) ? players.filter(Boolean) : [];
+  if (!list.length) return fallback;
+  let totalWeight = 0;
+  let totalValue = 0;
+  list.forEach((player, idx) => {
+    const weight = Math.max(1, parseNum(player?.minutes, 0) || (idx < 5 ? 28 - idx * 2 : 14 - (idx - 5)));
+    const value = parseNum(selector(player), NaN);
+    if (!Number.isFinite(value)) return;
+    totalWeight += weight;
+    totalValue += value * weight;
+  });
+  if (totalWeight <= 0) return fallback;
+  return +(totalValue / totalWeight).toFixed(1);
+}
+
+function computePlayerMatchupEdge(player, oppProfile = {}) {
+  const attrs = usagePlayerAttrs(player);
+  const pos = clamp(parseNum(player?.pos, 3), 1, 5);
+  const perimeterAttack = (parseNum(attrs.shotExt, 55) * 0.54) + (parseNum(attrs.pass, 55) * 0.20) + (parseNum(attrs.speed, 55) * 0.26);
+  const interiorAttack = (parseNum(attrs.shotInt, 55) * 0.46) + (parseNum(attrs.strength, parseNum(attrs.physique, 55)) * 0.32) + (parseNum(attrs.reb, 55) * 0.14) + (parseNum(attrs.speed, 55) * 0.08);
+  const perimeterDefense = parseNum(oppProfile?.perimeterDef, 55);
+  const rimDefense = (parseNum(oppProfile?.rimProtection, 55) * 0.62) + (parseNum(oppProfile?.size, 58) * 0.38);
+  if (pos <= 2) return clamp((perimeterAttack - perimeterDefense) / 28, -1.15, 1.15);
+  if (pos >= 4) return clamp((interiorAttack - rimDefense) / 28, -1.15, 1.15);
+  return clamp((((perimeterAttack * 0.55) + (interiorAttack * 0.45)) - ((perimeterDefense * 0.52) + (rimDefense * 0.48))) / 30, -1.1, 1.1);
+}
+
+function buildSingleGamePlayerModifier(player, {
+  teamId = 0,
+  home = false,
+  teamProfile = null,
+  oppProfile = null,
+  fatigueContext = null,
+  baseMinutes = 18,
+  coachFx = null
+} = {}) {
+  const attrs = usagePlayerAttrs(player);
+  const ecoFx = getEconomyEffects();
+  const pos = clamp(parseNum(player?.pos, 3), 1, 5);
+  const rating = clamp(parseNum(player?.rating, ovr(attrs)), 40, 99);
+  const age = parseNum(player?.age, 26);
+  const isSelf = !!player?.isSelf || String(player?.id || '') === 'USER_SELF';
+  const stamina = isSelf ? clamp(parseNum(G.player?.stamina, 100), 0, 100) : clamp(90 - parseNum(fatigueContext?.energyPenalty, 0) + rng(-5, 3) - Math.max(0, age - 31) * 0.4, 62, 97);
+  const matchupEdge = computePlayerMatchupEdge(player, oppProfile);
+  const coachStocks = parseNum(coachFx?.stocksMult, parseNum(teamProfile?.coachFx?.stocksMult, 1));
+  const defensiveLoad = clamp((parseNum(attrs.stl, 55) + parseNum(attrs.blk, 55)) / 120, 0.65, 1.35);
+  const fatigueLoad = clamp(
+    parseNum(fatigueContext?.loadScore, 0) * 0.7
+    + Math.max(0, parseNum(baseMinutes, 18) - 28) * 0.22
+    + Math.max(0, age - 30) * 0.35
+    + Math.max(0, (72 - stamina) * 0.18),
+    0,
+    16
+  );
+  let minuteMult = clamp(1 - fatigueLoad * 0.012 + rng(-0.03, 0.03), 0.72, 1.10);
+  let usageMult = clamp(1 - fatigueLoad * 0.007 + matchupEdge * 0.08 + rng(-0.03, 0.03), 0.78, 1.20);
+  let efficiencyShift = clamp(matchupEdge * 0.028 - fatigueLoad * 0.0028, -0.08, 0.08);
+  let astMult = clamp(1 + matchupEdge * 0.05 - fatigueLoad * 0.003, 0.88, 1.15);
+  let rebMult = clamp(1 + (pos >= 4 ? matchupEdge * 0.04 : matchupEdge * 0.02) - fatigueLoad * 0.002, 0.88, 1.16);
+  let stocksMult = clamp(1 - fatigueLoad * 0.003 + (coachStocks - 1) * 0.18, 0.86, 1.18);
+  const notes = [];
+  if (isSelf && parseNum(ecoFx.prepBonus, 0) > 0) {
+    const prepBoost = clamp(parseNum(ecoFx.prepBonus, 0) / 100, 0, 0.07);
+    efficiencyShift += prepBoost * 0.55;
+    astMult *= 1 + prepBoost * 0.6;
+    usageMult *= 1 + prepBoost * 0.25;
+    notes.push(`赛前准备充分，读秒与对位判断更从容`);
+  }
+
+  const hotChance = clamp(0.08 + (rating - 70) * 0.002, 0.08, 0.15);
+  const coldChance = clamp(0.09 - (rating - 70) * 0.001, 0.05, 0.11);
+  const varianceRoll = Math.random();
+  let varianceTag = 'steady';
+  if (varianceRoll < hotChance) {
+    varianceTag = 'hot';
+    usageMult *= 1.06;
+    efficiencyShift += 0.03;
+    astMult *= 1.04;
+    notes.push('手感发烫，进攻参与度上升');
+  } else if (varianceRoll > 1 - coldChance) {
+    varianceTag = 'cold';
+    usageMult *= 0.93;
+    efficiencyShift -= 0.035;
+    notes.push('开场手感偏冷，效率走低');
+  }
+
+  let issueTag = '';
+  const issueChance = clamp(0.025 + fatigueLoad * 0.009 + (parseNum(fatigueContext?.backToBack, 0) ? 0.02 : 0), 0.025, 0.20);
+  if (Math.random() < issueChance && baseMinutes >= 18) {
+    issueTag = pick(['膝盖发紧', '脚踝发酸', '腿部沉重', '腰背僵硬']);
+    const minuteHit = rng(8, 16) / 100;
+    minuteMult *= 1 - minuteHit;
+    usageMult *= 0.95;
+    efficiencyShift -= 0.02;
+    rebMult *= 0.97;
+    notes.push(`${issueTag}，出场时间受限`);
+  }
+
+  if (matchupEdge >= 0.45) {
+    usageMult *= 1.04;
+    efficiencyShift += 0.015;
+    notes.push(pos >= 4 ? '对位内线点名空间更大' : '对位脚步跟不上你');
+  } else if (matchupEdge <= -0.45) {
+    usageMult *= 0.94;
+    efficiencyShift -= 0.018;
+    astMult *= 0.97;
+    notes.push(pos >= 4 ? '对位护框压迫较强' : '对位外线压迫感很强');
+  }
+
+  const foulRisk = clamp(
+    0.045
+    + Math.max(0, parseNum(baseMinutes, 18) - 20) * 0.003
+    + (pos >= 4 ? 0.02 : 0.01)
+    + Math.max(0, -matchupEdge) * 0.035
+    + (defensiveLoad - 1) * 0.04
+    + (coachStocks - 1) * 0.16
+    + (parseNum(fatigueContext?.backToBack, 0) ? 0.015 : 0),
+    0.05,
+    0.22
+  );
+  const foulTrouble = Math.random() < foulRisk;
+  let foulCount = clamp(Math.round((parseNum(baseMinutes, 18) / 11.5) + (pos >= 4 ? 0.6 : 0.2) + rng(-1, 1) + Math.max(0, -matchupEdge) * 1.2), 0, 6);
+  if (foulTrouble) {
+    minuteMult *= pos >= 4 ? rng(68, 84) / 100 : rng(74, 88) / 100;
+    usageMult *= 0.93;
+    foulCount = clamp(rng(4, 6), 4, 6);
+    notes.push('遭遇犯规麻烦，轮换被迫缩短');
+  }
+
+  return {
+    minuteMult: clamp(minuteMult, 0.56, 1.12),
+    usageMult: clamp(usageMult, 0.75, 1.22),
+    efficiencyShift: clamp(efficiencyShift, -0.09, 0.09),
+    astMult: clamp(astMult, 0.86, 1.18),
+    rebMult: clamp(rebMult, 0.86, 1.18),
+    stocksMult: clamp(stocksMult, 0.84, 1.22),
+    matchupEdge: +matchupEdge.toFixed(2),
+    foulTrouble,
+    foulCount,
+    fatigueLoad: +fatigueLoad.toFixed(1),
+    stamina,
+    varianceTag,
+    issueTag,
+    notes
+  };
+}
+
+function applySingleGameMinuteCaps(rotation = [], gameMods = []) {
+  const liveRotation = Array.isArray(rotation) ? rotation : [];
+  if (!liveRotation.length) return liveRotation;
+  const caps = liveRotation.map((player, i) => {
+    const mod = gameMods[i] || {};
+    const baseMinutes = clamp(parseNum(player?.baseMinutesRaw, parseNum(player?.minutes, 18)), 0, 40);
+    if (mod.foulTrouble) return clamp(Math.round(baseMinutes * 0.82), 12, 34);
+    if (mod.issueTag) return clamp(Math.round(baseMinutes * 0.9), 14, 36);
+    if (parseNum(mod.minuteMult, 1) < 0.97) return clamp(Math.round(baseMinutes * parseNum(mod.minuteMult, 1)), 10, 38);
+    return 40;
+  });
+  let surplus = 0;
+  liveRotation.forEach((player, i) => {
+    if (parseNum(player.minutes, 0) > caps[i]) {
+      surplus += parseNum(player.minutes, 0) - caps[i];
+      player.minutes = caps[i];
+    }
+  });
+  while (surplus > 0) {
+    const candidates = liveRotation
+      .map((player, i) => ({
+        i,
+        room: Math.max(0, caps[i] - parseNum(player.minutes, 0)),
+        rating: parseNum(player.rating, 65),
+        role: String(player.rotationRole || '')
+      }))
+      .filter(item => item.room > 0)
+      .sort((a, b) => b.rating - a.rating || (a.role === 'starter' ? -1 : 0) - (b.role === 'starter' ? -1 : 0));
+    if (!candidates.length) break;
+    const next = candidates[0];
+    liveRotation[next.i].minutes += 1;
+    surplus -= 1;
+  }
+  return liveRotation;
+}
+
+function buildTeamSimulationProfile(teamId, { includeUser = false, home = false, fatigueContext = null } = {}) {
+  const ctx = buildSimRotationContext(teamId, { includeUser });
+  const players = (ctx.simPlayers || []).length ? ctx.simPlayers : (ctx.rotation || []);
+  const fatigue = fatigueContext || sampleGenericFatigueContext({ teamId, home, roundIndex: 0, phase: 'regular' });
+  const rating = weightedRotationAverage(players, p => parseNum(p?.rating, ovr(usagePlayerAttrs(p))), parseNum(getTeamStrength(teamId), 72));
+  const shotExt = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).shotExt, 55), 55);
+  const shotInt = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).shotInt, 55), 55);
+  const shotFree = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).shotFree, 68), 68);
+  const pass = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).pass, 55), 55);
+  const rebounding = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).reb, 55), 55);
+  const speed = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).speed, 55), 55);
+  const strengthAttr = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).strength, parseNum(usagePlayerAttrs(p).physique, 55)), 55);
+  const stl = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).stl, 55), 55);
+  const blk = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).blk, 55), 55);
+  const perimeterDef = weightedRotationAverage(players, p => {
+    const attrs = usagePlayerAttrs(p);
+    return (parseNum(attrs.stl, 55) * 0.42) + (parseNum(attrs.speed, 55) * 0.22) + (parseNum(p?.def, parseNum(p?.rating, 65)) * 0.36);
+  }, 55);
+  const rimProtection = weightedRotationAverage(players, p => {
+    const attrs = usagePlayerAttrs(p);
+    return (parseNum(attrs.blk, 55) * 0.52) + (parseNum(attrs.reb, 55) * 0.18) + (parseNum(attrs.strength, parseNum(attrs.physique, 55)) * 0.30);
+  }, 55);
+  const size = weightedRotationAverage(players, p => {
+    const attrs = usagePlayerAttrs(p);
+    const pos = clamp(parseNum(p?.pos, 3), 1, 5);
+    const positionSize = pos >= 4 ? 66 : pos === 3 ? 60 : 54;
+    return (parseNum(attrs.reb, 55) * 0.25) + (parseNum(attrs.strength, parseNum(attrs.physique, 55)) * 0.35) + positionSize;
+  }, 58);
+  const starters = players.slice(0, 5);
+  const bench = players.slice(5);
+  const starterRating = weightedRotationAverage(starters, p => parseNum(p?.rating, rating), rating);
+  const benchRating = bench.length ? weightedRotationAverage(bench, p => parseNum(p?.rating, rating - 6), rating - 6) : (starterRating - 7);
+  let depth = clamp(52 + (benchRating - 68) * 1.65 + Math.max(0, players.length - 8) * 1.2, 36, 88);
+  let offense = 57 + parseNum(getTeamStrength(teamId), rating) * 0.24 + rating * 0.18 + shotExt * 0.11 + shotInt * 0.10 + pass * 0.12 + (parseNum(ctx.coachFx?.offPct, 0) + parseNum(ctx.coachFx?.tacticsPct, 0)) * 60 + (parseNum(ctx.coachFx?.teamRatingMult, 1) - 1) * 30;
+  let defense = 55 + parseNum(getTeamStrength(teamId), rating) * 0.22 + perimeterDef * 0.14 + rimProtection * 0.12 + rebounding * 0.10 + depth * 0.08 + (parseNum(ctx.coachFx?.defPct, 0) + parseNum(ctx.coachFx?.tacticsPct, 0) * 0.5) * 60;
+  let pace = clamp(48 + speed * 0.18 + pass * 0.10 + (parseNum(ctx.coachFx?.paceMult, 1) - 1) * 110 + (parseNum(ctx.coachFx?.threeRateMult, 1) - 1) * 16, 44, 84);
+  offense -= parseNum(fatigue?.skillPenalty, 0) * 0.72;
+  defense -= parseNum(fatigue?.skillPenalty, 0) * 0.58;
+  pace -= parseNum(fatigue?.pacePenalty, 0) * 0.65;
+  depth -= parseNum(fatigue?.loadScore, 0) * 0.28;
+  if (parseNum(teamId, 0) === parseNum(G.teamId, 0) && G.player?.injury?.active) {
+    offense -= 4.5;
+    depth -= 2;
+    pace -= 1;
+  }
+  return {
+    ...ctx,
+    home: !!home,
+    rating: +rating.toFixed(1),
+    shotExt,
+    shotInt,
+    shotFree,
+    pass,
+    rebounding,
+    speed,
+    strengthAttr,
+    stl,
+    blk,
+    perimeterDef: +perimeterDef.toFixed(1),
+    rimProtection: +rimProtection.toFixed(1),
+    size: +size.toFixed(1),
+    depth: +depth.toFixed(1),
+    offense: +clamp(offense, 68, 97).toFixed(1),
+    defense: +clamp(defense, 68, 97).toFixed(1),
+    pace: +pace.toFixed(1),
+    starterRating: +starterRating.toFixed(1),
+    benchRating: +benchRating.toFixed(1),
+    fatigueContext: fatigue
+  };
+}
+
+function simulateTeamOffensePlan(teamProfile, oppProfile, { home = false, sharedPossessions = 96 } = {}) {
+  const homeBoost = home ? 0.008 : 0;
+  const offenseEdge = parseNum(teamProfile?.offense, 78) - parseNum(oppProfile?.defense, 78);
+  const possessions = clamp(Math.round(sharedPossessions + (home ? 1 : 0) + (parseNum(teamProfile?.depth, 55) - parseNum(oppProfile?.depth, 55)) / 22 + rng(-1, 1)), 88, 112);
+  const threeShare = clamp(
+    0.29
+    + (parseNum(teamProfile?.shotExt, 55) - 55) / 210
+    + (parseNum(teamProfile?.coachFx?.threeRateMult, 1) - 1) * 0.62
+    + (parseNum(teamProfile?.coachFx?.paceMult, 1) - 1) * 0.08
+    - (parseNum(oppProfile?.perimeterDef, 55) - 55) / 800
+    + rng(-0.015, 0.015),
+    0.22,
+    0.50
+  );
+  const threePct = clamp(
+    0.31
+    + (parseNum(teamProfile?.shotExt, 55) - 55) / 240
+    + offenseEdge / 500
+    - (parseNum(oppProfile?.perimeterDef, 55) - 55) / 350
+    + homeBoost
+    + rng(-0.012, 0.012),
+    0.28,
+    0.43
+  );
+  const twoPct = clamp(
+    0.47
+    + (parseNum(teamProfile?.shotInt, 55) - 55) / 220
+    + offenseEdge / 420
+    - (parseNum(oppProfile?.rimProtection, 55) - 55) / 340
+    + homeBoost
+    + rng(-0.012, 0.012),
+    0.43,
+    0.63
+  );
+  const fgPct = clamp((twoPct * (1 - threeShare)) + (threePct * threeShare), 0.41, 0.58);
+  const tovRate = clamp(
+    0.145
+    - (parseNum(teamProfile?.rating, 72) - 72) / 650
+    - (parseNum(teamProfile?.pass, 55) - 55) / 450
+    - (parseNum(teamProfile?.speed, 55) - 55) / 900
+    + (parseNum(oppProfile?.perimeterDef, 55) - 55) / 420
+    + (parseNum(oppProfile?.coachFx?.stocksMult, 1) - 1) * 0.18
+    - (home ? 0.004 : 0)
+    + rng(-0.006, 0.006),
+    0.095,
+    0.185
+  );
+  const orbRate = clamp(
+    0.245
+    + (parseNum(teamProfile?.rebounding, 55) - parseNum(oppProfile?.rebounding, 55)) / 280
+    + (parseNum(teamProfile?.size, 58) - parseNum(oppProfile?.size, 58)) / 420
+    + (parseNum(teamProfile?.coachFx?.rebMult, 1) - 1) * 0.45
+    + rng(-0.015, 0.015),
+    0.18,
+    0.37
+  );
+  const ftr = clamp(
+    0.20
+    + (parseNum(teamProfile?.shotInt, 55) - parseNum(oppProfile?.rimProtection, 55)) / 260
+    + (parseNum(teamProfile?.coachFx?.paintRateMult, 1) - 1) * 0.26
+    + homeBoost
+    + rng(-0.015, 0.015),
+    0.12,
+    0.34
+  );
+  const ftPct = clamp(
+    0.73
+    + (parseNum(teamProfile?.shotFree, 68) - 68) / 200
+    + (parseNum(teamProfile?.pass, 55) - 55) / 900
+    + (home ? 0.004 : 0),
+    0.67,
+    0.87
+  );
+  const turnovers = clamp(Math.round(possessions * tovRate), 7, 22);
+  const denom = clamp(1 + (0.44 * ftr) - (orbRate * (1 - fgPct)), 0.74, 1.18);
+  const fga = clamp(Math.round((possessions - turnovers) / denom), 60, 104);
+  const tpa = clamp(Math.round(fga * threeShare), 12, fga);
+  const twoPa = Math.max(0, fga - tpa);
+  const tpm = clamp(Math.round(tpa * threePct), 0, tpa);
+  const twoPm = clamp(Math.round(twoPa * twoPct), 0, twoPa);
+  const fgm = tpm + twoPm;
+  const misses = Math.max(0, fga - fgm);
+  const orb = clamp(Math.round(misses * orbRate), 4, 22);
+  const fta = clamp(Math.round(fga * ftr), 8, 40);
+  const ftm = clamp(Math.round(fta * ftPct), 0, fta);
+  const astRate = clamp(
+    0.54
+    + (parseNum(teamProfile?.pass, 55) - 55) / 220
+    + (parseNum(teamProfile?.coachFx?.astMult, 1) - 1) * 0.6
+    - (parseNum(oppProfile?.perimeterDef, 55) - 55) / 800,
+    0.42,
+    0.74
+  );
+  const ast = clamp(Math.round(fgm * astRate), 8, fgm);
+  return {
+    teamId: parseNum(teamProfile?.teamId, 0),
+    home: !!home,
+    possessions,
+    turnovers,
+    tovRate: +tovRate.toFixed(3),
+    orb,
+    orbRate: +orbRate.toFixed(3),
+    ftr: +ftr.toFixed(3),
+    fga,
+    fgm,
+    tpa,
+    tpm,
+    twoPa,
+    twoPm,
+    fta,
+    ftm,
+    ftPct: +ftPct.toFixed(3),
+    twoPct: +twoPct.toFixed(3),
+    threePct: +threePct.toFixed(3),
+    threeShare: +threeShare.toFixed(3),
+    fgPct: +fgPct.toFixed(3),
+    efg: +(((fgm + (0.5 * tpm)) / Math.max(1, fga))).toFixed(3),
+    ast,
+    astRate: +astRate.toFixed(3),
+    points: (twoPm * 2) + (tpm * 3) + ftm,
+    oppDefenseRating: parseNum(oppProfile?.defense, 78)
+  };
+}
+
+function buildMatchupSimulationPlans(homeProfile, awayProfile, opts = {}) {
+  const phase = String(opts.phase || 'regular').trim() || 'regular';
+  const averagePace = (parseNum(homeProfile?.pace, 60) + parseNum(awayProfile?.pace, 60)) / 2;
+  const coachPace = (parseNum(homeProfile?.coachFx?.paceMult, 1) + parseNum(awayProfile?.coachFx?.paceMult, 1)) / 2;
+  let sharedPossessions = 96
+    + (averagePace - 60) * 0.20
+    + (coachPace - 1) * 18
+    + (parseNum(homeProfile?.depth, 55) + parseNum(awayProfile?.depth, 55) - 120) * 0.03
+    + rng(-4, 4);
+  if (phase === 'playoffs') sharedPossessions -= 1.5;
+  sharedPossessions = clamp(Math.round(sharedPossessions), 88, 111);
+
+  const homePlan = simulateTeamOffensePlan(homeProfile, awayProfile, { home: true, sharedPossessions });
+  const awayPlan = simulateTeamOffensePlan(awayProfile, homeProfile, { home: false, sharedPossessions });
+  const homeStealShare = clamp(0.42 + (parseNum(homeProfile?.perimeterDef, 55) - 55) / 180 + (parseNum(homeProfile?.coachFx?.stocksMult, 1) - 1) * 0.45, 0.32, 0.66);
+  const awayStealShare = clamp(0.42 + (parseNum(awayProfile?.perimeterDef, 55) - 55) / 180 + (parseNum(awayProfile?.coachFx?.stocksMult, 1) - 1) * 0.45, 0.32, 0.66);
+  homePlan.stl = clamp(Math.round(parseNum(awayPlan?.turnovers, 12) * homeStealShare), 3, 14);
+  awayPlan.stl = clamp(Math.round(parseNum(homePlan?.turnovers, 12) * awayStealShare), 3, 14);
+  homePlan.blk = clamp(Math.round(parseNum(awayPlan?.twoPa, 48) * clamp(0.032 + (parseNum(homeProfile?.rimProtection, 55) - 55) / 680 + (parseNum(homeProfile?.coachFx?.stocksMult, 1) - 1) * 0.08, 0.02, 0.11)), 1, 10);
+  awayPlan.blk = clamp(Math.round(parseNum(homePlan?.twoPa, 48) * clamp(0.032 + (parseNum(awayProfile?.rimProtection, 55) - 55) / 680 + (parseNum(awayProfile?.coachFx?.stocksMult, 1) - 1) * 0.08, 0.02, 0.11)), 1, 10);
+  homePlan.drb = clamp(Math.round(Math.max(0, parseNum(awayPlan?.fga, 84) - parseNum(awayPlan?.fgm, 38)) * (1 - parseNum(awayPlan?.orbRate, 0.24))), 18, 42);
+  awayPlan.drb = clamp(Math.round(Math.max(0, parseNum(homePlan?.fga, 84) - parseNum(homePlan?.fgm, 38)) * (1 - parseNum(homePlan?.orbRate, 0.24))), 18, 42);
+  homePlan.reb = homePlan.orb + homePlan.drb;
+  awayPlan.reb = awayPlan.orb + awayPlan.drb;
+
+  let overtimes = 0;
+  const homeOtPeriods = [];
+  const awayOtPeriods = [];
+  const currentMargin = Math.abs(parseNum(homePlan?.points, 0) - parseNum(awayPlan?.points, 0));
+  const homeFavored = parseNum(homePlan?.points, 0) === parseNum(awayPlan?.points, 0)
+    ? (parseNum(homeProfile?.offense, 78) + 1.5 >= parseNum(awayProfile?.offense, 78))
+    : parseNum(homePlan?.points, 0) > parseNum(awayPlan?.points, 0);
+  const otChance = parseNum(homePlan?.points, 0) === parseNum(awayPlan?.points, 0)
+    ? 1
+    : currentMargin <= 1 ? 0.10 : currentMargin <= 3 ? 0.04 : currentMargin <= 5 ? 0.01 : 0;
+  if (Math.random() < otChance) {
+    overtimes = (currentMargin <= 1 && Math.random() < 0.04) ? 2 : 1;
+    const avgScore = Math.round((parseNum(homePlan?.points, 0) + parseNum(awayPlan?.points, 0)) / 2);
+    const regulationTie = clamp(avgScore - rng(6, 9) * overtimes, 82, 132);
+    for (let i = 0; i < overtimes; i++) {
+      const loserPts = rng(4, 8);
+      const winnerPts = loserPts + rng(1, 4);
+      if (homeFavored) {
+        homeOtPeriods.push(winnerPts);
+        awayOtPeriods.push(loserPts);
+      } else {
+        awayOtPeriods.push(winnerPts);
+        homeOtPeriods.push(loserPts);
+      }
+    }
+    homePlan.points = regulationTie + homeOtPeriods.reduce((sum, value) => sum + value, 0);
+    awayPlan.points = regulationTie + awayOtPeriods.reduce((sum, value) => sum + value, 0);
+    homePlan.possessions += overtimes * 5;
+    awayPlan.possessions += overtimes * 5;
+  } else if (parseNum(homePlan?.points, 0) === parseNum(awayPlan?.points, 0)) {
+    if (homeFavored) homePlan.points += 1;
+    else awayPlan.points += 1;
+  }
+
+  homePlan.ortg = Math.round(parseNum(homePlan?.points, 0) / Math.max(1, parseNum(homePlan?.possessions, 96)) * 100);
+  awayPlan.ortg = Math.round(parseNum(awayPlan?.points, 0) / Math.max(1, parseNum(awayPlan?.possessions, 96)) * 100);
+  return { homePlan, awayPlan, overtimes, homeOtPeriods, awayOtPeriods };
+}
+
+function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = false, sourcePlayer = null, coachFx = null, teamPlan = null, gameMod = null } = {}) {
   const isSelf = !!player.isSelf;
+  const simPlayer = sourcePlayer || player;
+  const attrs = usagePlayerAttrs(simPlayer);
+  const teamCoachFx = coachFx || getCoachEffects(teamId);
+  const systemRole = buildCoachSystemRoleEffect(simPlayer, teamCoachFx);
   const minutes = clamp(Math.round(parseNum(player.minutes, 0)), 0, 40);
   const pos = clamp(parseNum(player.pos, 3), 1, 5);
   const rating = clamp(parseNum(player.rating, 65), 40, 99);
+  const planPaceFactor = teamPlan ? clamp(Math.pow(parseNum(teamPlan?.possessions, 96) / 96, 0.55), 0.88, 1.14) : 1;
+  const planThreeFactor = teamPlan ? clamp(parseNum(teamPlan?.threeShare, 0.34) / 0.34, 0.82, 1.24) : 1;
+  const planPaintFactor = teamPlan ? clamp(0.84 + parseNum(teamPlan?.ftr, 0.20) * 1.45, 0.82, 1.24) : 1;
+  const planAstFactor = teamPlan ? clamp(0.82 + parseNum(teamPlan?.astRate, 0.58), 0.86, 1.22) : 1;
+  const planRebFactor = teamPlan ? clamp(0.76 + parseNum(teamPlan?.orbRate, 0.24) * 1.2, 0.84, 1.20) : 1;
+  const planStocksFactor = teamPlan ? clamp(0.82 + parseNum(teamPlan?.oppDefenseRating, 78) / 100, 0.88, 1.18) : 1;
+  const threeShareMult = clamp((parseNum(teamCoachFx?.threeRateMult, 1) + parseNum(systemRole?.threeMod, 0) * 1.4) * planThreeFactor * (gameMod?.varianceTag === 'hot' ? 1.03 : gameMod?.varianceTag === 'cold' ? 0.97 : 1), 0.76, 1.38);
+  const paintShareMult = clamp((parseNum(teamCoachFx?.paintRateMult, 1) + parseNum(systemRole?.insideMod, 0) * 1.4) * planPaintFactor, 0.76, 1.36);
+  const astMult = clamp((parseNum(teamCoachFx?.astMult, 1) + parseNum(systemRole?.astMod, 0) * 0.10) * planAstFactor * parseNum(gameMod?.astMult, 1), 0.84, 1.34);
+  const rebMult = clamp((parseNum(teamCoachFx?.rebMult, 1) + parseNum(systemRole?.rebMod, 0) * 0.12) * planRebFactor * parseNum(gameMod?.rebMult, 1), 0.84, 1.34);
+  const stocksMult = clamp((parseNum(teamCoachFx?.stocksMult, 1) + (parseNum(systemRole?.stlMod, 0) + parseNum(systemRole?.blkMod, 0)) * 0.10) * planStocksFactor * parseNum(gameMod?.stocksMult, 1), 0.84, 1.32);
   const row = {
     teamId,
     playerId: isSelf ? 'USER_SELF' : (player.id ?? 0),
@@ -1734,25 +2659,34 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
     ast: 0,
     stl: 0,
     blk: 0,
+    pf: 0,
     tov: 0,
     fgm: 0,
     fga: 0,
     tpm: 0,
     tpa: 0,
     ftm: 0,
-    fta: 0
+    fta: 0,
+    issueTag: '',
+    foulTrouble: false,
+    varianceTag: 'steady'
   };
 
   if (minutes <= 0 || targetPts <= 0) {
-    row.reb = clamp(Math.round((minutes / 12) * (pos >= 4 ? 1.2 : 0.5) + (rating - 60) / 35 + rng(-1, 1)), 0, pos >= 4 ? 14 : 9);
-    row.ast = clamp(Math.round((minutes / 13) * (pos <= 2 ? 1.4 : pos === 3 ? 0.9 : 0.5) + (rating - 60) / 45 + rng(-1, 1)), 0, 12);
-    row.stl = clamp(Math.round((minutes / 18) * (pos <= 3 ? 0.5 : 0.3) + rng(0, 1)), 0, 5);
-    row.blk = clamp(Math.round((minutes / 18) * (pos >= 4 ? 0.65 : 0.2) + rng(0, 1)), 0, 5);
+    row.reb = clamp(Math.round(((minutes / 12) * (pos >= 4 ? 1.2 : 0.5) + (rating - 60) / 35) * rebMult + parseNum(systemRole?.rebMod, 0) + rng(-1, 1)), 0, pos >= 4 ? 14 : 9);
+    row.ast = clamp(Math.round(((minutes / 13) * (pos <= 2 ? 1.4 : pos === 3 ? 0.9 : 0.5) + (rating - 60) / 45) * astMult + parseNum(systemRole?.astMod, 0) + rng(-1, 1)), 0, 12);
+    row.stl = clamp(Math.round(((minutes / 18) * (pos <= 3 ? 0.5 : 0.3)) * stocksMult + parseNum(systemRole?.stlMod, 0) + rng(0, 1)), 0, 5);
+    row.blk = clamp(Math.round(((minutes / 18) * (pos >= 4 ? 0.65 : 0.2)) * stocksMult + parseNum(systemRole?.blkMod, 0) + rng(0, 1)), 0, 5);
     row.tov = clamp(Math.round((minutes / 10) * (pos <= 2 ? 0.75 : 0.5) + rng(0, 1)), 0, 8);
+    row.pf = clamp(parseNum(gameMod?.foulCount, Math.round((minutes / 12) * (pos >= 4 ? 1.25 : 1.0) + rng(0, 1))), 0, 6);
+    row.issueTag = String(gameMod?.issueTag || '').trim();
+    row.foulTrouble = !!gameMod?.foulTrouble;
+    row.varianceTag = String(gameMod?.varianceTag || 'steady');
+    row.gameNotes = Array.isArray(gameMod?.notes) ? [...gameMod.notes] : [];
     return row;
   }
 
-  let fta = clamp(Math.round(targetPts * (0.08 + (rating - 60) / 280) + rng(0, 1)), 0, Math.min(12, targetPts));
+  let fta = clamp(Math.round(targetPts * (0.08 + (rating - 60) / 280) * paintShareMult + rng(0, 1)), 0, Math.min(12, targetPts));
   let ftm = clamp(Math.round(fta * clamp(0.68 + (rating - 65) / 90, 0.65, 0.93)), 0, fta);
   let fgPts = Math.max(0, targetPts - ftm);
   let tpm = 0;
@@ -1760,7 +2694,7 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
 
   if (fgPts > 0) {
     const maxTpm = Math.floor(fgPts / 3);
-    const threeBase = pos <= 2 ? 0.95 : pos === 3 ? 0.58 : 0.22;
+    const threeBase = (pos <= 2 ? 0.95 : pos === 3 ? 0.58 : 0.22) * threeShareMult;
     tpm = clamp(Math.round((minutes / 36) * (threeBase * 4) + (rating - 60) / 18 - (oppRating - 75) / 60 + rng(-1, 1)), 0, maxTpm);
     if (((fgPts - tpm) & 1) === 1) {
       if (tpm < maxTpm) tpm++;
@@ -1770,8 +2704,10 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
     fgm = Math.max(tpm, (fgPts - tpm) / 2);
   }
 
-  const fga = clamp(Math.max(fgm + rng(1, 4), Math.round(minutes * 0.42) + rng(-1, 3), tpm + rng(1, 3)), Math.max(fgm, tpm), 28);
-  const tpa = clamp(Math.max(tpm, Math.round(fga * (pos <= 2 ? 0.44 : pos === 3 ? 0.34 : 0.22) + rng(-1, 1))), tpm, fga);
+  const varianceEfficiency = 1 - (parseNum(gameMod?.efficiencyShift, 0) * 1.8);
+  const efficiencyFactor = teamPlan ? clamp((1.08 - ((parseNum(teamPlan?.efg, 0.52) - 0.52) * 0.9)) * varianceEfficiency, 0.84, 1.16) : clamp(varianceEfficiency, 0.86, 1.16);
+  const fga = clamp(Math.max(fgm + rng(1, 4), Math.round(minutes * 0.42 * planPaceFactor * efficiencyFactor) + rng(-1, 3), tpm + rng(1, 3)), Math.max(fgm, tpm), 28);
+  const tpa = clamp(Math.max(tpm, Math.round(fga * clamp((pos <= 2 ? 0.44 : pos === 3 ? 0.34 : 0.22) * threeShareMult, 0.10, 0.65) + rng(-1, 1))), tpm, fga);
 
   row.fta = fta;
   row.ftm = ftm;
@@ -1780,44 +2716,67 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
   row.tpm = tpm;
   row.tpa = tpa;
   row.pts = (row.fgm - row.tpm) * 2 + row.tpm * 3 + row.ftm;
-  row.reb = clamp(Math.round((minutes / 12) * (pos >= 4 ? 1.25 : 0.55) + (rating - 60) / 35 + rng(-1, 2)), 0, pos >= 4 ? 16 : 10);
-  row.ast = clamp(Math.round((minutes / 13) * (pos <= 2 ? 1.55 : pos === 3 ? 0.95 : 0.5) + (rating - 60) / 45 + rng(-1, 2)), 0, 14);
-  row.stl = clamp(Math.round((minutes / 18) * (pos <= 3 ? 0.55 : 0.35) + rng(0, 1)), 0, 6);
-  row.blk = clamp(Math.round((minutes / 18) * (pos >= 4 ? 0.7 : 0.25) + rng(0, 1)), 0, 6);
+  row.reb = clamp(Math.round(((minutes / 12) * (pos >= 4 ? 1.25 : 0.55) + (rating - 60) / 35) * rebMult + parseNum(systemRole?.rebMod, 0) + rng(-1, 2)), 0, pos >= 4 ? 16 : 10);
+  row.ast = clamp(Math.round(((minutes / 13) * (pos <= 2 ? 1.55 : pos === 3 ? 0.95 : 0.5) + (rating - 60) / 45) * astMult + parseNum(systemRole?.astMod, 0) + rng(-1, 2)), 0, 14);
+  row.stl = clamp(Math.round(((minutes / 18) * (pos <= 3 ? 0.55 : 0.35)) * stocksMult + parseNum(systemRole?.stlMod, 0) + rng(0, 1)), 0, 6);
+  row.blk = clamp(Math.round(((minutes / 18) * (pos >= 4 ? 0.7 : 0.25)) * stocksMult + parseNum(systemRole?.blkMod, 0) + rng(0, 1)), 0, 6);
   row.tov = clamp(Math.round((minutes / 10) * (pos <= 2 ? 0.8 : 0.55) + (targetPts >= 20 ? 0.5 : 0.2) + rng(0, 1)), 0, 8);
+  row.pf = clamp(parseNum(gameMod?.foulCount, Math.round((minutes / 11.5) * (pos >= 4 ? 1.2 : 0.95) + Math.max(0, -parseNum(gameMod?.matchupEdge, 0)) + rng(-1, 1))), 0, 6);
+  row.issueTag = String(gameMod?.issueTag || '').trim();
+  row.foulTrouble = !!gameMod?.foulTrouble;
+  row.varianceTag = String(gameMod?.varianceTag || 'steady');
+  row.gameNotes = Array.isArray(gameMod?.notes) ? [...gameMod.notes] : [];
   return row;
 }
 
-function buildTeamGameBoxScore(teamId, teamPts, oppRating, { home = false, includeUser = false } = {}) {
-  const team = getTeam(teamId) || {};
-  const teamName = String(team.z || team.n || '--').trim();
-  const abbr = String(team.a || team.abbr || '--').trim();
-  let rotation = getGameRotationSnapshot(teamId, { includeUser: !!includeUser || parseNum(teamId, 0) === parseNum(G.teamId, 0) });
-  if (!rotation.length) {
-    const fallbackPlayers = [...(getTeamPlayers(teamId) || [])];
-    if (fallbackPlayers.length) {
-      rotation = fallbackPlayers.slice(0, 10).map((p, idx) => ({
-        id: p.id,
-        name: p.name,
-        pos: parseNum(p.pos, 3),
-        pos2: parseNum(p.pos2, 0),
-        minutes: clamp(28 - idx * 2, 6, 36),
-        rating: parseNum(p.rating, 65),
-        teamTier: idx < 5 ? 'starter' : 'bench',
-        isSelf: false
-      }));
-    }
-  }
+function buildTeamGameBoxScore(teamId, teamPts, oppRating, { home = false, includeUser = false, teamProfile = null, oppProfile = null, fatigueContext = null } = {}) {
+  const teamPlan = teamPts && typeof teamPts === 'object' ? teamPts : null;
+  const resolvedTeamPts = parseNum(teamPlan?.points, parseNum(teamPts, 0));
+  const oppRatingValue = parseNum(teamPlan?.oppDefenseRating, parseNum(oppRating?.defense, parseNum(oppRating, 75)));
+  const ctx = buildSimRotationContext(teamId, { includeUser });
+  const team = ctx.team;
+  const teamName = ctx.teamName;
+  const abbr = ctx.abbr;
+  const coachFx = ctx.coachFx;
+  const rotation = ctx.rotation;
+  const simPlayers = ctx.simPlayers;
+  const ownProfile = teamProfile || buildTeamSimulationProfile(teamId, { includeUser, home, fatigueContext });
+  const enemyProfile = oppProfile || (oppRating && typeof oppRating === 'object' ? oppRating : null);
+  const gameMods = rotation.map((p, i) => buildSingleGamePlayerModifier(simPlayers[i] || p, {
+    teamId,
+    home,
+    teamProfile: ownProfile,
+    oppProfile: enemyProfile,
+    fatigueContext: fatigueContext || ownProfile?.fatigueContext,
+    baseMinutes: parseNum(p?.minutes, 18),
+    coachFx
+  }));
+  const liveRotation = rotation.map((p, i) => ({
+    ...p,
+    baseMinutesRaw: parseNum(p?.minutes, 18),
+    minutes: clamp(Math.round(parseNum(p?.minutes, 18) * parseNum(gameMods[i]?.minuteMult, 1)), 0, 40)
+  }));
+  if (typeof normalizeRotationMinutes === 'function') normalizeRotationMinutes(liveRotation, 240);
+  applySingleGameMinuteCaps(liveRotation, gameMods);
+  if (typeof normalizeRotationMinutes === 'function') normalizeRotationMinutes(liveRotation, 240);
+  applySingleGameMinuteCaps(liveRotation, gameMods);
+  const usageContext = buildTeamUsageContext(teamId, simPlayers, simPlayers);
 
-  const weights = rotation.map(p => {
+  const weights = liveRotation.map((p, i) => {
+    const simPlayer = simPlayers[i] || p;
+    const roleFx = collectRoleEffects(getPlayerRole(simPlayer, simPlayers, coachFx, usageContext));
     const rating = clamp(parseNum(p.rating, 65), 40, 99);
     const minutes = clamp(parseNum(p.minutes, 18), 0, 40);
     const tierBonus = { alpha: 1.18, second: 1.12, third: 1.07, sixthman: 1.04, rolestarter: 1.0, bench: 0.88, end: 0.72 }[p.teamTier] || 1;
     const selfBonus = p.isSelf ? 1.12 : 1;
-    return Math.max(0.1, minutes * (0.7 + rating / 130) * tierBonus * selfBonus * (1 + rng(-0.08, 0.08)));
+    const planPaceFactor = teamPlan ? clamp(Math.pow(parseNum(teamPlan?.possessions, 96) / 96, 0.45), 0.90, 1.12) : 1;
+    const usageBoost = clamp((1 + roleFx.usageMod * 0.90 + (parseNum(coachFx.paceMult, 1) - 1) * 0.35) * planPaceFactor * parseNum(gameMods[i]?.usageMult, 1), 0.72, 1.36);
+    const shotProfileBoost = clamp(1 + roleFx.threeMod * 0.55 + roleFx.insideMod * 0.55, 0.82, 1.24);
+    const efficiencyBoost = clamp(1 + parseNum(gameMods[i]?.efficiencyShift, 0) * 3.2, 0.80, 1.22);
+    return Math.max(0.1, minutes * (0.7 + rating / 130) * tierBonus * selfBonus * usageBoost * shotProfileBoost * efficiencyBoost * (1 + rng(-0.08, 0.08)));
   });
-  const targets = allocateIntegerShares(Math.max(0, Math.round(parseNum(teamPts, 0))), weights);
-  const rows = rotation.map((p, i) => buildPlayerGameRow(p, targets[i] || 0, oppRating, { teamId, home }));
+  const targets = allocateIntegerShares(Math.max(0, Math.round(resolvedTeamPts)), weights);
+  const rows = liveRotation.map((p, i) => buildPlayerGameRow(p, targets[i] || 0, oppRatingValue, { teamId, home, sourcePlayer: simPlayers[i], coachFx, teamPlan, gameMod: gameMods[i] }));
 
   if (teamId === parseNum(G.teamId, 0) && G.player?.injury?.active) {
     rows.push({
@@ -1834,6 +2793,7 @@ function buildTeamGameBoxScore(teamId, teamPts, oppRating, { home = false, inclu
       ast: 0,
       stl: 0,
       blk: 0,
+      pf: 0,
       tov: 0,
       fgm: 0,
       fga: 0,
@@ -1855,6 +2815,7 @@ function buildTeamGameBoxScore(teamId, teamPts, oppRating, { home = false, inclu
     acc.ast += parseNum(row.ast, 0);
     acc.stl += parseNum(row.stl, 0);
     acc.blk += parseNum(row.blk, 0);
+    acc.pf += parseNum(row.pf, 0);
     acc.tov += parseNum(row.tov, 0);
     acc.fgm += parseNum(row.fgm, 0);
     acc.fga += parseNum(row.fga, 0);
@@ -1863,37 +2824,22 @@ function buildTeamGameBoxScore(teamId, teamPts, oppRating, { home = false, inclu
     acc.ftm += parseNum(row.ftm, 0);
     acc.fta += parseNum(row.fta, 0);
     return acc;
-  }, { gp: 0, mins: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0 });
+  }, { gp: 0, mins: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, pf: 0, tov: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0 });
 
-  return { teamId: parseNum(teamId, 0), team, teamName, abbr, home: !!home, teamPts: parseNum(teamPts, 0), oppRating: parseNum(oppRating, 75), boxScore: rows, rows, totals };
+  return { teamId: parseNum(teamId, 0), team, teamName, abbr, home: !!home, teamPts: resolvedTeamPts, oppRating: oppRatingValue, boxScore: rows, rows, totals, teamPlan };
 }
 
-function buildGameFlow(homeSnapshot, awaySnapshot, { userTeamId = 0 } = {}) {
-  const homeScore = parseNum(homeSnapshot?.teamPts, 0);
-  const awayScore = parseNum(awaySnapshot?.teamPts, 0);
-  const labels = ['Q1', 'Q2', 'Q3', 'Q4'];
-  const margin = Math.abs(homeScore - awayScore);
-  const closeGame = margin <= 7;
-  const homePeriods = allocateIntegerShares(homeScore, [0.24, 0.25, 0.25, 0.26].map((w, i) => Math.max(0.08, w + (closeGame && i === 3 ? 0.04 : 0) + rng(-0.02, 0.02))));
-  const awayPeriods = allocateIntegerShares(awayScore, [0.25, 0.24, 0.25, 0.26].map((w, i) => Math.max(0.08, w + (closeGame && i === 3 ? 0.03 : 0) + rng(-0.02, 0.02))));
-  const homePoss = clamp(Math.round(92 + rng(-3, 5) + (parseNum(homeSnapshot?.totals?.fga, 0) + parseNum(awaySnapshot?.totals?.fga, 0)) * 0.12), 84, 108);
-  const awayPoss = clamp(Math.round(homePoss + rng(-2, 2)), 84, 108);
-  const homeOrtg = Math.round(homeScore / Math.max(1, homePoss) * 100);
-  const awayOrtg = Math.round(awayScore / Math.max(1, awayPoss) * 100);
-  const homeEfg = homeSnapshot?.totals?.fga > 0 ? Math.round(((homeSnapshot.totals.fgm + 0.5 * homeSnapshot.totals.tpm) / homeSnapshot.totals.fga) * 100) : 0;
-  const awayEfg = awaySnapshot?.totals?.fga > 0 ? Math.round(((awaySnapshot.totals.fgm + 0.5 * awaySnapshot.totals.tpm) / awaySnapshot.totals.fga) * 100) : 0;
-  const homeTovRate = Math.round((parseNum(homeSnapshot?.totals?.tov, 0) / Math.max(1, homePoss)) * 100);
-  const awayTovRate = Math.round((parseNum(awaySnapshot?.totals?.tov, 0) / Math.max(1, awayPoss)) * 100);
-
+function computePeriodLeadStats(homePeriods = [], awayPeriods = []) {
   let homeCum = 0;
   let awayCum = 0;
   let biggestLeadHome = 0;
   let biggestLeadAway = 0;
   let leadChanges = 0;
   let prevLeader = 0;
-  for (let i = 0; i < 4; i++) {
-    homeCum += homePeriods[i] || 0;
-    awayCum += awayPeriods[i] || 0;
+  const total = Math.max(homePeriods.length, awayPeriods.length);
+  for (let i = 0; i < total; i++) {
+    homeCum += parseNum(homePeriods[i], 0);
+    awayCum += parseNum(awayPeriods[i], 0);
     const diff = homeCum - awayCum;
     const leader = diff > 0 ? 1 : (diff < 0 ? -1 : 0);
     if (leader !== 0 && prevLeader !== 0 && leader !== prevLeader) leadChanges++;
@@ -1901,18 +2847,105 @@ function buildGameFlow(homeSnapshot, awaySnapshot, { userTeamId = 0 } = {}) {
     biggestLeadHome = Math.max(biggestLeadHome, diff);
     biggestLeadAway = Math.max(biggestLeadAway, -diff);
   }
+  return { biggestLeadHome, biggestLeadAway, leadChanges };
+}
 
-  const summary = homeScore > awayScore
-    ? (closeGame ? '双方鏖战到最后一节，主队顶住了最后的反扑。' : '主队在下半场拉开差距，稳稳收下比赛。')
-    : (closeGame ? '比赛一路拉扯到最后，客队在收官阶段完成反超。' : '客队早早建立优势，并把领先保持到了终场。');
-  const runs = closeGame
+function injectPeriodComebackSwing(homePeriods, awayPeriods, { winnerHome = true, forceTwoSwings = false } = {}) {
+  if (!Array.isArray(homePeriods) || !Array.isArray(awayPeriods) || homePeriods.length < 4 || awayPeriods.length < 4) return;
+  const primaryEarly = Math.random() < 0.5 ? 0 : 1;
+  const primaryLate = 3;
+  const applySwing = (fromWinner, fromLoser, amount) => {
+    if (amount <= 0) return;
+    if (winnerHome) {
+      homePeriods[fromWinner] -= amount;
+      awayPeriods[fromWinner] += amount;
+      homePeriods[fromLoser] += amount;
+      awayPeriods[fromLoser] -= amount;
+    } else {
+      awayPeriods[fromWinner] -= amount;
+      homePeriods[fromWinner] += amount;
+      awayPeriods[fromLoser] += amount;
+      homePeriods[fromLoser] -= amount;
+    }
+  };
+  const primaryCap = Math.min(
+    winnerHome ? parseNum(homePeriods[primaryEarly], 0) : parseNum(awayPeriods[primaryEarly], 0),
+    winnerHome ? parseNum(awayPeriods[primaryLate], 0) : parseNum(homePeriods[primaryLate], 0)
+  );
+  const primarySwing = clamp(Math.min(5, Math.floor(primaryCap / 3)), 2, 5);
+  applySwing(primaryEarly, primaryLate, primarySwing);
+
+  if (!forceTwoSwings) return;
+  const secondaryEarly = primaryEarly === 0 ? 1 : 0;
+  const secondaryLate = 2;
+  const secondaryCap = Math.min(
+    winnerHome ? parseNum(homePeriods[secondaryEarly], 0) : parseNum(awayPeriods[secondaryEarly], 0),
+    winnerHome ? parseNum(awayPeriods[secondaryLate], 0) : parseNum(homePeriods[secondaryLate], 0)
+  );
+  const secondarySwing = clamp(Math.min(3, Math.floor(secondaryCap / 4)), 1, 3);
+  applySwing(secondaryEarly, secondaryLate, secondarySwing);
+}
+
+function buildGameFlow(homeSnapshot, awaySnapshot, { userTeamId = 0, homePlan = null, awayPlan = null, overtimes = 0, homeOtPeriods = null, awayOtPeriods = null } = {}) {
+  const homeScore = parseNum(homeSnapshot?.teamPts, 0);
+  const awayScore = parseNum(awaySnapshot?.teamPts, 0);
+  const margin = Math.abs(homeScore - awayScore);
+  const closeGame = margin <= 7 || parseNum(overtimes, 0) > 0;
+  const winnerHome = homeScore > awayScore;
+  const resolvedHomeOt = Array.isArray(homeOtPeriods) ? homeOtPeriods.slice() : [];
+  const resolvedAwayOt = Array.isArray(awayOtPeriods) ? awayOtPeriods.slice() : [];
+  const labels = ['Q1', 'Q2', 'Q3', 'Q4'];
+  for (let i = 0; i < parseNum(overtimes, 0); i++) labels.push(i === 0 ? 'OT' : `${i + 1}OT`);
+  let regulationHomeScore = homeScore - resolvedHomeOt.reduce((sum, value) => sum + parseNum(value, 0), 0);
+  let regulationAwayScore = awayScore - resolvedAwayOt.reduce((sum, value) => sum + parseNum(value, 0), 0);
+  if (parseNum(overtimes, 0) <= 0) {
+    regulationHomeScore = homeScore;
+    regulationAwayScore = awayScore;
+  }
+  const homeRegWeights = [0.24, 0.25, 0.25, 0.26].map((w, i) => Math.max(0.08, w + (closeGame && i === 3 ? 0.04 : 0) + (!winnerHome && closeGame && i === 1 ? 0.015 : 0) + (winnerHome && margin >= 10 && i === 3 ? -0.02 : 0) + rng(-0.02, 0.02)));
+  const awayRegWeights = [0.25, 0.24, 0.25, 0.26].map((w, i) => Math.max(0.08, w + (closeGame && i === 3 ? 0.04 : 0) + (winnerHome && closeGame && i === 1 ? 0.015 : 0) + (!winnerHome && margin >= 10 && i === 3 ? -0.02 : 0) + rng(-0.02, 0.02)));
+  const homePeriods = [...allocateIntegerShares(Math.max(0, regulationHomeScore), homeRegWeights), ...resolvedHomeOt];
+  const awayPeriods = [...allocateIntegerShares(Math.max(0, regulationAwayScore), awayRegWeights), ...resolvedAwayOt];
+  let leadStats = computePeriodLeadStats(homePeriods, awayPeriods);
+  if (closeGame && leadStats.leadChanges === 0) {
+    injectPeriodComebackSwing(homePeriods, awayPeriods, { winnerHome, forceTwoSwings: margin <= 4 || parseNum(overtimes, 0) > 0 });
+    leadStats = computePeriodLeadStats(homePeriods, awayPeriods);
+  }
+  const homePoss = clamp(parseNum(homePlan?.possessions, Math.round(92 + rng(-3, 5) + (parseNum(homeSnapshot?.totals?.fga, 0) + parseNum(awaySnapshot?.totals?.fga, 0)) * 0.12)), 84, 115);
+  const awayPoss = clamp(parseNum(awayPlan?.possessions, Math.round(homePoss + rng(-2, 2))), 84, 115);
+  const homeOrtg = Math.round(homeScore / Math.max(1, homePoss) * 100);
+  const awayOrtg = Math.round(awayScore / Math.max(1, awayPoss) * 100);
+  const homeEfg = Number.isFinite(parseNum(homePlan?.efg, NaN))
+    ? Math.round(parseNum(homePlan?.efg, 0.52) * 100)
+    : (homeSnapshot?.totals?.fga > 0 ? Math.round(((homeSnapshot.totals.fgm + 0.5 * homeSnapshot.totals.tpm) / homeSnapshot.totals.fga) * 100) : 0);
+  const awayEfg = Number.isFinite(parseNum(awayPlan?.efg, NaN))
+    ? Math.round(parseNum(awayPlan?.efg, 0.52) * 100)
+    : (awaySnapshot?.totals?.fga > 0 ? Math.round(((awaySnapshot.totals.fgm + 0.5 * awaySnapshot.totals.tpm) / awaySnapshot.totals.fga) * 100) : 0);
+  const homeTovRate = Math.round(parseNum(homePlan?.tovRate, parseNum(homeSnapshot?.totals?.tov, 0) / Math.max(1, homePoss)) * 100);
+  const awayTovRate = Math.round(parseNum(awayPlan?.tovRate, parseNum(awaySnapshot?.totals?.tov, 0) / Math.max(1, awayPoss)) * 100);
+
+  const biggestLeadHome = leadStats.biggestLeadHome;
+  const biggestLeadAway = leadStats.biggestLeadAway;
+  const leadChanges = leadStats.leadChanges;
+
+  const summary = parseNum(overtimes, 0) > 0
+    ? (winnerHome ? '双方鏖战至加时，主队在额外回合里执行更稳。' : '比赛被拖入加时，客队在加时阶段完成收割。')
+    : (winnerHome
+      ? (closeGame ? '双方一路拉扯到最后，主队在收官段顶住了反扑。' : '主队在下半场逐步拉开分差，最终稳住胜势。')
+      : (closeGame ? '比赛一路胶着到最后，客队在关键回合里笑到最后。' : '客队在第二节后建立优势，并把领先保持到了终场。'));
+  const runs = parseNum(overtimes, 0) > 0
     ? [
-        homeScore > awayScore ? `${homeSnapshot.abbr || 'HOME'} 在第四节守住了关键回合` : `${awaySnapshot.abbr || 'AWAY'} 在第四节打出反扑高潮`,
-        '双方一度陷入拉锯，分差始终在一个回合以内'
+        winnerHome ? `${homeSnapshot.abbr || 'HOME'} 在加时前半段连拿关键分` : `${awaySnapshot.abbr || 'AWAY'} 在加时阶段抓住了每次错位`,
+        '双方常规时间战成平手，末段每个回合都在换领先'
       ]
-    : [
-        homeScore > awayScore ? `${homeSnapshot.abbr || 'HOME'} 在第三节打出一波小高潮` : `${awaySnapshot.abbr || 'AWAY'} 在第二节建立两位数优势`
-      ];
+    : closeGame
+      ? [
+          winnerHome ? `${homeSnapshot.abbr || 'HOME'} 在第四节守住了关键球` : `${awaySnapshot.abbr || 'AWAY'} 在第四节打出反扑高潮`,
+          '双方一度陷入拉锯，分差始终维持在两个回合以内'
+        ]
+      : [
+          winnerHome ? `${homeSnapshot.abbr || 'HOME'} 在第三节打出决定比赛的攻防高潮` : `${awaySnapshot.abbr || 'AWAY'} 在第二节后半段建立两位数优势`
+        ];
   const userIsHome = userTeamId && parseNum(userTeamId, 0) === parseNum(homeSnapshot?.teamId, 0);
   return {
     periodLabels: labels,
@@ -1935,7 +2968,8 @@ function buildGameFlow(homeSnapshot, awaySnapshot, { userTeamId = 0 } = {}) {
     clutchMargin: margin,
     summary,
     runs,
-    hasOvertime: false,
+    hasOvertime: parseNum(overtimes, 0) > 0,
+    overtimeCount: parseNum(overtimes, 0),
     myPeriods: userIsHome ? homePeriods : awayPeriods,
     oppPeriods: userIsHome ? awayPeriods : homePeriods,
     myAbbr: userIsHome ? homeSnapshot?.abbr || 'HOME' : awaySnapshot?.abbr || 'AWAY',
@@ -1963,15 +2997,21 @@ function simulateLeagueMatchup(homeTeamId, awayTeamId, opts = {}) {
   const roundIndex = parseNum(opts.roundIndex, 0);
   const userTeamId = parseNum(opts.userTeamId, 0);
   const seq = (G.leagueSeason.gameDetails || []).length + 1;
-  const homeStrength = getTeamStrength(homeId);
-  const awayStrength = getTeamStrength(awayId);
-  let homePts = clamp(Math.round(96 + (homeStrength - 75) * 0.72 - (awayStrength - 75) * 0.32 + rng(-8, 8) + (userTeamId && homeId === userTeamId ? 2 : 0)), 78, 142);
-  let awayPts = clamp(Math.round(96 + (awayStrength - 75) * 0.72 - (homeStrength - 75) * 0.32 + rng(-8, 8) + (userTeamId && awayId === userTeamId ? 2 : 0)), 78, 142);
-  if (userTeamId && homeId === userTeamId && G.player?.injury?.active) homePts = clamp(homePts - 8, 72, 142);
-  if (userTeamId && awayId === userTeamId && G.player?.injury?.active) awayPts = clamp(awayPts - 8, 72, 142);
-  const homeSnapshot = buildTeamGameBoxScore(homeId, homePts, awayStrength, { home: true, includeUser: true });
-  const awaySnapshot = buildTeamGameBoxScore(awayId, awayPts, homeStrength, { home: false, includeUser: false });
-  const flow = buildGameFlow(homeSnapshot, awaySnapshot, { userTeamId: parseNum(opts.userTeamId, 0) });
+  const homeFatigue = buildScheduleFatigueContext({ teamId: homeId, home: true, roundIndex, phase, userTeamId });
+  const awayFatigue = buildScheduleFatigueContext({ teamId: awayId, home: false, roundIndex, phase, userTeamId });
+  const homeProfile = buildTeamSimulationProfile(homeId, { includeUser: homeId === userTeamId, home: true, fatigueContext: homeFatigue });
+  const awayProfile = buildTeamSimulationProfile(awayId, { includeUser: awayId === userTeamId, home: false, fatigueContext: awayFatigue });
+  const simPlans = buildMatchupSimulationPlans(homeProfile, awayProfile, { phase, roundIndex, userTeamId });
+  const homeSnapshot = buildTeamGameBoxScore(homeId, simPlans.homePlan, awayProfile, { home: true, includeUser: homeId === userTeamId, teamProfile: homeProfile, oppProfile: awayProfile, fatigueContext: homeFatigue });
+  const awaySnapshot = buildTeamGameBoxScore(awayId, simPlans.awayPlan, homeProfile, { home: false, includeUser: awayId === userTeamId, teamProfile: awayProfile, oppProfile: homeProfile, fatigueContext: awayFatigue });
+  const flow = buildGameFlow(homeSnapshot, awaySnapshot, {
+    userTeamId: parseNum(opts.userTeamId, 0),
+    homePlan: simPlans.homePlan,
+    awayPlan: simPlans.awayPlan,
+    overtimes: simPlans.overtimes,
+    homeOtPeriods: simPlans.homeOtPeriods,
+    awayOtPeriods: simPlans.awayOtPeriods
+  });
   const homeScore = parseNum(homeSnapshot.teamPts, 0);
   const awayScore = parseNum(awaySnapshot.teamPts, 0);
   const homeWin = homeScore >= awayScore;
@@ -1995,6 +3035,8 @@ function simulateLeagueMatchup(homeTeamId, awayTeamId, opts = {}) {
     awayRows: awaySnapshot.boxScore,
     homeTeam: getTeam(homeId) || {},
     awayTeam: getTeam(awayId) || {},
+    homeFatigue,
+    awayFatigue,
     flow,
     userGame: !!opts.userTeamId && (homeId === parseNum(opts.userTeamId, 0) || awayId === parseNum(opts.userTeamId, 0))
   };
@@ -2075,6 +3117,8 @@ function playGame(gameNum) {
   const userRows = userHome ? detail.homeRows : detail.awayRows;
   const selfRow = (userRows || []).find(r => r.isSelf && !r.status) || null;
   const injured = !!(G.player?.injury?.active && parseNum(G.player?.injury?.games, 0) > 0 && !selfRow);
+  const userFatigue = userHome ? detail.homeFatigue : detail.awayFatigue;
+  const selfGameNotes = Array.isArray(selfRow?.gameNotes) ? selfRow.gameNotes : [];
   const st = selfRow ? {
     mins: parseNum(selfRow.mins, 0),
     pts: parseNum(selfRow.pts, 0),
@@ -2082,6 +3126,7 @@ function playGame(gameNum) {
     ast: parseNum(selfRow.ast, 0),
     stl: parseNum(selfRow.stl, 0),
     blk: parseNum(selfRow.blk, 0),
+    pf: parseNum(selfRow.pf, 0),
     tov: parseNum(selfRow.tov, 0),
     fgm: parseNum(selfRow.fgm, 0),
     fga: parseNum(selfRow.fga, 0),
@@ -2089,11 +3134,12 @@ function playGame(gameNum) {
     tpa: parseNum(selfRow.tpa, 0),
     ftm: parseNum(selfRow.ftm, 0),
     fta: parseNum(selfRow.fta, 0)
-  } : { mins: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0 };
+  } : { mins: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, pf: 0, tov: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0 };
 
   const result = {
     game: idx + 1,
     gameNum: idx,
+    events: [],
     opp: oppTeamId,
     home: userHome,
     teamPts: userScore,
@@ -2105,6 +3151,7 @@ function playGame(gameNum) {
     ast: st.ast,
     stl: st.stl,
     blk: st.blk,
+    pf: st.pf,
     tov: st.tov,
     fgm: st.fgm,
     fga: st.fga,
@@ -2127,6 +3174,8 @@ function playGame(gameNum) {
     awayRows: detail.awayRows,
     gameEvent: G._gameEventResult || null
   };
+  if (userFatigue?.summary) result.events.push(`🧭 赛程负荷：${userFatigue.summary}`);
+  selfGameNotes.forEach(note => result.events.push(`🎯 ${note}`));
 
   if (!injured) {
     G.seasonStats.gp += 1;
@@ -2147,10 +3196,12 @@ function playGame(gameNum) {
   if (result.win) G.seasonStats.wins += 1;
   else G.seasonStats.losses += 1;
 
-  const effortCfg = getEffortMode(G._effortMode);
-  const staminaLoss = injured ? 4 : clamp(Math.round((12 + st.mins / 5 + Math.max(0, st.pts - 20) * 0.2) * (effortCfg.staminaMult || 1)), 4, 28);
+  const staminaLoss = injured ? 4 : calculateUserGameStaminaLoss(st, userFatigue, selfRow || null);
   G.player.stamina = clamp(parseNum(G.player.stamina, 100) - staminaLoss, 0, 100);
-  if (typeof checkInjury === 'function' && !G.player?.injury?.active) checkInjury();
+  result.staminaLoss = staminaLoss;
+  if (typeof checkInjury === 'function' && !G.player?.injury?.active) {
+    checkInjury({ gameContext: userFatigue, gameStats: st, gameMod: selfRow || null });
+  }
 
   // 添加比赛带来的 XP (基础15 + 表现加成)
   const gradeBonus = { 'S+': 15, 'S': 12, 'A': 8, 'B': 5, 'C': 3, 'D': 1, 'F': 0 }[result.grade] || 2;
@@ -2161,6 +3212,7 @@ function playGame(gameNum) {
   G.results.push(result);
   G.gameNum = idx + 1;
   updateTeamMorale(result.win);
+  updateCoachFavorabilityAfterGame(result);
   return result;
 }
 
@@ -2427,6 +3479,1002 @@ function recalcPlayerTradeValue() {
   G.player.tradeValue = calcPlayerTradeValue(G.player);
   return G.player.tradeValue;
 }
+function buildTradeAssetFromPlayer(player = {}) {
+  return {
+    id: player.id,
+    name: String(player.name || '球员'),
+    pos: parseNum(player.pos, 3),
+    pos2: parseNum(player.pos2, 0),
+    rating: parseNum(player.rating, typeof ovr === 'function' ? ovr(player.attrs || {}) : 70),
+    potential: parseNum(player.potential, parseNum(player.rating, 70)),
+    salary: normalizeSalaryMillion(parseNum(player.salary, 0)),
+    value: calcPlayerTradeValue(player)
+  };
+}
+function evaluateTeamNeedForPosition(teamId, pos) {
+  const rotation = typeof buildDynamicTeamRotation === 'function'
+    ? buildDynamicTeamRotation(parseNum(teamId, 0), { includeUser: false })
+    : [];
+  const samePos = rotation
+    .filter(p => parseNum(p?.pos, 0) === parseNum(pos, 0) || parseNum(p?.pos2, 0) === parseNum(pos, 0))
+    .sort((a, b) => parseNum(b?.rating, 0) - parseNum(a?.rating, 0));
+  const bestRating = parseNum(samePos[0]?.rating, 62);
+  const depth = samePos.length;
+  const needScore = clamp((74 - bestRating) / 18 + (depth <= 1 ? 0.35 : depth === 2 ? 0.14 : 0), -0.18, 0.92);
+  return { bestRating, depth, needScore };
+}
+function getUserTradePressureProfile() {
+  const coach = typeof getTeamCoach === 'function' ? getTeamCoach(parseNum(G.teamId, 0)) : null;
+  const favor = coach && typeof getCoachFavorability === 'function' ? getCoachFavorability(coach) : 50;
+  const treatment = coach && typeof getUserCoachTreatmentProfile === 'function' ? getUserCoachTreatmentProfile(G.player, coach) : null;
+  const records = typeof getLeagueTeamRecordsArray === 'function' ? getLeagueTeamRecordsArray() : [];
+  const record = records.find(r => parseNum(r.teamId, 0) === parseNum(G.teamId, 0)) || {};
+  const pct = clamp(parseNum(record?.pct, 0.5), 0, 1);
+  const favorBoost = clamp((52 - favor) / 70, 0, 0.42);
+  const treatmentBoost = clamp(Math.max(0, -parseNum(treatment?.leverage, 0)) / 120, 0, 0.22);
+  const teamBoost = clamp((0.44 - pct) / 0.55, 0, 0.12);
+  const pressure = clamp(0.08 + favorBoost + treatmentBoost + teamBoost, 0.08, 0.72);
+  return {
+    favor,
+    treatment,
+    pct,
+    pressure,
+    valueDiscount: clamp(pressure * 0.22, 0.02, 0.18),
+    acceptBonus: clamp(pressure * 0.26, 0.02, 0.22)
+  };
+}
+function buildTradePackagesForTeam(teamId, targetValue, desiredSalary = normalizeSalaryMillion(G.player.salary)) {
+  const assets = (typeof getTeamPlayers === 'function' ? getTeamPlayers(parseNum(teamId, 0)) : [])
+    .filter(p => !p?.injury?.active)
+    .map(buildTradeAssetFromPlayer)
+    .sort((a, b) => Math.abs(parseNum(a.value, 0) - targetValue) - Math.abs(parseNum(b.value, 0) - targetValue) || parseNum(b.rating, 0) - parseNum(a.rating, 0))
+    .slice(0, 8);
+  const packages = [];
+  assets.forEach(a => {
+    packages.push({ players: [a], totalValue: parseNum(a.value, 0), totalSalary: normalizeSalaryMillion(a.salary) });
+  });
+  for (let i = 0; i < assets.length; i++) {
+    for (let j = i + 1; j < assets.length; j++) {
+      packages.push({
+        players: [assets[i], assets[j]],
+        totalValue: parseNum(assets[i].value, 0) + parseNum(assets[j].value, 0),
+        totalSalary: normalizeSalaryMillion(assets[i].salary) + normalizeSalaryMillion(assets[j].salary)
+      });
+    }
+  }
+  packages.forEach(pkg => {
+    const posNeed = pkg.players.reduce((sum, asset) => sum + evaluateTeamNeedForPosition(parseNum(teamId, 0), asset.pos).needScore, 0);
+    pkg.score = Math.abs(pkg.totalValue - targetValue) + Math.abs(pkg.totalSalary - desiredSalary) * 2.2 + (pkg.players.length - 1) * 3 - posNeed * 6;
+  });
+  packages.sort((a, b) => parseNum(a.score, 999) - parseNum(b.score, 999));
+  return packages;
+}
+function buildUserTradeProposal(targetId) {
+  const teamId = parseNum(targetId, 0);
+  const team = typeof getTeam === 'function' ? getTeam(teamId) : null;
+  if (!team || teamId === parseNum(G.teamId, 0)) return null;
+  const myValue = recalcPlayerTradeValue();
+  const pressure = getUserTradePressureProfile();
+  const need = evaluateTeamNeedForPosition(teamId, parseNum(G.player.pos, 3));
+  const targetValue = clamp(Math.round(myValue * (1 - pressure.valueDiscount) + need.needScore * 10), 18, 99);
+  const packages = buildTradePackagesForTeam(teamId, targetValue);
+  if (!packages.length) return null;
+  const selected = packages[0];
+  const capRoom = LEAGUE_SALARY_CAP_M * 1.18 - teamPayrollMillion(teamId);
+  const valueFit = clamp(1 - Math.abs(parseNum(selected.totalValue, 0) - targetValue) / 38, 0, 1);
+  const capPenalty = parseNum(selected.totalSalary, 0) > capRoom ? 0.08 : 0;
+  const acceptChance = clamp(0.24 + valueFit * 0.34 + need.needScore * 0.16 + pressure.acceptBonus - capPenalty + (selected.players.length === 1 ? 0.04 : 0), 0.08, 0.92);
+  const valueRange = { min: Math.max(1, Math.round(targetValue - 10)), max: Math.round(targetValue + 14) };
+  return {
+    team,
+    outgoing: [{
+      id: 'USER_SELF',
+      name: String(G.player.name || '球员'),
+      pos: parseNum(G.player.pos, 3),
+      pos2: 0,
+      rating: typeof ovr === 'function' ? ovr(G.player.attrs || {}) : parseNum(G.player.tradeValue, 50),
+      potential: parseNum(G.player.potential, 80),
+      salary: normalizeSalaryMillion(parseNum(G.player.salary, 0)),
+      value: myValue,
+      isUser: true
+    }],
+    incoming: selected.players,
+    outgoingValue: myValue,
+    incomingValue: parseNum(selected.totalValue, 0),
+    outgoingSalary: normalizeSalaryMillion(parseNum(G.player.salary, 0)),
+    incomingSalary: parseNum(selected.totalSalary, 0),
+    acceptChance,
+    valueRange,
+    leverage: pressure,
+    need
+  };
+}
+function executeUserTradeRequest(req) {
+  const teamId = parseNum(req?.team?.id, 0);
+  if (G.dayNum > G.tradeDeadline) return { ok: false, reason: 'deadline' };
+  if (!teamId || teamId === parseNum(G.teamId, 0)) return { ok: false, reason: 'same_team' };
+  const chance = clamp(parseNum(req?.acceptChance, 0.5), 0.05, 0.95);
+  if (Math.random() > chance) return { ok: false, reason: 'rejected', chance };
+  const oldTeamId = parseNum(G.teamId, 0);
+  const oldTeam = typeof getTeam === 'function' ? getTeam(oldTeamId) : null;
+  const newTeam = typeof getTeam === 'function' ? getTeam(teamId) : req.team || null;
+  const oldTeamObj = LEAGUE.teams?.[oldTeamId] || null;
+  const newTeamObj = LEAGUE.teams?.[teamId] || null;
+  const incomingIds = new Set((Array.isArray(req?.incoming) ? req.incoming : []).map(p => String(p?.id || '')));
+  if (oldTeamObj && newTeamObj && incomingIds.size) {
+    const moved = [];
+    newTeamObj.players = (newTeamObj.players || []).filter(player => {
+      const keep = !incomingIds.has(String(player?.id || ''));
+      if (!keep) moved.push(player);
+      return keep;
+    });
+    oldTeamObj.players = [...(oldTeamObj.players || []), ...moved];
+    oldTeamObj.rotation = typeof toRotation === 'function' ? toRotation(oldTeamObj.players) : oldTeamObj.rotation;
+    newTeamObj.rotation = typeof toRotation === 'function' ? toRotation(newTeamObj.players) : newTeamObj.rotation;
+    if (typeof calcTeamStrength === 'function') {
+      oldTeamObj.strength = calcTeamStrength(oldTeamObj);
+      newTeamObj.strength = calcTeamStrength(newTeamObj);
+    }
+  }
+  G.teamId = teamId;
+  G.team = newTeam;
+  if (!Array.isArray(G.player.teamsPlayed)) G.player.teamsPlayed = [];
+  if (!G.player.teamsPlayed.includes(teamId)) G.player.teamsPlayed.push(teamId);
+  if (oldTeamId !== teamId) G.nomadCount = Math.max(0, parseNum(G.nomadCount, 0)) + 1;
+  if (typeof ensureCoachDynamicsState === 'function') {
+    const dynamics = ensureCoachDynamicsState();
+    dynamics.directives.usageDemandUntilDay = -1;
+    dynamics.directives.startingDemandUntilDay = -1;
+    dynamics.directives.buyInUntilDay = -1;
+  }
+  if (typeof ensureCoachRelationshipState === 'function') ensureCoachRelationshipState();
+  if (typeof recalcPlayerTradeValue === 'function') recalcPlayerTradeValue();
+  G._currentRotation = null;
+  G._rotationGame = -1;
+  G._rotationTeam = -1;
+  addNews(`🔄 交易达成：${G.player.name} 从${oldTeam?.z || '原球队'}转投${newTeam?.z || '新球队'}。`, 'neu');
+  addPhone('经纪人', `交易完成，你已经被送往 ${newTeam?.z || '新球队'}。准备和新的教练组重新建立关系。`, 'info');
+  return { ok: true, team: newTeam };
+}
+function buildUserFreeAgencyProfile() {
+  const overall = typeof ovr === 'function' ? ovr(G.player.attrs || {}) : parseNum(G.player.tradeValue, 50);
+  const gp = Math.max(parseNum(G.seasonStats?.gp, 0), 1);
+  const ppg = +(parseNum(G.seasonStats?.pts, 0) / gp).toFixed(1);
+  const apg = +(parseNum(G.seasonStats?.ast, 0) / gp).toFixed(1);
+  const rpg = +(parseNum(G.seasonStats?.reb, 0) / gp).toFixed(1);
+  const age = parseNum(G.player.age, 24);
+  const fame = clamp(parseNum(G.player.fame, 10), 0, 100);
+  const trust = clamp(parseNum(G.player.trust, 50), 0, 100);
+  const baseSalary = clamp(1.2 + overall * 0.22 + ppg * 0.16 + apg * 0.09 + rpg * 0.05 + fame * 0.02 + trust * 0.01, 1.2, 42);
+  return { overall, ppg, apg, rpg, age, fame, trust, baseSalary };
+}
+function evaluateUserOfferForTeam(teamId, profile) {
+  const team = typeof getTeam === 'function' ? getTeam(teamId) : null;
+  if (!team) return null;
+  const need = evaluateTeamNeedForPosition(teamId, parseNum(G.player.pos, 3));
+  const capRoom = LEAGUE_SALARY_CAP_M * 1.18 - teamPayrollMillion(teamId);
+  if (capRoom <= 0.8) return null;
+  const strength = typeof getTeamStrength === 'function' ? getTeamStrength(teamId) : 75;
+  const coach = typeof getTeamCoach === 'function' ? getTeamCoach(teamId) : null;
+  const fitScore = coach && typeof getCoachPlayerSystemFit === 'function' ? getCoachPlayerSystemFit(G.player, coach).fitScore : 55;
+  let interest = 0.22 + need.needScore * 0.30 + (profile.overall - 72) / 85 + (profile.ppg - 12) / 75 + capRoom / 180 - strength / 420;
+  let years = clamp(profile.age <= 26 ? 4 : (profile.age <= 30 ? 3 : 2), 1, 4);
+  let salary = clamp(profile.baseSalary * (0.80 + interest * 0.45), 1.2, Math.max(1.5, capRoom - 0.4));
+  let renewalInterest = null;
+  if (teamId === parseNum(G.teamId, 0)) {
+    const favor = coach && typeof getCoachFavorability === 'function' ? getCoachFavorability(coach) : 50;
+    const treatment = coach && typeof getUserCoachTreatmentProfile === 'function' ? getUserCoachTreatmentProfile(G.player, coach) : null;
+    renewalInterest = clamp(0.18 + (favor - 25) / 90 + (fitScore - 45) / 90 + (profile.overall - 70) / 85 + (profile.ppg - 10) / 120, 0, 1);
+    if (renewalInterest < 0.33) return null;
+    salary = clamp(profile.baseSalary * (0.92 + renewalInterest * 0.20), 1.2, Math.max(1.5, capRoom - 0.2));
+    years = renewalInterest >= 0.72 ? Math.max(years, 3) : (renewalInterest >= 0.5 ? Math.max(2, years - 1) : 1);
+    interest += renewalInterest * 0.22 + parseNum(treatment?.leverage, 0) / 180;
+  } else if (interest < 0.28) {
+    return null;
+  }
+  return {
+    team,
+    years,
+    salary: +salary.toFixed(2),
+    current: teamId === parseNum(G.teamId, 0),
+    interest: clamp(interest, 0, 1),
+    renewalInterest,
+    fitScore,
+    need
+  };
+}
+function freeAgency() {
+  const profile = buildUserFreeAgencyProfile();
+  return (TEAMS || [])
+    .map(team => evaluateUserOfferForTeam(parseNum(team?.id, 0), profile))
+    .filter(Boolean)
+    .sort((a, b) => parseNum(b.salary, 0) - parseNum(a.salary, 0) || parseNum(b.interest, 0) - parseNum(a.interest, 0))
+    .slice(0, 6);
+}
+function signContract(teamId, salary, years) {
+  const tid = parseNum(teamId, 0);
+  const oldTeamId = parseNum(G.teamId, 0);
+  G.teamId = tid;
+  G.team = typeof getTeam === 'function' ? getTeam(tid) : G.team;
+  G.player.salary = normalizeSalaryMillion(parseNum(salary, 0));
+  G.player.contractYears = Math.max(1, Math.round(parseNum(years, 1)));
+  if (!Array.isArray(G.player.teamsPlayed)) G.player.teamsPlayed = [];
+  if (!G.player.teamsPlayed.includes(tid)) G.player.teamsPlayed.push(tid);
+  if (oldTeamId !== tid) G.nomadCount = Math.max(0, parseNum(G.nomadCount, 0)) + 1;
+  if (typeof ensureCoachDynamicsState === 'function') {
+    const dynamics = ensureCoachDynamicsState();
+    dynamics.directives.usageDemandUntilDay = -1;
+    dynamics.directives.startingDemandUntilDay = -1;
+    dynamics.directives.buyInUntilDay = -1;
+  }
+  if (typeof ensureCoachRelationshipState === 'function') ensureCoachRelationshipState();
+  if (typeof recalcPlayerTradeValue === 'function') recalcPlayerTradeValue();
+  G._currentRotation = null;
+  G._rotationGame = -1;
+  G._rotationTeam = -1;
+  addNews(`📝 ${G.player.name} 与${G.team?.z || '球队'}签下 ${G.player.contractYears} 年合同。`, 'pos');
+  addPhone('经纪人', `合同敲定：${G.team?.z || '球队'} ${G.player.contractYears}年 $${formatSalaryMillion(G.player.salary)}M/年。`, 'info');
+}
+function checkPlayerRenewal() {
+  if (parseNum(G.player?.contractYears, 0) > 1) return false;
+  if (parseNum(G.dayNum, 0) < parseNum(G.renewalDeadline, 160) - 8) return false;
+  if (typeof ensureCoachDynamicsState !== 'function') return false;
+  const dynamics = ensureCoachDynamicsState();
+  if (parseNum(dynamics.lastRenewalBriefSeason, 0) === parseNum(G.season, 1)) return false;
+  dynamics.lastRenewalBriefSeason = parseNum(G.season, 1);
+  const coach = typeof getTeamCoach === 'function' ? getTeamCoach(parseNum(G.teamId, 0)) : null;
+  const favor = coach && typeof getCoachFavorability === 'function' ? getCoachFavorability(coach) : 50;
+  const treatment = coach && typeof getUserCoachTreatmentProfile === 'function' ? getUserCoachTreatmentProfile(G.player, coach) : null;
+  const fitScore = parseNum(treatment?.fitScore, 55);
+  const cold = favor < 35 || parseNum(treatment?.leverage, 0) < -10;
+  const text = cold
+    ? `当前球队的续约态度偏冷。教练好感度 ${favor}，体系契合 ${fitScore}，管理层更倾向让你去试水市场。`
+    : `当前球队仍保留续约兴趣。教练好感度 ${favor}，体系契合 ${fitScore}，只要赛季后段不失控，留队仍有空间。`;
+  addPhone('经纪人', text, cold ? 'warn' : 'info');
+  if (cold) addNews(`📉 ${G.player.name} 与当前教练组关系偏冷，外界认为他的续约前景正在下滑。`, 'neg');
+  return true;
+}
+function tryAIRenewal() {
+  return false;
+}
+const GENERATED_COACH_FIRST_NAMES = ['Mike', 'Chris', 'David', 'James', 'Mark', 'Alex', 'Nate', 'Will', 'Sam', 'Ryan'];
+const GENERATED_COACH_LAST_NAMES = ['Carter', 'Brooks', 'Lawson', 'Foster', 'Graham', 'Sullivan', 'Harper', 'Bailey', 'Murray', 'Reed'];
+function buildTeamCoachStyleProfile(teamId) {
+  const tid = parseNum(teamId, 0);
+  const roster = [];
+  if (tid > 0 && tid === parseNum(G.teamId, 0) && typeof createUserRosterSnapshot === 'function') {
+    roster.push(createUserRosterSnapshot());
+  }
+  roster.push(...(typeof getTeamPlayers === 'function' ? getTeamPlayers(tid) : []));
+  const core = roster
+    .slice()
+    .sort((a, b) => parseNum(b?.rating, 0) - parseNum(a?.rating, 0))
+    .slice(0, 8);
+  if (!core.length) {
+    return { perimeter: 60, interior: 60, defense: 60, pace: 60, playmaking: 60, rebounding: 60 };
+  }
+  const sums = core.reduce((acc, player) => {
+    const attrs = player?.attrs || {};
+    acc.perimeter += parseNum(attrs.shotExt, 55) * (parseNum(player?.pos, 3) <= 3 ? 1.1 : 0.85);
+    acc.interior += parseNum(attrs.shotInt, 55) * (parseNum(player?.pos, 3) >= 4 ? 1.1 : 0.9);
+    acc.defense += (parseNum(attrs.stl, 55) + parseNum(attrs.blk, 55) + parseNum(player?.def, parseNum(player?.rating, 55))) / 3;
+    acc.pace += (parseNum(attrs.speed, 55) + parseNum(attrs.pass, 55)) / 2;
+    acc.playmaking += parseNum(attrs.pass, 55) * (parseNum(player?.pos, 3) <= 3 ? 1.08 : 0.95);
+    acc.rebounding += parseNum(attrs.reb, 55) * (parseNum(player?.pos, 3) >= 4 ? 1.15 : 0.85);
+    return acc;
+  }, { perimeter: 0, interior: 0, defense: 0, pace: 0, playmaking: 0, rebounding: 0 });
+  const count = core.length || 1;
+  return {
+    perimeter: +(sums.perimeter / count).toFixed(1),
+    interior: +(sums.interior / count).toFixed(1),
+    defense: +(sums.defense / count).toFixed(1),
+    pace: +(sums.pace / count).toFixed(1),
+    playmaking: +(sums.playmaking / count).toFixed(1),
+    rebounding: +(sums.rebounding / count).toFixed(1)
+  };
+}
+function pickCoachSystemForTeam(teamId, fallbackSystemId = 'balance') {
+  const style = buildTeamCoachStyleProfile(teamId);
+  const scores = {
+    balance: 52 + Math.min(style.perimeter, style.interior) * 0.12 + style.playmaking * 0.1,
+    defense: 42 + style.defense * 0.55 + style.rebounding * 0.22,
+    grit: 36 + style.interior * 0.28 + style.rebounding * 0.4 + style.defense * 0.18,
+    pace_space: 34 + style.perimeter * 0.42 + style.playmaking * 0.28 + style.pace * 0.25,
+    perimeter_star: 30 + style.perimeter * 0.52 + style.playmaking * 0.2,
+    interior_star: 30 + style.interior * 0.52 + style.rebounding * 0.18 + style.defense * 0.1,
+    triangle: 28 + style.playmaking * 0.34 + style.perimeter * 0.18 + style.interior * 0.18,
+    seven_seconds: 24 + style.pace * 0.5 + style.perimeter * 0.24 + style.playmaking * 0.16
+  };
+  const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  return ranked[0]?.[0] || fallbackSystemId || 'balance';
+}
+function getCoachCandidateQuality(coach, teamId = 0) {
+  const fx = typeof getCoachEffectsByCoach === 'function' ? getCoachEffectsByCoach(coach) : {};
+  const ratingMult = parseNum(fx.teamRatingMult, 1);
+  let score = 52;
+  score += parseNum(fx.techLevel, 0) * 4.6;
+  score += parseNum(fx.techDev, 0) * 3.8;
+  score += (parseNum(fx.baseOff, 40) - 40) * 0.7;
+  score += (parseNum(fx.baseDef, 40) - 40) * 0.7;
+  score += (ratingMult - 1) * 115;
+  if (parseNum(teamId, 0) === parseNum(G.teamId, 0)) {
+    score += (getCoachFavorability(coach) - 50) * 0.08;
+  }
+  return clamp(Math.round(score), 28, 94);
+}
+function buildCoachHireScore(teamId, coach) {
+  const systemId = String(coach?.systemId || resolveCoachSystemIdByName(coach?.name) || 'balance').trim() || 'balance';
+  const style = buildTeamCoachStyleProfile(teamId);
+  let fit = 0;
+  if (systemId === 'defense') fit = style.defense * 0.45 + style.rebounding * 0.18;
+  else if (systemId === 'grit') fit = style.interior * 0.22 + style.rebounding * 0.42 + style.defense * 0.18;
+  else if (systemId === 'pace_space') fit = style.perimeter * 0.38 + style.pace * 0.3 + style.playmaking * 0.2;
+  else if (systemId === 'perimeter_star') fit = style.perimeter * 0.48 + style.playmaking * 0.18;
+  else if (systemId === 'interior_star') fit = style.interior * 0.48 + style.rebounding * 0.16;
+  else if (systemId === 'triangle') fit = style.playmaking * 0.32 + style.perimeter * 0.16 + style.interior * 0.16;
+  else if (systemId === 'seven_seconds') fit = style.pace * 0.46 + style.perimeter * 0.2 + style.playmaking * 0.16;
+  else fit = Math.min(style.perimeter, style.interior) * 0.2 + style.playmaking * 0.18 + style.defense * 0.12;
+  const agePenalty = Math.max(0, parseNum(coach?.age, 45) - 63) * 0.9;
+  return getCoachCandidateQuality(coach, teamId) + fit * 0.22 - agePenalty + rng(-4, 4);
+}
+function estimateCoachSalary(coach) {
+  const quality = getCoachCandidateQuality(coach, parseNum(coach?.teamId, 0));
+  return +clamp((quality - 20) * 0.12, 2.2, 9.8).toFixed(2);
+}
+function buildCoachRetentionProfile(teamId, coach, teamRecord = null) {
+  const teamIdNum = parseNum(teamId, 0);
+  const record = teamRecord || (typeof getLeagueTeamRecordsArray === 'function'
+    ? getLeagueTeamRecordsArray().find(r => parseNum(r.teamId, 0) === teamIdNum)
+    : null) || {};
+  const gp = Math.max(0, parseNum(record?.gp, 0));
+  const pct = gp > 0 ? clamp(parseNum(record?.pct, parseNum(record?.w, 0) / Math.max(1, gp)), 0, 1) : 0.5;
+  const age = parseNum(coach?.age, 45);
+  const contract = Math.max(0, parseNum(coach?.yearsContract, 2));
+  const loyalty = clamp(parseNum(coach?.loyalty, 5), 0, 10);
+  const quality = getCoachCandidateQuality(coach, teamIdNum);
+  let pressure = 26;
+  pressure += clamp((0.53 - pct) * 120, -16, 36);
+  pressure += clamp((age - 56) * 1.25, 0, 22);
+  pressure += contract <= 0 ? 18 : contract === 1 ? 10 : contract === 2 ? 4 : -3;
+  pressure -= clamp((loyalty - 5) * 2.8, -9, 12);
+  pressure -= clamp((quality - 62) * 0.28, -9, 9);
+  if (teamIdNum === parseNum(G.teamId, 0)) {
+    pressure -= clamp((getCoachFavorability(coach) - 50) * 0.42, -18, 18);
+  }
+  pressure = clamp(pressure, 4, 94);
+  const moveChance = clamp(0.02 + Math.max(0, pressure - 30) / 95, 0.02, 0.72);
+  return {
+    teamId: teamIdNum,
+    pct,
+    age,
+    contract,
+    loyalty,
+    quality,
+    pressure,
+    moveChance,
+    extensionYears: pct >= 0.6 ? rng(3, 4) : (pct >= 0.48 ? rng(2, 3) : rng(1, 2))
+  };
+}
+function createGeneratedCoach(teamId, fallbackCoach = null) {
+  const tid = parseNum(teamId, 0);
+  const team = typeof getTeam === 'function' ? getTeam(tid) : null;
+  const systemId = pickCoachSystemForTeam(tid, fallbackCoach?.systemId || 'balance');
+  const systemProfile = typeof getCoachSystemProfile === 'function' ? getCoachSystemProfile(systemId) : { label: '均衡体系', secondaryLean: '按阵容灵活分配球权' };
+  const seed = parseNum(G.year, 2025) + tid + parseNum(fallbackCoach?.id, 0);
+  const name = `${GENERATED_COACH_FIRST_NAMES[seed % GENERATED_COACH_FIRST_NAMES.length]} ${GENERATED_COACH_LAST_NAMES[(seed * 3) % GENERATED_COACH_LAST_NAMES.length]}`;
+  const techLevel = clamp(Math.round(1 + rng(0, 2) + (buildTeamCoachStyleProfile(tid).playmaking - 60) / 18), 1, 4);
+  const techDev = clamp(Math.round(1 + rng(0, 2)), 1, 4);
+  const baseShotTriplePercent = clamp(Math.round(systemId === 'pace_space' || systemId === 'perimeter_star' || systemId === 'seven_seconds' ? 42 + rng(-2, 2) : 38 + rng(-2, 2)), 35, 45);
+  const baseShotIntPercent = clamp(Math.round(systemId === 'interior_star' || systemId === 'grit' ? 42 + rng(-2, 2) : 38 + rng(-2, 2)), 35, 45);
+  const baseOffensive = clamp(Math.round(39 + techLevel + rng(-1, 3)), 35, 45);
+  const baseDefense = clamp(Math.round(39 + techDev + (systemId === 'defense' ? 2 : 0) + rng(-1, 2)), 35, 45);
+  const coach = {
+    id: Date.now() + tid,
+    name,
+    teamId: tid,
+    age: clamp(41 + (seed % 11), 38, 56),
+    yearsContract: rng(2, 4),
+    salary: 0,
+    techLevel,
+    techDev,
+    baseShotIntPercent,
+    baseShotTriplePercent,
+    baseOffensive,
+    baseDefense,
+    currentShotIntPercent: baseShotIntPercent,
+    currentShotTriplePercent: baseShotTriplePercent,
+    currentOffensive: baseOffensive,
+    currentDefense: baseDefense,
+    loyalty: clamp(5 + rng(-1, 2), 3, 8),
+    systemId,
+    systemLabel: systemProfile.label,
+    secondaryLean: systemProfile.secondaryLean,
+    generated: true,
+    previousTeam: team?.a || ''
+  };
+  coach.salary = estimateCoachSalary(coach);
+  return coach;
+}
+function runOffseasonCoachCarousel() {
+  if (!LEAGUE.loaded || !LEAGUE.teams) return [];
+  if (typeof ensureCoachRelationshipState === 'function') ensureCoachRelationshipState();
+  const records = typeof getLeagueTeamRecordsArray === 'function' ? getLeagueTeamRecordsArray() : [];
+  const recordMap = new Map(records.map(r => [parseNum(r.teamId, 0), r]));
+  const evaluations = [];
+  Object.entries(LEAGUE.teams).forEach(([tidRaw, teamObj]) => {
+    const teamId = parseNum(tidRaw, 0);
+    if (!teamId || !teamObj?.coach) return;
+    const coach = teamObj.coach;
+    coach.teamId = teamId;
+    coach.age = Math.max(35, parseNum(coach.age, 45) + 1);
+    coach.yearsContract = Math.max(0, parseNum(coach.yearsContract, 2) - 1);
+    coach.systemId = String(coach.systemId || resolveCoachSystemIdByName(coach.name) || pickCoachSystemForTeam(teamId, 'balance')).trim() || 'balance';
+    const systemProfile = typeof getCoachSystemProfile === 'function' ? getCoachSystemProfile(coach.systemId) : { label: '均衡体系', secondaryLean: '按阵容灵活分配球权' };
+    coach.systemLabel = systemProfile.label;
+    coach.secondaryLean = systemProfile.secondaryLean;
+    coach.salary = parseNum(coach.salary, 0) > 0 ? parseNum(coach.salary, 0) : estimateCoachSalary(coach);
+    evaluations.push({
+      teamId,
+      teamObj,
+      team: typeof getTeam === 'function' ? getTeam(teamId) : teamObj.meta,
+      coach,
+      profile: buildCoachRetentionProfile(teamId, coach, recordMap.get(teamId))
+    });
+  });
+  if (!evaluations.length) {
+    if (typeof syncLeagueCoachList === 'function') syncLeagueCoachList();
+    return [];
+  }
+  evaluations.sort((a, b) => b.profile.pressure - a.profile.pressure);
+  const minMoves = evaluations[0].profile.pressure >= 66 ? 2 : (evaluations[0].profile.pressure >= 52 ? 1 : 0);
+  const vacancyTeams = [];
+  const releasedCoaches = [];
+  const retainedLines = [];
+  evaluations.forEach((entry, idx) => {
+    const forcedMove = idx < minMoves;
+    const shouldMove = forcedMove || Math.random() < entry.profile.moveChance;
+    if (shouldMove) {
+      entry.teamObj.coach = null;
+      releasedCoaches.push({ coach: { ...entry.coach }, prevTeamId: entry.teamId, prevTeam: entry.team });
+      vacancyTeams.push(entry);
+      return;
+    }
+    const shouldExtend = entry.profile.contract <= 0 || (entry.profile.contract <= 1 && entry.profile.pressure <= 46) || entry.profile.pct >= 0.58;
+    if (shouldExtend) {
+      entry.coach.yearsContract = Math.max(entry.coach.yearsContract, entry.profile.extensionYears);
+      entry.coach.salary = estimateCoachSalary(entry.coach);
+      if (entry.teamId === parseNum(G.teamId, 0)) {
+        retainedLines.push(`🤝 ${entry.coach.name} 获得续约，与你的好感度 ${getCoachFavorability(entry.coach)} 让留任倾向更稳。`);
+      }
+    }
+  });
+  const moveLines = [];
+  vacancyTeams.forEach(vacancy => {
+    const candidates = releasedCoaches
+      .filter(item => parseNum(item.prevTeamId, 0) !== vacancy.teamId)
+      .map(item => ({ ...item, hireScore: buildCoachHireScore(vacancy.teamId, item.coach) }))
+      .sort((a, b) => b.hireScore - a.hireScore);
+    let selected = candidates[0] || null;
+    let nextCoach = selected ? { ...selected.coach } : createGeneratedCoach(vacancy.teamId, vacancy.coach);
+    if (selected) {
+      const idx = releasedCoaches.findIndex(item => String(item.coach?.id || item.coach?.name) === String(selected.coach?.id || selected.coach?.name) && parseNum(item.prevTeamId, 0) === parseNum(selected.prevTeamId, 0));
+      if (idx >= 0) releasedCoaches.splice(idx, 1);
+    }
+    nextCoach.teamId = vacancy.teamId;
+    nextCoach.systemId = String(nextCoach.systemId || pickCoachSystemForTeam(vacancy.teamId, vacancy.coach?.systemId || 'balance')).trim() || 'balance';
+    const nextSystem = typeof getCoachSystemProfile === 'function' ? getCoachSystemProfile(nextCoach.systemId) : { label: '均衡体系', secondaryLean: '按阵容灵活分配球权' };
+    nextCoach.systemLabel = nextSystem.label;
+    nextCoach.secondaryLean = nextSystem.secondaryLean;
+    nextCoach.yearsContract = Math.max(2, parseNum(nextCoach.yearsContract, 0) || rng(2, 4));
+    nextCoach.salary = estimateCoachSalary(nextCoach);
+    vacancy.teamObj.coach = nextCoach;
+    if (vacancy.teamId === parseNum(G.teamId, 0) && typeof setCoachFavorability === 'function') {
+      setCoachFavorability(nextCoach, getDefaultCoachFavorability(nextCoach, vacancy.teamId), { season: G.season, teamId: vacancy.teamId, games: 0 });
+    }
+    const teamAbbr = String(vacancy.team?.a || vacancy.team?.abbr || vacancy.team?.z || vacancy.team?.n || `T${vacancy.teamId}`).trim();
+    moveLines.push(`🧠 ${teamAbbr} 换帅：${vacancy.coach.name} → ${nextCoach.name}（胜率 ${(vacancy.profile.pct * 100).toFixed(1)}%，年龄 ${vacancy.profile.age}，压力 ${Math.round(vacancy.profile.pressure)}）`);
+    if (vacancy.teamId === parseNum(G.teamId, 0)) {
+      addNews(`🧠 ${vacancy.team?.z || vacancy.team?.n || '球队'} 在休赛期更换主教练：${vacancy.coach.name} 离任，${nextCoach.name} 接任。`, vacancy.profile.pressure >= 60 ? 'neg' : 'neu');
+      addPhone('管理层', `休赛期决定：${vacancy.coach.name} 离任，新帅 ${nextCoach.name} 上任，主体系 ${nextCoach.systemLabel || '均衡体系'}。`, 'info');
+    }
+  });
+  evaluations
+    .filter(entry => !vacancyTeams.some(v => v.teamId === entry.teamId) && entry.teamId === parseNum(G.teamId, 0))
+    .forEach(entry => {
+      const favor = getCoachFavorability(entry.coach);
+      addPhone(entry.coach.name, `管理层确认我会继续带队。你目前的教练好感度 ${favor}，下赛季继续冲。`, 'info');
+    });
+  Object.values(LEAGUE.teams || {}).forEach(teamObj => {
+    if (!teamObj) return;
+    if (Array.isArray(teamObj.players) && typeof toRotation === 'function') {
+      teamObj.rotation = toRotation(teamObj.players);
+    }
+    if (typeof calcTeamStrength === 'function') {
+      teamObj.strength = calcTeamStrength(teamObj);
+    }
+  });
+  if (typeof syncLeagueCoachList === 'function') syncLeagueCoachList();
+  const summary = [];
+  summary.push(`教练市场：${moveLines.length} 支球队完成换帅，评估会看胜率、年龄、合同和你与教练的好感度。`);
+  summary.push(...retainedLines.slice(0, 1));
+  summary.push(...moveLines.slice(0, 6));
+  return summary.filter(Boolean);
+}
+function endSeasonPostPipeline() {
+  const coachSummary = runOffseasonCoachCarousel();
+  if (!Array.isArray(G.offseasonSummary)) G.offseasonSummary = [];
+  if (coachSummary.length) G.offseasonSummary.push(...coachSummary);
+}
+function updateCoachFavorabilityAfterGame(result) {
+  const coach = typeof getTeamCoach === 'function' ? getTeamCoach(parseNum(G.teamId, 0)) : null;
+  if (!coach || typeof changeCoachFavorability !== 'function') return null;
+  const entry = typeof ensureCoachRelationEntry === 'function' ? ensureCoachRelationEntry(coach) : null;
+  const gradeDeltaMap = { 'S+': 3, 'S': 2, 'A': 1.2, 'B': 0.4, 'C': 0, 'D': -0.8, 'F': -1.6 };
+  let delta = result?.win ? 1.1 : -0.8;
+  delta += gradeDeltaMap[result?.grade] || 0;
+  const mins = parseNum(result?.st?.mins, 0);
+  const pts = parseNum(result?.pts, 0);
+  const ast = parseNum(result?.ast, 0);
+  if (mins >= 34) delta += 0.4;
+  else if (mins <= 14) delta -= 0.5;
+  if (pts >= 30) delta += 0.5;
+  if (ast >= 8) delta += 0.25;
+  if (result?.injured) delta -= 0.4;
+  const before = getCoachFavorability(coach);
+  const next = changeCoachFavorability(coach, clamp(delta, -3, 3), {
+    games: Math.max(0, parseNum(entry?.games, 0)) + 1,
+    season: G.season,
+    teamId: G.teamId
+  });
+  return { before, after: next, delta: next - before };
+}
+function applyCoachRelationshipOutcome({ favorDelta = 0, fameDelta = 0, trustDelta = 0, moodDelta = 0, xpDelta = 0, directives = null, source = '', phone = '', news = '', type = 'info' } = {}) {
+  const coach = typeof getTeamCoach === 'function' ? getTeamCoach(parseNum(G.teamId, 0)) : null;
+  if (coach && typeof changeCoachFavorability === 'function') {
+    changeCoachFavorability(coach, favorDelta, { season: G.season, teamId: G.teamId });
+  }
+  if (typeof ensureCoachDynamicsState === 'function') {
+    const dynamics = ensureCoachDynamicsState();
+    if (directives && typeof directives === 'object') {
+      Object.entries(directives).forEach(([key, value]) => {
+        if (value == null) return;
+        dynamics.directives[key] = parseNum(value, dynamics.directives[key] || -1);
+      });
+    }
+  }
+  if (fameDelta || trustDelta) applyReputationDelta({ fame: fameDelta, trust: trustDelta, source: source || '教练关系' });
+  if (moodDelta) G.player.mood = clamp(parseNum(G.player.mood, 50) + parseNum(moodDelta, 0), 0, 100);
+  if (xpDelta > 0) addPlayerXP(xpDelta);
+  if (phone) addPhone(coach?.name || '教练组', phone, type);
+  if (news) addNews(news, favorDelta >= 0 ? 'pos' : 'neg');
+  return {
+    favor: coach ? getCoachFavorability(coach) : 50,
+    mood: clamp(parseNum(G.player.mood, 50), 0, 100)
+  };
+}
+function normalizeFreeTextResponse(text = '') {
+  return String(text || '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function analyzeCoachFreeTextSignals(text = '') {
+  const raw = normalizeFreeTextResponse(text);
+  const lower = raw.toLowerCase();
+  const hasAny = (list = []) => list.some(token => raw.includes(token) || lower.includes(String(token).toLowerCase()));
+  const countAny = (list = []) => list.reduce((sum, token) => sum + ((raw.includes(token) || lower.includes(String(token).toLowerCase())) ? 1 : 0), 0);
+  const aggression = clamp(
+    countAny(['垃圾', '扯淡', '闭嘴', '滚', '烂', '不爽', '生气', '愤怒', '凭什么', '必须', '立刻', '交易我', 'trade me']) * 18 +
+    (raw.includes('!') ? 8 : 0),
+    0,
+    100
+  );
+  const diplomacy = clamp(
+    20 + countAny(['谢谢', '理解', '尊重', '希望', '尽量', '沟通', '配合', '接受', '愿意', '一起', '抱歉']) * 14,
+    0,
+    100
+  );
+  const teamOrientation = clamp(
+    10 + countAny(['球队', '团队', '大家', '我们', '赢球', '防守', '执行', '战术', '体系', '教练']) * 15,
+    0,
+    100
+  );
+  const businessRisk = clamp(
+    countAny(['媒体', '热搜', '公开', '发推', '采访', '新闻', '球迷', '品牌', '代言']) * 15 + Math.max(0, aggression - diplomacy) * 0.35,
+    0,
+    100
+  );
+  const usageDemand = clamp(
+    countAny(['球权', '出手', '更多球', '多拿球', '战术地位', '核心', '终结']) * 22 + Math.max(0, aggression - 20) * 0.3,
+    0,
+    100
+  );
+  const startingDemand = clamp(
+    countAny(['首发', '先发', '主力', '时间', '位置', '更大角色', '更大位置']) * 24 + Math.max(0, aggression - 15) * 0.24,
+    0,
+    100
+  );
+  const buyIn = clamp(
+    countAny(['体系', '战术', '服从', '执行', '跑位', '配合', '牺牲', '团队']) * 18 + diplomacy * 0.28 + teamOrientation * 0.22,
+    0,
+    100
+  );
+  const selfFocus = clamp(
+    countAny(['我', '自己', '我的', '我要', '我想', '我会']) * 10 + usageDemand * 0.2 + startingDemand * 0.2 - teamOrientation * 0.08,
+    0,
+    100
+  );
+  const filmStudy = clamp(
+    countAny(['录像', '加练', '研究', '训练', '复盘', '看录像', '加训']) * 22 + diplomacy * 0.12,
+    0,
+    100
+  );
+  return {
+    text: raw,
+    aggression: Math.round(aggression),
+    diplomacy: Math.round(diplomacy),
+    teamOrientation: Math.round(teamOrientation),
+    businessRisk: Math.round(businessRisk),
+    usageDemand: Math.round(usageDemand),
+    startingDemand: Math.round(startingDemand),
+    buyIn: Math.round(buyIn),
+    selfFocus: Math.round(selfFocus),
+    filmStudy: Math.round(filmStudy)
+  };
+}
+async function classifyCoachResponseByLLM(prompt, text) {
+  ensureSocialState();
+  const llm = G.social?.llm || {};
+  if (!llm.enabled || !String(llm.apiKey || '').trim()) return null;
+  const promptType = String(prompt?.type || '').trim() || 'coach_prompt';
+  const allowed = Array.isArray(prompt?.choices) ? prompt.choices.map(c => String(c.id || '').trim()).filter(Boolean) : [];
+  if (!allowed.length) return null;
+  const baseUrl = normalizeLLMBaseUrl(llm.baseUrl);
+  const model = String(llm.model || 'gpt-4.1-mini').trim();
+  const system = `你是篮球生涯游戏的文本判定器。用户会输入一段中文回答，请你只做分类，不做创作。
+你必须返回合法 JSON：
+{
+  "choiceId": "必须从给定列表中选择一个",
+  "aggression": 0-100,
+  "diplomacy": 0-100,
+  "teamOrientation": 0-100,
+  "businessRisk": 0-100,
+  "summary": "不超过24字的判断摘要"
+}
+不要输出解释。`;
+  const userPayload = JSON.stringify({
+    type: promptType,
+    title: prompt?.title || '',
+    desc: prompt?.desc || '',
+    allowedChoiceIds: allowed,
+    answer: normalizeFreeTextResponse(text)
+  });
+  try {
+    let raw = '';
+    if (isGoogleGeminiEndpoint(baseUrl)) {
+      const modelName = normalizeModelNameForGemini(model);
+      const endpoint = `${baseUrl}/models/${encodeURIComponent(modelName)}:generateContent`;
+      const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint, { jsonBody: true });
+      const payload = {
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [{ text: userPayload }] }],
+        generationConfig: { temperature: 0.2, responseMimeType: 'application/json' }
+      };
+      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const data = await readJSONResponseSafe(res, '自由输入判定');
+      raw = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text).join('') || '';
+    } else {
+      const payload = {
+        model,
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: userPayload }
+        ],
+        response_format: { type: 'json_object' }
+      };
+      const endpoint = `${baseUrl}/chat/completions`;
+      const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
+      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const data = await readJSONResponseSafe(res, '自由输入判定');
+      raw = data?.choices?.[0]?.message?.content || '';
+    }
+    let jsonStr = raw;
+    const match = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (match) jsonStr = match[1];
+    const parsed = tryParseJSONText(jsonStr.trim());
+    if (!parsed || typeof parsed !== 'object') return null;
+    const choiceId = allowed.includes(String(parsed.choiceId || '').trim()) ? String(parsed.choiceId || '').trim() : '';
+    return {
+      choiceId,
+      aggression: clamp(parseNum(parsed.aggression, 50), 0, 100),
+      diplomacy: clamp(parseNum(parsed.diplomacy, 50), 0, 100),
+      teamOrientation: clamp(parseNum(parsed.teamOrientation, 50), 0, 100),
+      businessRisk: clamp(parseNum(parsed.businessRisk, 50), 0, 100),
+      summary: String(parsed.summary || '').trim()
+    };
+  } catch (e) {
+    return null;
+  }
+}
+function decideCoachChoiceFromSignals(prompt, analysis = {}) {
+  const type = String(prompt?.type || '').trim();
+  if (type === 'postgame_interview') {
+    if (parseNum(analysis.usageDemand, 0) >= 55 || parseNum(analysis.aggression, 0) >= 66) return 'postgame_usage_complaint';
+    if (parseNum(analysis.buyIn, 0) >= 66 || (parseNum(analysis.teamOrientation, 0) >= 68 && parseNum(analysis.diplomacy, 0) >= 56)) return 'postgame_credit_system';
+    return 'postgame_team_first';
+  }
+  if (type === 'training_attitude') {
+    if (parseNum(analysis.filmStudy, 0) >= 60 && parseNum(analysis.buyIn, 0) >= 52) return 'training_extra_film';
+    if (parseNum(analysis.buyIn, 0) >= 64 || parseNum(analysis.teamOrientation, 0) >= 72) return 'training_system_buyin';
+    return 'training_me_first';
+  }
+  if (type === 'coach_conversation') {
+    if (parseNum(analysis.startingDemand, 0) >= 56) return 'demand_start';
+    if (parseNum(analysis.buyIn, 0) >= 64 && parseNum(analysis.diplomacy, 0) >= 54) return 'obey_system';
+    return 'complain_usage';
+  }
+  return String(prompt?.choices?.[0]?.id || '').trim();
+}
+function buildCoachInputAnalysisText(choiceId, analysis = {}, llmSummary = '') {
+  const labels = [];
+  if (parseNum(analysis.aggression, 0) >= 70) labels.push('强硬');
+  else if (parseNum(analysis.diplomacy, 0) >= 70) labels.push('圆滑');
+  if (parseNum(analysis.teamOrientation, 0) >= 65) labels.push('团队导向');
+  if (parseNum(analysis.businessRisk, 0) >= 65) labels.push('媒体风险高');
+  if (parseNum(analysis.buyIn, 0) >= 68) labels.push('服从体系');
+  if (parseNum(analysis.usageDemand, 0) >= 60) labels.push('争取球权');
+  if (parseNum(analysis.startingDemand, 0) >= 60) labels.push('争取位置');
+  const choiceMap = {
+    postgame_team_first: '先稳团队',
+    postgame_usage_complaint: '公开施压球权',
+    postgame_credit_system: '公开支持体系',
+    training_extra_film: '主动加练复盘',
+    training_me_first: '偏个人训练',
+    training_system_buyin: '按体系训练',
+    complain_usage: '私下抱怨球权',
+    demand_start: '要求更大位置',
+    obey_system: '主动服从体系'
+  };
+  const head = choiceMap[String(choiceId || '').trim()] || '已识别态度';
+  const suffix = labels.length ? `系统识别：${head}，${labels.join(' / ')}` : `系统识别：${head}`;
+  return llmSummary ? `${suffix}。${llmSummary}` : suffix;
+}
+async function resolveCoachPromptTextResponse(prompt, userText, result = null) {
+  const text = normalizeFreeTextResponse(userText);
+  if (!text) return { ok: false, text: '你什么都没说，教练组无法判断你的态度。' };
+  const heuristic = analyzeCoachFreeTextSignals(text);
+  const llmAnalysis = await classifyCoachResponseByLLM(prompt, text);
+  const analysis = {
+    ...heuristic,
+    aggression: llmAnalysis ? clamp(parseNum(llmAnalysis.aggression, heuristic.aggression), 0, 100) : heuristic.aggression,
+    diplomacy: llmAnalysis ? clamp(parseNum(llmAnalysis.diplomacy, heuristic.diplomacy), 0, 100) : heuristic.diplomacy,
+    teamOrientation: llmAnalysis ? clamp(parseNum(llmAnalysis.teamOrientation, heuristic.teamOrientation), 0, 100) : heuristic.teamOrientation,
+    businessRisk: llmAnalysis ? clamp(parseNum(llmAnalysis.businessRisk, heuristic.businessRisk), 0, 100) : heuristic.businessRisk
+  };
+  let choiceId = String(llmAnalysis?.choiceId || '').trim();
+  if (!choiceId) choiceId = decideCoachChoiceFromSignals(prompt, analysis);
+  let outcome = String(prompt?.type || '').trim() === 'coach_conversation'
+    ? applyCoachConversationChoice(choiceId)
+    : applyCoachDailyPromptChoice(prompt, choiceId, result);
+  const favorDelta = (analysis.diplomacy >= 72 ? 1 : 0) + (analysis.teamOrientation >= 72 ? 1 : 0) - (analysis.aggression >= 74 ? 2 : 0);
+  const trustDelta = (analysis.teamOrientation >= 70 ? 1 : 0) + (analysis.diplomacy >= 74 ? 1 : 0) - (analysis.businessRisk >= 72 ? 1 : 0);
+  const fameDelta = analysis.businessRisk >= 70 ? 1 : 0;
+  const moodDelta = analysis.aggression >= 72 ? 1 : (analysis.buyIn >= 72 ? -1 : 0);
+  if (favorDelta || trustDelta || fameDelta || moodDelta) {
+    applyCoachRelationshipOutcome({
+      favorDelta,
+      trustDelta,
+      fameDelta,
+      moodDelta,
+      source: '自由输入态度判定'
+    });
+  }
+  outcome = outcome && typeof outcome === 'object' ? outcome : { ok: true, text: '教练已经记下了你的态度。' };
+  outcome.choiceId = choiceId;
+  outcome.analysis = analysis;
+  outcome.analysisText = buildCoachInputAnalysisText(choiceId, analysis, String(llmAnalysis?.summary || '').trim());
+  ensureSocialState();
+  G.social.playerStatementLog.unshift({
+    day: parseNum(result?.day, G.dayNum),
+    season: parseNum(G.season, 1),
+    title: String(prompt?.title || '教练沟通').trim(),
+    type: String(prompt?.type || '').trim(),
+    text,
+    choiceId,
+    analysisText: outcome.analysisText,
+    ts: Date.now()
+  });
+  if (G.social.playerStatementLog.length > 12) G.social.playerStatementLog.length = 12;
+  return outcome;
+}
+function buildCoachDailyPrompt(result) {
+  if (!result || typeof ensureCoachDynamicsState !== 'function') return null;
+  const coach = typeof getTeamCoach === 'function' ? getTeamCoach(parseNum(G.teamId, 0)) : null;
+  if (!coach) return null;
+  const dynamics = ensureCoachDynamicsState();
+  if (parseNum(dynamics.lastDailyPromptDay, -99) === parseNum(result.day, -100)) return null;
+  if (result.isGame) {
+    const game = result.gameResult || {};
+    const margin = Math.abs(parseNum(game.teamPts, 0) - parseNum(game.oppPts, 0));
+    const spotlight = ['S+', 'S', 'A', 'D', 'F'].includes(String(game.grade || '').trim()) || parseNum(game.pts, 0) >= 28 || margin <= 6;
+    if (!spotlight) return null;
+    return {
+      type: 'postgame_interview',
+      inputMode: 'free_text',
+      title: '赛后采访',
+      desc: `${coach.name} 希望你在镜头前给出一个明确信号。媒体刚把话筒递到你嘴边。`,
+      placeholder: '自己打字回答，比如强调团队、公开要球，或为体系背书……',
+      choices: [
+        { id: 'postgame_team_first', title: '先夸团队', detail: '稳住更衣室和教练关系，个人光环会少一点。', badge: '教练好感↑ / 信任↑' },
+        { id: 'postgame_usage_complaint', title: '暗示自己该多拿球', detail: '短期更容易抢到球权，但会让教练不舒服。', badge: '球权施压 / 教练好感↓' },
+        { id: 'postgame_credit_system', title: '公开支持教练体系', detail: '你会显得更职业，但要接受短期让出一些球权。', badge: '服从体系 / 心情↓' }
+      ]
+    };
+  }
+  const trained = Array.isArray(result.events) && result.events.some(x => String(x || '').includes('训练'));
+  if (!trained) return null;
+  return {
+    type: 'training_attitude',
+    inputMode: 'free_text',
+    title: '训练态度',
+    desc: `${coach.name} 把今天的训练录像递给你，想看你到底愿不愿意按球队方案走。`,
+    placeholder: '自己打字回答，比如愿意加练看录像，或坚持练自己喜欢的回合……',
+    choices: [
+      { id: 'training_extra_film', title: '加练并看录像', detail: '更累，但会被教练视为可靠球员。', badge: '教练好感↑ / XP↑' },
+      { id: 'training_me_first', title: '只练自己想打的回合', detail: '短期有利于个人手感，但体系评价会下降。', badge: '球权施压 / 教练好感↓' },
+      { id: 'training_system_buyin', title: '按体系跑位和战术', detail: '个人球权会被压一点，但长期更容易吃到体系红利。', badge: '服从体系 / 信任↑' }
+    ]
+  };
+}
+function applyCoachDailyPromptChoice(prompt, choiceId, result = null) {
+  const promptType = String(prompt?.type || '').trim();
+  const id = String(choiceId || '').trim();
+  const day = parseNum(G.dayNum, 0);
+  if (typeof ensureCoachDynamicsState === 'function') ensureCoachDynamicsState().lastDailyPromptDay = parseNum(result?.day, day);
+  const coach = typeof getTeamCoach === 'function' ? getTeamCoach(parseNum(G.teamId, 0)) : null;
+  const coachName = coach?.name || '教练';
+  if (promptType === 'postgame_interview') {
+    const game = result?.gameResult || {};
+    if (id === 'postgame_team_first') {
+      applyCoachRelationshipOutcome({
+        favorDelta: game.win ? 4 : 3,
+        trustDelta: 2,
+        fameDelta: 1,
+        moodDelta: -1,
+        source: '赛后采访：强调团队',
+        phone: `你在采访里先讲球队和执行力，这种表态我会记住。`,
+        news: `🎙️ ${G.player.name} 赛后把功劳先让给球队和教练组，更衣室气氛稳定。`
+      });
+      return { ok: true, text: `你把话题压回团队，${coachName} 对你的职业态度更满意。` };
+    }
+    if (id === 'postgame_usage_complaint') {
+      applyCoachRelationshipOutcome({
+        favorDelta: parseNum(game.pts, 0) >= 30 ? -5 : -7,
+        trustDelta: -2,
+        fameDelta: 2,
+        moodDelta: 1,
+        directives: { usageDemandUntilDay: day + 6 },
+        source: '赛后采访：暗示球权不够',
+        phone: `媒体会放大你的发言。既然你想要更多球权，我也会更严格看你的选择。`,
+        news: `🎙️ ${G.player.name} 在采访中暗示自己该获得更多球权，外界开始讨论他与教练组的张力。`,
+        type: 'warn'
+      });
+      return { ok: true, text: `你公开给了教练组压力，短期会更容易拿到球，但关系也变紧了。` };
+    }
+    applyCoachRelationshipOutcome({
+      favorDelta: 6,
+      trustDelta: 1,
+      moodDelta: -2,
+      directives: { buyInUntilDay: day + 7 },
+      source: '赛后采访：公开支持体系',
+      phone: `你替体系说话，这能让整个更衣室更容易接受我们的打法。`,
+      news: `🎙️ ${G.player.name} 赛后公开为教练体系背书，球队内部执行力预期走高。`
+    });
+    return { ok: true, text: `你把功劳让给体系，教练会更愿意长期重用你。` };
+  }
+  if (promptType === 'training_attitude') {
+    if (id === 'training_extra_film') {
+      applyCoachRelationshipOutcome({
+        favorDelta: 5,
+        trustDelta: 1,
+        moodDelta: -2,
+        xpDelta: 3,
+        directives: { buyInUntilDay: day + 5 },
+        source: '训练态度：主动加练',
+        phone: `你今天把录像室坐满了。累是累，但这种态度会直接反映在轮换里。`,
+        type: 'info'
+      });
+      return { ok: true, text: `你把训练强度拉满，教练组会把你视为更可靠的执行点。` };
+    }
+    if (id === 'training_me_first') {
+      applyCoachRelationshipOutcome({
+        favorDelta: -4,
+        trustDelta: -1,
+        moodDelta: 1,
+        xpDelta: 2,
+        directives: { usageDemandUntilDay: day + 4 },
+        source: '训练态度：只练个人回合',
+        phone: `你练了很多自己喜欢的东西，但对团队战术帮助有限。`,
+        type: 'warn'
+      });
+      return { ok: true, text: `你更偏向练自己的进攻包，手感可能更顺，但教练会下调体系评价。` };
+    }
+    applyCoachRelationshipOutcome({
+      favorDelta: 4,
+      trustDelta: 2,
+      moodDelta: -1,
+      directives: { buyInUntilDay: day + 6 },
+      source: '训练态度：服从体系',
+      phone: `你今天完全按球队要求跑位，这会让之后的战术待遇更稳定。`,
+      type: 'info'
+    });
+    return { ok: true, text: `你老老实实按体系训练，教练对你的信任更高了。` };
+  }
+  return { ok: false, text: '没有发生额外变化。' };
+}
+function buildCoachConversationPrompt() {
+  const coach = typeof getTeamCoach === 'function' ? getTeamCoach(parseNum(G.teamId, 0)) : null;
+  if (!coach) return null;
+  const rotation = typeof ensureGameRotation === 'function' ? ensureGameRotation() : [];
+  const self = rotation.find(p => p?.isSelf || String(p?.id || '') === 'USER_SELF') || null;
+  const isStarter = String(self?.rotationRole || '') === 'starter';
+  const starterLabel = isStarter ? '要求更多核心回合' : '要求首发位置';
+  return {
+    type: 'coach_conversation',
+    inputMode: 'free_text',
+    title: '教练沟通',
+    desc: `${coach.name} 愿意听你一次正面表达诉求，但这次沟通会留下代价。`,
+    placeholder: '自己打字说明诉求，比如想要更多球权、首发位置，或表态愿意服从体系。',
+    choices: [
+      { id: 'complain_usage', title: '抱怨球权', detail: '短期更容易拿到出手，但教练好感和信任会掉。', badge: '球权施压 / 教练好感↓' },
+      { id: 'demand_start', title: starterLabel, detail: '你可能抢到更多分钟，但会明显冒犯教练权威。', badge: '首发施压 / 风险高' },
+      { id: 'obey_system', title: '服从体系', detail: '短期要牺牲个人触球，但会换来更高信任。', badge: '服从体系 / 教练好感↑' }
+    ]
+  };
+}
+function applyCoachConversationChoice(choiceId) {
+  const id = String(choiceId || '').trim();
+  const day = parseNum(G.dayNum, 0);
+  if (typeof ensureCoachDynamicsState === 'function') ensureCoachDynamicsState().lastConversationDay = day;
+  if (id === 'complain_usage') {
+    applyCoachRelationshipOutcome({
+      favorDelta: -7,
+      trustDelta: -3,
+      moodDelta: 2,
+      directives: { usageDemandUntilDay: day + 8 },
+      source: '教练沟通：抱怨球权',
+      phone: `你想要更多球，我听到了。但从现在开始，我也会更严苛地要求你。`,
+      news: `🗣️ ${G.player.name} 被曝私下向教练组表达过对球权分配的不满。`,
+      type: 'warn'
+    });
+    return { ok: true, text: '你把球权问题摊开了说，短期战术地位会上浮，但教练关系明显变差。' };
+  }
+  if (id === 'demand_start') {
+    applyCoachRelationshipOutcome({
+      favorDelta: -9,
+      trustDelta: -4,
+      moodDelta: 1,
+      directives: { startingDemandUntilDay: day + 10 },
+      source: '教练沟通：要求更大位置',
+      phone: `你已经把立场说得很清楚了。短期我会重新审视轮换，但这不是免费的。`,
+      news: `🗣️ ${G.player.name} 向教练组明确表达了自己想要更大位置的态度。`,
+      type: 'warn'
+    });
+    return { ok: true, text: '你直接要求更大位置，分钟可能短暂上涨，但关系代价也最大。' };
+  }
+  applyCoachRelationshipOutcome({
+    favorDelta: 6,
+    trustDelta: 2,
+    moodDelta: -2,
+    directives: { buyInUntilDay: day + 10, usageDemandUntilDay: -1, startingDemandUntilDay: -1 },
+    source: '教练沟通：服从体系',
+    phone: `你愿意按体系来，我就更愿意把稳定的轮换和关键时间给你。`,
+    news: `🤝 ${G.player.name} 与教练组沟通后选择先服从球队体系。`,
+    type: 'info'
+  });
+  return { ok: true, text: '你选择先服从体系，短期数据未必最好看，但教练关系会明显回暖。' };
+}
 function leaguePlayerKey(teamId, playerId, isSelf = false) {
   return isSelf ? 'USER_SELF' : `${teamId}_${playerId}`;
 }
@@ -2498,6 +4546,7 @@ function isGameDay(dayNum) {
 function simulateDay() {
   if (G.dayNum >= G.seasonDays) return { type: 'seasonEnd' };
   ensureEconomyState();
+  decayCommercialMomentum();
   const ecoFx = getEconomyEffects();
 
   const isGame = isGameDay(G.dayNum);
@@ -2512,12 +4561,11 @@ function simulateDay() {
       result.matchup = buildMatchupContextForLLM(result, { limit: 3 });
     }
     result.events.push(`⚔️ 进行了第${G.gameNum}场比赛`);
-    // 比赛后体力恢复少量
-    G.player.stamina = clamp(G.player.stamina + rng(3, 8) + parseNum(ecoFx.gameStaminaBonus, 0), 0, 100);
+    const postRecovery = recoverStamina({ rest: false, ecoFx });
+    result.events.push(`🔋 赛后恢复 +${postRecovery}`);
   } else {
     // 休息日
-    const staminaRec = rng(8, 15) + parseNum(ecoFx.restStaminaBonus, 0);
-    G.player.stamina = clamp(G.player.stamina + staminaRec, 0, 100);
+    const staminaRec = recoverStamina({ rest: true, ecoFx });
     result.events.push(`😴 休息日，体力+${staminaRec}`);
     // 训练获得少量XP
     if (Math.random() < 0.4) {
@@ -2529,6 +4577,7 @@ function simulateDay() {
 
   // 每日运行交易与续约系统
   if (typeof settleEndorsementIncome === 'function') settleEndorsementIncome(result);
+  maybeTriggerCommercialOpportunity(result);
   if (typeof tryAITrade === 'function') tryAITrade();
   if (typeof tryAIRenewal === 'function') tryAIRenewal();
   if (typeof triggerTradeRequest === 'function') triggerTradeRequest();
@@ -2574,6 +4623,34 @@ const TRAINING_COACH_MARKET = [
   { level: 3, name: '训练教练-专家', cost: 16.0, xpMult: 1.26 },
   { level: 4, name: '训练教练-顶级', cost: 29.0, xpMult: 1.38 }
 ];
+const RECOVERY_TEAM_MARKET = [
+  { level: 0, name: '未聘请', cost: 0, restBonus: 0, gameBonus: 0, injuryMult: 1, injuryDaysMult: 1 },
+  { level: 1, name: '康复团队-理疗组', cost: 3.4, restBonus: 1, gameBonus: 0, injuryMult: 0.97, injuryDaysMult: 0.96 },
+  { level: 2, name: '康复团队-运动医学组', cost: 8.6, restBonus: 2, gameBonus: 1, injuryMult: 0.93, injuryDaysMult: 0.91 },
+  { level: 3, name: '康复团队-专家组', cost: 18.5, restBonus: 3, gameBonus: 1, injuryMult: 0.88, injuryDaysMult: 0.86 },
+  { level: 4, name: '康复团队-冠军实验室', cost: 31.0, restBonus: 4, gameBonus: 2, injuryMult: 0.83, injuryDaysMult: 0.8 }
+];
+const PR_TEAM_MARKET = [
+  { level: 0, name: '未聘请', cost: 0, posRepMult: 1, negRepMult: 1, socialHeatMult: 1, eventBonus: 0, marketScoreBonus: 0 },
+  { level: 1, name: '公关团队-基础', cost: 2.6, posRepMult: 1.05, negRepMult: 0.92, socialHeatMult: 1.05, eventBonus: 0.012, marketScoreBonus: 2 },
+  { level: 2, name: '公关团队-进阶', cost: 6.8, posRepMult: 1.1, negRepMult: 0.84, socialHeatMult: 1.1, eventBonus: 0.024, marketScoreBonus: 4 },
+  { level: 3, name: '公关团队-全国档', cost: 14.8, posRepMult: 1.16, negRepMult: 0.78, socialHeatMult: 1.16, eventBonus: 0.038, marketScoreBonus: 6 },
+  { level: 4, name: '公关团队-顶流班底', cost: 27.5, posRepMult: 1.22, negRepMult: 0.72, socialHeatMult: 1.24, eventBonus: 0.052, marketScoreBonus: 9 }
+];
+const AGENT_TEAM_MARKET = [
+  { level: 0, name: '未聘请', cost: 0, marketScoreBonus: 0, offerMult: 1, incomeMult: 1, activeCapBonus: 0 },
+  { level: 1, name: '经纪团队-基础', cost: 2.9, marketScoreBonus: 3, offerMult: 1.04, incomeMult: 1.03, activeCapBonus: 0 },
+  { level: 2, name: '经纪团队-进阶', cost: 7.9, marketScoreBonus: 6, offerMult: 1.08, incomeMult: 1.06, activeCapBonus: 1 },
+  { level: 3, name: '经纪团队-明星班底', cost: 17.2, marketScoreBonus: 10, offerMult: 1.14, incomeMult: 1.1, activeCapBonus: 1 },
+  { level: 4, name: '经纪团队-门面级', cost: 32.0, marketScoreBonus: 14, offerMult: 1.2, incomeMult: 1.15, activeCapBonus: 2 }
+];
+const ANALYTICS_SERVICE_MARKET = [
+  { level: 0, name: '未订阅', cost: 0, xpMult: 1, prepBonus: 0, fatigueRelief: 0, marketScoreBonus: 0 },
+  { level: 1, name: '数据分析-基础', cost: 2.1, xpMult: 1.03, prepBonus: 1.5, fatigueRelief: 0.01, marketScoreBonus: 1 },
+  { level: 2, name: '数据分析-进阶', cost: 5.8, xpMult: 1.06, prepBonus: 2.5, fatigueRelief: 0.015, marketScoreBonus: 2 },
+  { level: 3, name: '数据分析-专家', cost: 12.6, xpMult: 1.1, prepBonus: 4, fatigueRelief: 0.02, marketScoreBonus: 4 },
+  { level: 4, name: '数据分析-冠军智库', cost: 22.8, xpMult: 1.15, prepBonus: 6, fatigueRelief: 0.03, marketScoreBonus: 6 }
+];
 const LUXURY_MARKET = [
   { id: 'loft', name: '城市高层公寓', cost: 1.8, fame: 1, trust: 0, socialTag: '房产' },
   { id: 'riverside_flat', name: '江景平层', cost: 2.6, fame: 1, trust: 0, socialTag: '房产' },
@@ -2605,6 +4682,20 @@ const LUXURY_MARKET = [
   { id: 'mega_yacht', name: '超级游艇', cost: 44.0, fame: 10, trust: -3, socialTag: '游艇' },
   { id: 'private_jet', name: '私人飞机', cost: 32.0, fame: 8, trust: -3, socialTag: '私人飞机' },
   { id: 'charity_fund', name: '公益基金会', cost: 6.0, fame: 3, trust: 3, socialTag: '公益' }
+];
+const FACILITY_MARKET = [
+  { id: 'private_gym', name: '私人球馆', cost: 9.8, fame: 2, trust: 1, socialTag: '设施', restBonus: 1, xpMult: 1.04, marketScoreBonus: 4, socialHeatMult: 1.05, momentum: 6 },
+  { id: 'recovery_lab', name: '恢复实验室', cost: 7.4, fame: 1, trust: 2, socialTag: '设施', restBonus: 2, gameBonus: 1, injuryMult: 0.95, injuryDaysMult: 0.93, momentum: 5 },
+  { id: 'film_room', name: '数据分析室', cost: 6.2, fame: 1, trust: 1, socialTag: '数据服务', xpMult: 1.03, prepBonus: 3, marketScoreBonus: 5, momentum: 4 },
+  { id: 'content_studio', name: '个人内容工作室', cost: 8.9, fame: 3, trust: 0, socialTag: '媒体包装', posRepMult: 1.08, socialHeatMult: 1.12, marketScoreBonus: 6, momentum: 8 }
+];
+const FAME_PRIVILEGE_TIERS = [
+  { level: 0, minScore: 0, label: '新秀观察', scoreBonus: 0, socialHeatMult: 1, eventChance: 0.02, activeCapBonus: 0, offerMult: 1, incomeMult: 1, perks: ['只开放基础品牌与本地活动'] },
+  { level: 1, minScore: 34, label: '本地热度', scoreBonus: 3, socialHeatMult: 1.04, eventChance: 0.035, activeCapBonus: 0, offerMult: 1.02, incomeMult: 1.01, perks: ['开始进入城市活动池', '社媒热度略有放大'] },
+  { level: 2, minScore: 58, label: '全国讨论', scoreBonus: 6, socialHeatMult: 1.09, eventChance: 0.05, activeCapBonus: 1, offerMult: 1.04, incomeMult: 1.03, perks: ['更高规格品牌开始主动接触', '可并行处理更多代言'] },
+  { level: 3, minScore: 82, label: '品牌宠儿', scoreBonus: 10, socialHeatMult: 1.15, eventChance: 0.07, activeCapBonus: 1, offerMult: 1.07, incomeMult: 1.05, perks: ['综艺、专访、封面拍摄开始常驻', '高消费更容易转成舆论热度'] },
+  { level: 4, minScore: 106, label: '城市门面', scoreBonus: 14, socialHeatMult: 1.22, eventChance: 0.095, activeCapBonus: 2, offerMult: 1.1, incomeMult: 1.08, perks: ['城市宣传和公益活动大幅增多', '顶级品牌报价明显抬升'] },
+  { level: 5, minScore: 130, label: '联盟门面', scoreBonus: 18, socialHeatMult: 1.3, eventChance: 0.12, activeCapBonus: 2, offerMult: 1.14, incomeMult: 1.12, perks: ['门面级品牌与纪录片事件解锁', '推文和商业曝光会被显著放大'] }
 ];
 function escapeSvgText(text) {
   return String(text ?? '')
@@ -2788,8 +4879,14 @@ function buildCommercialBuzzText(event) {
       return `${playerName}把${label}做成了签名鞋，属性和分成一起到位，球鞋圈今天有新话题了。${detail ? ` ${detail}` : ''}`.trim();
     case 'coach_upgrade':
       return `${playerName}的新团队配置到位，${label}上线后，训练和恢复都更稳了。${detail ? ` ${detail}` : ''}`.trim();
+    case 'facility_upgrade':
+      return `${playerName}把${label}配齐了，个人训练和恢复条件直接升档。${detail ? ` ${detail}` : ''}`.trim();
     case 'luxury_purchase':
       return `${playerName}刚入手${label}，${category}热度直接被拉起来。${detail ? ` ${detail}` : ''}`.trim();
+    case 'media_event':
+      return `${playerName}拿到一档更高规格的曝光：${label}。${detail ? ` ${detail}` : ''}`.trim();
+    case 'brand_interest':
+      return `${label}开始主动接触${playerName}，商业风向已经明显升温。${detail ? ` ${detail}` : ''}`.trim();
     default:
       return `${playerName}又完成了一笔${category}相关采购：${label}。${detail ? ` ${detail}` : ''}`.trim();
   }
@@ -2797,6 +4894,8 @@ function buildCommercialBuzzText(event) {
 function createCommercialBuzzPost(event, { day = Math.max(0, G.dayNum - 1), season = G.season, year = G.year } = {}) {
   const evt = event || {};
   const score = parseNum(evt.fame, 0) + parseNum(evt.trust, 0);
+  const ecoFx = typeof getEconomyEffects === 'function' ? getEconomyEffects() : { socialHeatMult: 1 };
+  const heatMult = clamp(parseNum(ecoFx?.socialHeatMult, 1), 0.9, 1.6);
   const tone = score >= 2 ? 'positive' : (score <= -2 ? 'negative' : 'neutral');
   const personaKey = String(evt.type || 'purchase') === 'endorsement_sign'
     ? 'news'
@@ -2804,6 +4903,10 @@ function createCommercialBuzzPost(event, { day = Math.max(0, G.dayNum - 1), seas
       ? 'data'
       : String(evt.type || 'purchase') === 'coach_upgrade'
         ? 'tactical'
+        : String(evt.type || 'purchase') === 'facility_upgrade'
+          ? 'tactical'
+          : String(evt.type || 'purchase') === 'brand_interest'
+            ? 'news'
         : (String(evt.tag || '').includes('公益') ? 'neutral' : 'casual');
   const text = buildCommercialBuzzText(evt);
   return {
@@ -2814,8 +4917,9 @@ function createCommercialBuzzPost(event, { day = Math.max(0, G.dayNum - 1), seas
     persona: SOCIAL_PERSONAS[personaKey]?.type || SOCIAL_PERSONAS.neutral.type,
     tone,
     text,
-    likes: clamp(Math.round(110 + Math.max(0, score * 22) + rng(20, 180)), 20, 9999),
-    reposts: clamp(Math.round(18 + Math.max(0, score * 4) + rng(5, 70)), 5, 9999),
+    image: String(evt.image || '').trim(),
+    likes: clamp(Math.round((110 + Math.max(0, score * 22) + rng(20, 180)) * heatMult), 20, 9999),
+    reposts: clamp(Math.round((18 + Math.max(0, score * 4) + rng(5, 70)) * clamp(0.92 + heatMult * 0.2, 1, 1.45)), 5, 9999),
     comments: makeFallbackComments(text, tone === 'negative' ? 'negative' : (tone === 'positive' ? 'positive' : 'neutral'), 3)
   };
 }
@@ -2852,6 +4956,9 @@ function inferCommercialEventType(tag, fallback = 'purchase') {
   if (raw.includes('代言')) return 'endorsement_sign';
   if (raw.includes('签名鞋') || raw.includes('球鞋')) return 'signature_shoe';
   if (raw.includes('训练')) return 'coach_upgrade';
+  if (raw.includes('设施') || raw.includes('球馆') || raw.includes('实验室') || raw.includes('工作室')) return 'facility_upgrade';
+  if (raw.includes('采访') || raw.includes('曝光') || raw.includes('综艺') || raw.includes('封面')) return 'media_event';
+  if (raw.includes('主动接触') || raw.includes('试探') || raw.includes('品牌邀约')) return 'brand_interest';
   if (raw.includes('车') || raw.includes('座驾') || raw.includes('豪宅') || raw.includes('房') || raw.includes('游艇') || raw.includes('飞机') || raw.includes('收藏') || raw.includes('公益') || raw.includes('奢')) {
     return 'luxury_purchase';
   }
@@ -2982,6 +5089,511 @@ function makeFallbackComments(text, tone = 'neutral', count = 3) {
   return comments;
 }
 
+const SOCIAL_LINK_STATUS = {
+  rival: { id: 'rival', label: '宿敌', badgeClass: 'b-purple', priority: 4 },
+  friend: { id: 'friend', label: '朋友', badgeClass: 'b-gold', priority: 3 },
+  respect: { id: 'respect', label: '尊重', badgeClass: 'b-pri', priority: 2 },
+  tense: { id: 'tense', label: '竞争', badgeClass: 'b-silver', priority: 1 },
+  neutral: { id: 'neutral', label: '普通', badgeClass: '', priority: 0 }
+};
+function socialPlayerRefKey(teamId, playerId, isSelf = false, name = '') {
+  if (isSelf) return 'USER_SELF';
+  const tid = parseNum(teamId, 0);
+  const pid = String(playerId ?? '').trim();
+  if (tid > 0 && pid) return `${tid}_${pid}`;
+  const nk = nameKey(name);
+  return nk ? `name:${nk}` : '';
+}
+function buildStarHandleFromName(name = '', teamAbbr = '') {
+  const base = String(name || '').trim().replace(/\s+/g, '');
+  const clean = base.replace(/[^\p{L}\p{N}_]+/gu, '');
+  if (!clean) return '@联盟球星';
+  const suffixPool = ['Hoops', 'Tape', 'Talk', 'Live', String(teamAbbr || '').trim()].filter(Boolean);
+  const suffix = suffixPool[(clean.length + suffixPool.length) % suffixPool.length] || '';
+  const hasAscii = /^[A-Za-z0-9_]+$/.test(clean);
+  if (hasAscii) return `@${clean}${suffix}`;
+  return `@${clean}`;
+}
+function buildSocialStarArchetype(row = {}) {
+  const ppg = parseNum(row.ppg, 0);
+  const apg = parseNum(row.apg, 0);
+  const rpg = parseNum(row.rpg, 0);
+  const bpg = parseNum(row.bpg, 0);
+  const spg = parseNum(row.spg, 0);
+  const pos = parseNum(row.pos, 3);
+  if (ppg >= 26) return pos <= 2 ? '外线得分手' : '锋线核心';
+  if (apg >= 8) return '组织核心';
+  if (rpg >= 11) return pos >= 4 ? '禁区支柱' : '篮板机器';
+  if (bpg >= 2 || spg >= 2) return '防守尖兵';
+  if (pos <= 2) return '后场球星';
+  if (pos === 3) return '锋线主将';
+  return '内线球星';
+}
+function buildSocialLeaguePlayerPool() {
+  const pool = [];
+  const leagueTeams = LEAGUE?.teams || {};
+  Object.values(leagueTeams).forEach(teamObj => {
+    const teamId = parseNum(teamObj?.meta?.id, 0);
+    (teamObj?.players || []).forEach(player => {
+      if (!player || String(player.id || '') === String(G.player?.id || '')) return;
+      const key = leaguePlayerKey(teamId, player.id, false);
+      const ps = G.leagueSeason?.playerStats?.[key] || {};
+      const gp = Math.max(0, Math.floor(parseNum(ps.gp, 0)));
+      const rating = parseNum(player.rating, ovr(player.attrs && Object.keys(player.attrs).length ? player.attrs : parsePlayerAttrs(player)));
+      pool.push({
+        key,
+        teamId,
+        playerId: player.id,
+        name: String(player.name || ps.name || '球员').trim(),
+        nameEn: String(player.nameEn || player.altName || '').trim(),
+        pos: parseNum(player.pos, parseNum(ps.pos, 3)),
+        rating,
+        gp,
+        ppg: gp > 0 ? +(parseNum(ps.pts, 0) / gp).toFixed(1) : 0,
+        apg: gp > 0 ? +(parseNum(ps.ast, 0) / gp).toFixed(1) : 0,
+        rpg: gp > 0 ? +(parseNum(ps.reb, 0) / gp).toFixed(1) : 0,
+        spg: gp > 0 ? +(parseNum(ps.stl, 0) / gp).toFixed(1) : 0,
+        bpg: gp > 0 ? +(parseNum(ps.blk, 0) / gp).toFixed(1) : 0,
+        fgPct: gp > 0 ? +(parseNum(ps.fga, 0) > 0 ? parseNum(ps.fgm, 0) / Math.max(1, parseNum(ps.fga, 0)) * 100 : 0).toFixed(1) : 0
+      });
+    });
+  });
+  return pool;
+}
+function scoreSocialStarRow(row = {}) {
+  const teamRecord = G.leagueSeason?.teamRecords?.[parseNum(row.teamId, 0)] || {};
+  const gp = Math.max(0, parseNum(teamRecord.gp, 0));
+  const winPct = gp > 0 ? parseNum(teamRecord.w, 0) / gp : 0.5;
+  const samePosBonus = parseNum(row.pos, -1) === parseNum(G.player?.pos, -2) ? 6 : 0;
+  return (
+    parseNum(row.rating, 75) * 1.15 +
+    parseNum(row.ppg, 0) * 3 +
+    parseNum(row.apg, 0) * 2.2 +
+    parseNum(row.rpg, 0) * 1.8 +
+    parseNum(row.spg, 0) * 1.4 +
+    parseNum(row.bpg, 0) * 1.4 +
+    winPct * 14 +
+    samePosBonus
+  );
+}
+function ensureSocialStarProfile(row = {}) {
+  ensureSocialState();
+  const key = socialPlayerRefKey(row.teamId, row.playerId, false, row.name);
+  if (!key) return null;
+  if (!G.social.starProfiles[key] || typeof G.social.starProfiles[key] !== 'object') G.social.starProfiles[key] = {};
+  const team = getTeam(parseNum(row.teamId, 0)) || {};
+  const profile = G.social.starProfiles[key];
+  profile.key = key;
+  profile.playerId = row.playerId;
+  profile.teamId = parseNum(row.teamId, 0);
+  profile.name = String(row.name || profile.name || '球星').trim();
+  profile.nameEn = String(row.nameEn || profile.nameEn || '').trim();
+  profile.pos = parseNum(row.pos, profile.pos ?? 3);
+  profile.rating = parseNum(row.rating, profile.rating ?? 75);
+  profile.teamAbbr = String(team.a || profile.teamAbbr || '--').trim();
+  profile.teamName = String(team.z || team.n || profile.teamName || '').trim();
+  profile.handle = String(profile.handle || buildStarHandleFromName(profile.nameEn || profile.name, profile.teamAbbr)).trim();
+  profile.archetype = String(profile.archetype || buildSocialStarArchetype(row)).trim();
+  return profile;
+}
+function getSocialStarProfileByRef(ref = {}) {
+  ensureSocialState();
+  const key = String(ref.key || socialPlayerRefKey(ref.teamId, ref.playerId, !!ref.isSelf, ref.name)).trim();
+  if (key && G.social.starProfiles?.[key]) return G.social.starProfiles[key];
+  const pool = buildSocialLeaguePlayerPool();
+  const matched = pool.find(row =>
+    String(row.key) === key ||
+    (String(ref.playerId || '') && String(row.playerId) === String(ref.playerId) && parseNum(row.teamId, 0) === parseNum(ref.teamId, 0)) ||
+    (String(ref.name || '').trim() && String(row.name || '').trim() === String(ref.name || '').trim())
+  );
+  if (matched) return ensureSocialStarProfile(matched);
+  if (!key) return null;
+  return ensureSocialStarProfile({
+    key,
+    playerId: ref.playerId,
+    teamId: parseNum(ref.teamId, 0),
+    name: String(ref.name || '球星').trim(),
+    pos: parseNum(ref.pos, 3),
+    rating: parseNum(ref.rating, 80)
+  });
+}
+function resolveSocialLinkStatus(link = null) {
+  const affinity = clamp(parseNum(link?.affinity, 0), -100, 100);
+  const respect = clamp(parseNum(link?.respect, 0), 0, 100);
+  const heat = clamp(parseNum(link?.heat, 0), 0, 100);
+  if (affinity <= -28 || (affinity <= -12 && heat >= 36)) return SOCIAL_LINK_STATUS.rival;
+  if (affinity >= 30) return SOCIAL_LINK_STATUS.friend;
+  if (respect >= 18) return SOCIAL_LINK_STATUS.respect;
+  if (heat >= 18 || affinity <= -10) return SOCIAL_LINK_STATUS.tense;
+  return SOCIAL_LINK_STATUS.neutral;
+}
+function syncPrimaryRivalFromSocialLinks() {
+  ensureSocialState();
+  const rivals = Object.values(G.social.playerLinks || {})
+    .filter(link => resolveSocialLinkStatus(link).id === 'rival')
+    .sort((a, b) => parseNum(b.heat, 0) - parseNum(a.heat, 0) || parseNum(a.affinity, 0) - parseNum(b.affinity, 0));
+  G.player.rivalId = rivals.length ? parseNum(rivals[0].playerId, 0) : 0;
+}
+function applySocialPlayerLinkDelta(ref = {}, { affinityDelta = 0, respectDelta = 0, heatDelta = 0, source = '' } = {}) {
+  ensureSocialState();
+  const profile = getSocialStarProfileByRef(ref);
+  if (!profile) return null;
+  const key = String(profile.key || '').trim();
+  if (!key) return null;
+  if (!G.social.playerLinks[key] || typeof G.social.playerLinks[key] !== 'object') {
+    G.social.playerLinks[key] = {
+      key,
+      playerId: profile.playerId,
+      teamId: profile.teamId,
+      name: profile.name,
+      handle: profile.handle,
+      pos: profile.pos,
+      affinity: 0,
+      respect: 0,
+      heat: 0,
+      interactions: 0,
+      lastDay: -1,
+      lastSource: ''
+    };
+  }
+  const link = G.social.playerLinks[key];
+  const oldStatus = resolveSocialLinkStatus(link);
+  link.playerId = profile.playerId;
+  link.teamId = profile.teamId;
+  link.name = profile.name;
+  link.handle = profile.handle;
+  link.pos = profile.pos;
+  link.teamAbbr = profile.teamAbbr;
+  link.teamName = profile.teamName;
+  link.affinity = clamp(parseNum(link.affinity, 0) + parseNum(affinityDelta, 0), -100, 100);
+  link.respect = clamp(parseNum(link.respect, 0) + Math.max(0, parseNum(respectDelta, 0)), 0, 100);
+  link.heat = clamp(parseNum(link.heat, 0) + Math.max(0, parseNum(heatDelta, 0)), 0, 100);
+  link.interactions = parseNum(link.interactions, 0) + 1;
+  link.lastDay = parseNum(G.dayNum, 0);
+  link.lastSource = String(source || '').trim();
+  const newStatus = resolveSocialLinkStatus(link);
+  syncPrimaryRivalFromSocialLinks();
+  if (oldStatus.id !== newStatus.id) {
+    if (newStatus.id === 'friend') {
+      addPhone('社媒关系', `${profile.name} 现在更愿意公开支持你了。你们的关系已升级为朋友。`, 'info');
+      addNews(`🤝 ${profile.name} 与你的关系升温，已经公开站到你这边。`, 'pos');
+    } else if (newStatus.id === 'rival') {
+      addPhone('社媒关系', `${profile.name} 把你视为宿敌，后续对位会更有火药味。`, 'warn');
+      addNews(`🔥 ${profile.name} 开始公开把你当成宿敌。`, 'neg');
+    } else if (newStatus.id === 'respect') {
+      addPhone('社媒关系', `${profile.name} 开始正面评价你，你在球星圈里拿到了一层尊重。`, 'info');
+    }
+  }
+  return { link, profile, oldStatus, newStatus };
+}
+function getTrackedSocialRelationships(limit = 6) {
+  ensureSocialState();
+  return Object.values(G.social.playerLinks || {})
+    .map(link => ({
+      ...link,
+      status: resolveSocialLinkStatus(link),
+      profile: getSocialStarProfileByRef(link)
+    }))
+    .filter(link => link.status.id !== 'neutral' && link.profile)
+    .sort((a, b) =>
+      parseNum(b.status.priority, 0) - parseNum(a.status.priority, 0) ||
+      Math.max(Math.abs(parseNum(b.affinity, 0)), parseNum(b.respect, 0), parseNum(b.heat, 0)) -
+      Math.max(Math.abs(parseNum(a.affinity, 0)), parseNum(a.respect, 0), parseNum(a.heat, 0))
+    )
+    .slice(0, Math.max(1, parseNum(limit, 6)));
+}
+function buildSocialRelationshipFeedView(limit = 4) {
+  const all = getTrackedSocialRelationships(32);
+  const list = all.slice(0, Math.max(1, parseNum(limit, 4)));
+  return {
+    list,
+    friendCount: all.filter(item => item.status.id === 'friend').length,
+    rivalCount: all.filter(item => item.status.id === 'rival').length,
+    respectCount: all.filter(item => item.status.id === 'respect').length
+  };
+}
+function getSocialRelationshipBadgeForPost(post = {}) {
+  const key = String(post.playerRefKey || '').trim();
+  if (!key || !G.social?.playerLinks?.[key]) return null;
+  const status = resolveSocialLinkStatus(G.social.playerLinks[key]);
+  return status.id === 'neutral' ? null : status;
+}
+function appendPlayerStatementLog(entry = {}) {
+  ensureSocialState();
+  G.social.playerStatementLog.unshift({
+    day: parseNum(entry.day, G.dayNum),
+    season: parseNum(entry.season, G.season),
+    title: String(entry.title || '社媒发言').trim(),
+    type: String(entry.type || 'social').trim(),
+    text: cleanSocialText(entry.text || ''),
+    choiceId: String(entry.choiceId || '').trim(),
+    analysisText: String(entry.analysisText || '').trim(),
+    ts: parseNum(entry.ts, Date.now())
+  });
+  if (G.social.playerStatementLog.length > 12) G.social.playerStatementLog.length = 12;
+}
+function analyzePlayerSocialText(text = '', { targetPost = null, mode = 'post' } = {}) {
+  const raw = normalizeFreeTextResponse(text);
+  const lower = raw.toLowerCase();
+  const countAny = (list = []) => list.reduce((sum, token) => sum + ((raw.includes(token) || lower.includes(String(token).toLowerCase())) ? 1 : 0), 0);
+  const praise = countAny(['respect', '佩服', '牛', '厉害', '欣赏', '兄弟', '喜欢看', '致敬', '支持', '合作', '一起', '谢谢']);
+  const toxic = countAny(['垃圾', '软', '碰瓷', '水货', '闭嘴', '别装', '刷子', '废', '滚', '算了吧', '锁死', '打爆你']);
+  const competitive = countAny(['下次见', '下一场', '对位', '碰面', '点名', '记住', '等着', '较量', '单挑', 'battle']);
+  const humble = countAny(['团队', '球队', '我们', '赢球', '防守', '执行', '比赛', '继续努力', '学习']);
+  const selfPromo = countAny(['我是', '我会', '该轮到我', '该我', '证明', '别忽视我', '我就是']);
+  let relationAffinity = 0;
+  let relationRespect = 0;
+  let relationHeat = 0;
+  let fame = 0;
+  let trust = 0;
+  let label = '普通互动';
+  let tone = 'neutral';
+  if (toxic >= Math.max(1, praise) || (competitive >= 2 && praise === 0 && humble === 0)) {
+    relationAffinity = -12 - Math.max(0, toxic - 1) * 3;
+    relationRespect = competitive > 0 ? 4 : 1;
+    relationHeat = 12 + competitive * 4 + toxic * 2;
+    fame = 1;
+    trust = toxic >= 2 ? -2 : -1;
+    label = mode === 'reply' ? '火药味上升' : '公开挑衅';
+    tone = competitive > 0 ? 'competitive' : 'negative';
+  } else if (praise >= 1 || humble >= 2) {
+    relationAffinity = 10 + praise * 2;
+    relationRespect = 8 + humble * 2 + praise;
+    fame = 1;
+    trust = 1;
+    label = mode === 'reply' ? '关系回暖' : '职业发言';
+    tone = 'positive';
+  } else if (competitive >= 1) {
+    relationAffinity = -4 - Math.max(0, competitive - 1) * 2;
+    relationRespect = 7 + competitive * 2;
+    relationHeat = 10 + competitive * 3;
+    fame = 1;
+    label = '形成对位话题';
+    tone = 'competitive';
+  } else if (selfPromo >= 2) {
+    fame = 1;
+    trust = -1;
+    relationAffinity = -3;
+    relationRespect = 2;
+    relationHeat = 4;
+    label = '个人锋芒外露';
+  }
+  if (targetPost?.authorType === 'star' && mode === 'reply' && !relationAffinity && !relationRespect && !relationHeat) {
+    relationAffinity = 3;
+    relationRespect = 4;
+    label = '被球星注意到';
+  }
+  return { label, tone, fame, trust, relationAffinity, relationRespect, relationHeat, raw };
+}
+function findMentionedSocialStars(text = '', limit = 2) {
+  const raw = normalizeFreeTextResponse(text);
+  const lower = raw.toLowerCase();
+  const pool = [
+    ...getTrackedSocialRelationships(8).map(item => item.profile).filter(Boolean),
+    ...buildSocialLeaguePlayerPool().sort((a, b) => scoreSocialStarRow(b) - scoreSocialStarRow(a)).slice(0, 18).map(row => ensureSocialStarProfile(row)).filter(Boolean)
+  ];
+  const seen = new Set();
+  const matched = [];
+  pool.forEach(profile => {
+    const key = String(profile?.key || '').trim();
+    if (!key || seen.has(key)) return;
+    const tokens = [
+      String(profile.name || '').trim(),
+      String(profile.nameEn || '').trim(),
+      String(profile.handle || '').trim()
+    ].filter(Boolean);
+    if (tokens.some(token => raw.includes(token) || lower.includes(token.toLowerCase()))) {
+      seen.add(key);
+      matched.push(profile);
+    }
+  });
+  return matched.slice(0, Math.max(1, parseNum(limit, 2)));
+}
+function buildStarTweetCandidates(dayResult = {}, count = 2) {
+  const pool = buildSocialLeaguePlayerPool().sort((a, b) => scoreSocialStarRow(b) - scoreSocialStarRow(a));
+  const relationRows = getTrackedSocialRelationships(8);
+  const picked = [];
+  const used = new Set();
+  const pushProfile = (profile, topic) => {
+    const safe = getSocialStarProfileByRef(profile);
+    const key = String(safe?.key || '').trim();
+    if (!safe || !key || used.has(key)) return;
+    used.add(key);
+    picked.push({ profile: safe, topic });
+  };
+  if (dayResult?.isGame && parseNum(dayResult?.gameResult?.opp, 0) > 0) {
+    const oppStar = pool.find(row => parseNum(row.teamId, 0) === parseNum(dayResult.gameResult.opp, 0));
+    if (oppStar) pushProfile(oppStar, 'opponent');
+  }
+  const topRival = relationRows.find(item => item.status.id === 'rival');
+  if (topRival) pushProfile(topRival.profile, 'rival');
+  const topFriend = relationRows.find(item => item.status.id === 'friend');
+  if (topFriend && Math.random() < 0.72) pushProfile(topFriend.profile, 'friend');
+  const samePosStar = pool.find(row => parseNum(row.pos, -1) === parseNum(G.player?.pos, -2));
+  if (samePosStar) pushProfile(samePosStar, 'same_pos');
+  for (const row of pool) {
+    if (picked.length >= Math.max(1, parseNum(count, 2))) break;
+    pushProfile(row, 'league');
+  }
+  return picked.slice(0, Math.max(1, parseNum(count, 2)));
+}
+function buildStarTweetPayload(profile, relationInfo, dayResult = {}, topic = 'league') {
+  const playerName = G.player?.name || '球员';
+  const gr = dayResult?.gameResult || {};
+  const userPts = parseNum(gr?.st?.pts, 0);
+  const userStrong = userPts >= 24 || ['S+', 'S', 'A'].includes(String(gr?.grade || '').trim());
+  const samePos = parseNum(profile?.pos, -1) === parseNum(G.player?.pos, -2);
+  let text = '';
+  let tone = 'neutral';
+  let affinityDelta = 0;
+  let respectDelta = 0;
+  let heatDelta = 0;
+  if (dayResult?.isGame) {
+    if (topic === 'rival' || relationInfo.id === 'rival') {
+      text = userStrong
+        ? `${playerName}今晚打得像样，但别急着上头。下次对位我会把这笔账收回来。`
+        : `${playerName}这场还没到能跟我对线的级别，下一次碰面我会继续给压力。`;
+      tone = 'negative';
+      affinityDelta = -2;
+      respectDelta = userStrong ? 1 : 0;
+      heatDelta = 4;
+    } else if (topic === 'friend' || relationInfo.id === 'friend') {
+      text = userStrong
+        ? `${playerName}今晚这场真够硬，细节都在线。继续打，联盟很快会把他放进更高一档的讨论。`
+        : `${playerName}今晚手感一般，但比赛感觉没问题。年轻人都会经历这种夜晚，继续干。`;
+      tone = 'positive';
+      affinityDelta = 2;
+      respectDelta = 2;
+    } else if (topic === 'opponent' || samePos) {
+      text = userStrong
+        ? `最近总有人拿我和${playerName}做比较。挺好，联盟就该有这种对位。下次见会更热闹。`
+        : `${playerName}今晚的节奏不错，但联盟会一直逼你补细节。下次见再聊。`;
+      tone = userStrong ? 'competitive' : 'neutral';
+      affinityDelta = userStrong ? -1 : 0;
+      respectDelta = 1;
+      heatDelta = userStrong ? 2 : 1;
+    } else {
+      text = `${playerName}今天的侵略性不错。能把这种强度稳定一个月，再往更高的位置冲。`;
+      tone = 'positive';
+      affinityDelta = 1;
+      respectDelta = 1;
+    }
+  } else {
+    if (topic === 'rival' || relationInfo.id === 'rival') {
+      text = `${playerName}最近热度挺高。没关系，等真正对位的时候我会把话题拉回球场。`;
+      tone = 'competitive';
+      affinityDelta = -2;
+      respectDelta = 1;
+      heatDelta = 3;
+    } else if (topic === 'friend' || relationInfo.id === 'friend') {
+      text = `训练馆又碰到${playerName}加练了。别只看比赛，真下功夫的人联盟里都知道。`;
+      tone = 'positive';
+      affinityDelta = 2;
+      respectDelta = 2;
+    } else if (samePos) {
+      text = `最近总有人拿我和${playerName}比较。挺好，同位置之间本来就该互相逼着进步。`;
+      tone = 'competitive';
+      affinityDelta = -1;
+      respectDelta = 2;
+      heatDelta = 2;
+    } else {
+      text = `联盟里最近有几个年轻人窜得很快，${playerName}算一个。先把样本继续打大吧。`;
+      tone = 'positive';
+      affinityDelta = 1;
+      respectDelta = 1;
+    }
+  }
+  return {
+    author: String(profile.handle || buildStarHandleFromName(profile.name, profile.teamAbbr)).trim(),
+    persona: `${profile.archetype || '联盟球星'} · ${profile.teamAbbr || '--'}`,
+    text,
+    tone,
+    likes: rng(120, 2200),
+    reposts: rng(20, 260),
+    comments: makeFallbackComments(text, tone, 2),
+    authorType: 'star',
+    mentionsPlayer: true,
+    playerRefKey: profile.key,
+    playerId: profile.playerId,
+    teamId: profile.teamId,
+    playerName: profile.name,
+    affinityDelta,
+    respectDelta,
+    heatDelta
+  };
+}
+function generateStarPlayerSocialPosts(dayResult, day, season, count = 2) {
+  const candidates = buildStarTweetCandidates(dayResult, count);
+  const added = [];
+  candidates.forEach(item => {
+    const relationLink = G.social?.playerLinks?.[String(item.profile?.key || '').trim()] || null;
+    const payload = buildStarTweetPayload(item.profile, resolveSocialLinkStatus(relationLink), dayResult, item.topic);
+    const post = appendSocialPost({
+      ...payload,
+      day,
+      season,
+      year: G.year
+    });
+    if (post) {
+      added.push(post);
+      applySocialPlayerLinkDelta(item.profile, {
+        affinityDelta: parseNum(payload.affinityDelta, 0),
+        respectDelta: parseNum(payload.respectDelta, 0),
+        heatDelta: parseNum(payload.heatDelta, 0),
+        source: '球星社媒发声'
+      });
+    }
+  });
+  return added;
+}
+function buildStarReplyComment(profile, relationInfo, impact, targetPost = null) {
+  const playerName = G.player?.name || '你';
+  if (impact.tone === 'negative') return `${playerName}，这话我记住了。到场上见。`;
+  if (impact.tone === 'competitive') {
+    return relationInfo.id === 'rival'
+      ? `火药味可以，记得把这股劲带到下一次对位。`
+      : `这才像联盟该有的味道，下一次碰面别躲。`;
+  }
+  if (impact.tone === 'positive') {
+    return relationInfo.id === 'friend'
+      ? `收到，继续保持。比赛里见真章，场下不用整那些虚的。`
+      : `看到了，继续把比赛打硬。联盟会记住真正肯下功夫的人。`;
+  }
+  return targetPost?.authorType === 'star'
+    ? `先把比赛打好，其他话题以后再聊。`
+    : `我看到了。先把表现稳定住。`;
+}
+function maybeCreateStarResponseForPlayerPost(post, text, impact) {
+  const mentioned = findMentionedSocialStars(text, 2);
+  const fallback = buildStarTweetCandidates({ isGame: false }, 1).map(item => item.profile);
+  const targets = (mentioned.length ? mentioned : fallback).filter(Boolean).slice(0, 2);
+  if (!targets.length) return [];
+  const responses = [];
+  targets.forEach(profile => {
+    if (!profile || Math.random() >= (mentioned.length ? 0.92 : 0.58)) return;
+    const link = G.social?.playerLinks?.[String(profile.key || '').trim()] || null;
+    const relationInfo = resolveSocialLinkStatus(link);
+    const replyText = buildStarReplyComment(profile, relationInfo, impact, post);
+    post.comments = Array.isArray(post.comments) ? post.comments : [];
+    post.comments.unshift({
+      author: String(profile.handle || buildStarHandleFromName(profile.name, profile.teamAbbr)).trim(),
+      text: replyText,
+      likes: rng(30, 420)
+    });
+    post.likes = parseNum(post.likes, 0) + rng(40, 260);
+    post.reposts = parseNum(post.reposts, 0) + rng(6, 40);
+    responses.push(profile);
+    addPhone('社媒提醒', `${profile.name} 回复了你的推文。`, 'info');
+    applySocialPlayerLinkDelta(profile, {
+      affinityDelta: parseNum(impact.relationAffinity, 0),
+      respectDelta: parseNum(impact.relationRespect, 0),
+      heatDelta: parseNum(impact.relationHeat, 0),
+      source: '公开社媒互动'
+    });
+  });
+  return responses;
+}
+
 function ensureEconomyState() {
   if (!G.player) return;
   if (!Number.isFinite(parseNum(G.player.cash, NaN))) {
@@ -2993,11 +5605,26 @@ function ensureEconomyState() {
   if (!G.economy || typeof G.economy !== 'object') G.economy = {};
   if (!Number.isFinite(parseNum(G.economy.staminaCoachLevel, NaN))) G.economy.staminaCoachLevel = 0;
   if (!Number.isFinite(parseNum(G.economy.trainingCoachLevel, NaN))) G.economy.trainingCoachLevel = 0;
+  if (!Number.isFinite(parseNum(G.economy.recoveryTeamLevel, NaN))) G.economy.recoveryTeamLevel = 0;
+  if (!Number.isFinite(parseNum(G.economy.prTeamLevel, NaN))) G.economy.prTeamLevel = 0;
+  if (!Number.isFinite(parseNum(G.economy.agentTeamLevel, NaN))) G.economy.agentTeamLevel = 0;
+  if (!Number.isFinite(parseNum(G.economy.analyticsLevel, NaN))) G.economy.analyticsLevel = 0;
   if (!Number.isFinite(parseNum(G.economy.salaryPaidSeason, NaN))) G.economy.salaryPaidSeason = parseNum(G.season, 1) - 1;
   G.economy.staminaCoachLevel = clamp(parseNum(G.economy.staminaCoachLevel, 0), 0, STAMINA_COACH_MARKET.length - 1);
   G.economy.trainingCoachLevel = clamp(parseNum(G.economy.trainingCoachLevel, 0), 0, TRAINING_COACH_MARKET.length - 1);
+  G.economy.recoveryTeamLevel = clamp(parseNum(G.economy.recoveryTeamLevel, 0), 0, RECOVERY_TEAM_MARKET.length - 1);
+  G.economy.prTeamLevel = clamp(parseNum(G.economy.prTeamLevel, 0), 0, PR_TEAM_MARKET.length - 1);
+  G.economy.agentTeamLevel = clamp(parseNum(G.economy.agentTeamLevel, 0), 0, AGENT_TEAM_MARKET.length - 1);
+  G.economy.analyticsLevel = clamp(parseNum(G.economy.analyticsLevel, 0), 0, ANALYTICS_SERVICE_MARKET.length - 1);
   if (!Array.isArray(G.economy.ownedItems)) G.economy.ownedItems = [];
+  if (!Array.isArray(G.economy.ownedFacilities)) G.economy.ownedFacilities = [];
   if (!Array.isArray(G.economy.logs)) G.economy.logs = [];
+  if (!Number.isFinite(parseNum(G.economy.totalSpent, NaN))) G.economy.totalSpent = 0;
+  if (!Number.isFinite(parseNum(G.economy.visibilityMomentum, NaN))) G.economy.visibilityMomentum = 0;
+  if (!Number.isFinite(parseNum(G.economy.visibilityMomentumUntilDay, NaN))) G.economy.visibilityMomentumUntilDay = -1;
+  if (!Number.isFinite(parseNum(G.economy.lastOpportunityDay, NaN))) G.economy.lastOpportunityDay = -99;
+  G.economy.totalSpent = +Math.max(0, parseNum(G.economy.totalSpent, 0)).toFixed(2);
+  G.economy.visibilityMomentum = clamp(parseNum(G.economy.visibilityMomentum, 0), 0, 120);
   if (!G.economy.endorsements || typeof G.economy.endorsements !== 'object') G.economy.endorsements = {};
   const e = G.economy.endorsements;
   if (!Array.isArray(e.active)) e.active = [];
@@ -3015,10 +5642,14 @@ function ensureSocialState() {
   if (!Number.isFinite(parseNum(G.social.pendingRequiredDay, NaN))) G.social.pendingRequiredDay = -1;
   if (!G.social.playerRepliedPostIds || typeof G.social.playerRepliedPostIds !== 'object') G.social.playerRepliedPostIds = {};
   if (!G.social.playerPostsByDay || typeof G.social.playerPostsByDay !== 'object') G.social.playerPostsByDay = {};
+  if (!Array.isArray(G.social.playerStatementLog)) G.social.playerStatementLog = [];
+  if (!G.social.playerLinks || typeof G.social.playerLinks !== 'object') G.social.playerLinks = {};
+  if (!G.social.starProfiles || typeof G.social.starProfiles !== 'object') G.social.starProfiles = {};
   if (!Array.isArray(G.social.commercialEvents)) G.social.commercialEvents = [];
   if (!Array.isArray(G.social.llmModels)) G.social.llmModels = [];
   if (!Number.isFinite(parseNum(G.social.llmModelsFetchedAt, NaN))) G.social.llmModelsFetchedAt = 0;
   if (!G.social.lastLLMTest || typeof G.social.lastLLMTest !== 'object') G.social.lastLLMTest = { ok: false, message: '', at: 0 };
+  if (typeof G.social.tweetImagesEnabled !== 'boolean') G.social.tweetImagesEnabled = false;
   if (!G.social.llm || typeof G.social.llm !== 'object') {
     G.social.llm = { enabled: false, baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini', apiKey: '', imageModel: '' };
   }
@@ -3046,6 +5677,9 @@ function ensureSocialState() {
         }
         if (typeof savedCfg.imageModel === 'string' && savedCfg.imageModel.trim()) {
           llm.imageModel = savedCfg.imageModel.trim();
+        }
+        if (typeof savedCfg.tweetImagesEnabled === 'boolean') {
+          G.social.tweetImagesEnabled = savedCfg.tweetImagesEnabled;
         }
         if (savedCfg.presets && typeof savedCfg.presets === 'object') {
           llm.presets = normalizeLLMPresetConfig(savedCfg.presets);
@@ -3297,7 +5931,7 @@ async function testSocialLLMConnectivity() {
     return { ok: false, message: msg, models: [] };
   }
 }
-function saveSocialLLMSettings({ enabled, baseUrl, model, apiKey, imageModel, presets } = {}) {
+function saveSocialLLMSettings({ enabled, baseUrl, model, apiKey, imageModel, tweetImagesEnabled, presets } = {}) {
   ensureSocialState();
   const llm = G.social.llm;
   if (typeof enabled === 'boolean') llm.enabled = enabled;
@@ -3305,6 +5939,7 @@ function saveSocialLLMSettings({ enabled, baseUrl, model, apiKey, imageModel, pr
   if (model !== undefined) llm.model = String(model || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
   if (apiKey !== undefined) llm.apiKey = String(apiKey || '').trim();
   if (imageModel !== undefined) llm.imageModel = String(imageModel || '').trim();
+  if (typeof tweetImagesEnabled === 'boolean') G.social.tweetImagesEnabled = tweetImagesEnabled;
   if (presets !== undefined) llm.presets = normalizeLLMPresetConfig(presets);
   else llm.presets = normalizeLLMPresetConfig(llm.presets);
   try {
@@ -3315,6 +5950,7 @@ function saveSocialLLMSettings({ enabled, baseUrl, model, apiKey, imageModel, pr
       model: String(llm.model || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini',
       apiKey: String(llm.apiKey || '').trim(),
       imageModel: nextImageModel,
+      tweetImagesEnabled: !!G.social.tweetImagesEnabled,
       presets: normalizeLLMPresetConfig(llm.presets)
     }));
     if (llm.apiKey) localStorage.setItem('nba_social_llm_key', llm.apiKey);
@@ -3328,15 +5964,156 @@ function getStaminaCoachConfig(level = parseNum(G?.economy?.staminaCoachLevel, 0
 function getTrainingCoachConfig(level = parseNum(G?.economy?.trainingCoachLevel, 0)) {
   return TRAINING_COACH_MARKET[clamp(parseNum(level, 0), 0, TRAINING_COACH_MARKET.length - 1)];
 }
+function getRecoveryTeamConfig(level = parseNum(G?.economy?.recoveryTeamLevel, 0)) {
+  return RECOVERY_TEAM_MARKET[clamp(parseNum(level, 0), 0, RECOVERY_TEAM_MARKET.length - 1)];
+}
+function getPRTeamConfig(level = parseNum(G?.economy?.prTeamLevel, 0)) {
+  return PR_TEAM_MARKET[clamp(parseNum(level, 0), 0, PR_TEAM_MARKET.length - 1)];
+}
+function getAgentTeamConfig(level = parseNum(G?.economy?.agentTeamLevel, 0)) {
+  return AGENT_TEAM_MARKET[clamp(parseNum(level, 0), 0, AGENT_TEAM_MARKET.length - 1)];
+}
+function getAnalyticsConfig(level = parseNum(G?.economy?.analyticsLevel, 0)) {
+  return ANALYTICS_SERVICE_MARKET[clamp(parseNum(level, 0), 0, ANALYTICS_SERVICE_MARKET.length - 1)];
+}
+function ownedFacilitySet() {
+  ensureEconomyState();
+  return new Set((G.economy.ownedFacilities || []).map(x => String(x)));
+}
+function getOwnedFacilityEntries() {
+  const owned = ownedFacilitySet();
+  return FACILITY_MARKET.filter(item => owned.has(String(item.id)));
+}
+function getOwnedLuxuryEntries() {
+  const owned = ownedLuxurySet();
+  return LUXURY_MARKET.filter(item => owned.has(String(item.id)));
+}
+function getActiveVisibilityMomentum() {
+  ensureEconomyState();
+  const raw = clamp(parseNum(G.economy.visibilityMomentum, 0), 0, 120);
+  const untilDay = parseNum(G.economy.visibilityMomentumUntilDay, -1);
+  if (untilDay < 0 || parseNum(G.dayNum, 0) <= untilDay) return raw;
+  return clamp(raw - (parseNum(G.dayNum, 0) - untilDay) * 3, 0, 120);
+}
+function getFamePrivilegeTier(privilegeScore) {
+  const score = parseNum(privilegeScore, 0);
+  let current = FAME_PRIVILEGE_TIERS[0];
+  FAME_PRIVILEGE_TIERS.forEach(rule => {
+    if (score >= parseNum(rule.minScore, 0)) current = rule;
+  });
+  return current || FAME_PRIVILEGE_TIERS[0];
+}
+function buildCommercialIdentityProfile() {
+  ensureEconomyState();
+  const fame = clamp(parseNum(G.player?.fame, 10), 0, 100);
+  const trust = clamp(parseNum(G.player?.trust, 50), 0, 100);
+  const ownedLuxury = getOwnedLuxuryEntries();
+  const ownedFacilities = getOwnedFacilityEntries();
+  const flashyScore = ownedLuxury.reduce((sum, item) => {
+    const tag = String(item.socialTag || '');
+    const extra = /超跑|游艇|私人飞机|豪宅/.test(tag) ? 2 : /跑车|奢侈品|收藏/.test(tag) ? 1 : 0;
+    return sum + extra;
+  }, 0);
+  const groundedScore = ownedLuxury.reduce((sum, item) => sum + (/公益/.test(String(item.socialTag || '')) ? 3 : /房产/.test(String(item.socialTag || '')) ? 1 : 0), 0);
+  const facilityScore = ownedFacilities.reduce((sum, item) => sum + Math.max(1, parseNum(item.marketScoreBonus, 0) * 0.45 + parseNum(item.momentum, 0) * 0.25), 0);
+  const visibilityMomentum = getActiveVisibilityMomentum();
+  const totalSpent = parseNum(G.economy.totalSpent, 0);
+  const identityLabel = flashyScore - groundedScore >= 4
+    ? '顶流奢华'
+    : groundedScore - flashyScore >= 3
+      ? '低调公益'
+      : facilityScore >= 8
+        ? '专业团队流'
+        : fame >= 55
+          ? '联盟明星'
+          : '上升新贵';
+  const prestigeScore = clamp(
+    fame * 0.82 +
+    trust * 0.34 +
+    flashyScore * 3 +
+    groundedScore * 2.6 +
+    facilityScore * 1.7 +
+    Math.min(26, totalSpent * 0.45) +
+    visibilityMomentum * 0.28,
+    0,
+    180
+  );
+  const privilegeTier = getFamePrivilegeTier(prestigeScore);
+  return {
+    fame,
+    trust,
+    flashyScore,
+    groundedScore,
+    facilityScore: +facilityScore.toFixed(1),
+    totalSpent: +totalSpent.toFixed(2),
+    visibilityMomentum,
+    identityLabel,
+    prestigeScore: +prestigeScore.toFixed(1),
+    privilegeTier
+  };
+}
 function getEconomyEffects() {
   ensureEconomyState();
   const sCfg = getStaminaCoachConfig();
   const tCfg = getTrainingCoachConfig();
+  const recoveryCfg = getRecoveryTeamConfig();
+  const prCfg = getPRTeamConfig();
+  const agentCfg = getAgentTeamConfig();
+  const analyticsCfg = getAnalyticsConfig();
+  const identity = buildCommercialIdentityProfile();
+  const ownedFacilities = getOwnedFacilityEntries();
+  const facilityFx = ownedFacilities.reduce((acc, item) => {
+    acc.restBonus += parseNum(item.restBonus, 0);
+    acc.gameBonus += parseNum(item.gameBonus, 0);
+    acc.injuryMult *= parseNum(item.injuryMult, 1);
+    acc.injuryDaysMult *= parseNum(item.injuryDaysMult, 1);
+    acc.xpMult *= parseNum(item.xpMult, 1);
+    acc.prepBonus += parseNum(item.prepBonus, 0);
+    acc.marketScoreBonus += parseNum(item.marketScoreBonus, 0);
+    acc.socialHeatMult *= parseNum(item.socialHeatMult, 1);
+    acc.posRepMult *= parseNum(item.posRepMult, 1);
+    acc.momentum += parseNum(item.momentum, 0);
+    return acc;
+  }, {
+    restBonus: 0,
+    gameBonus: 0,
+    injuryMult: 1,
+    injuryDaysMult: 1,
+    xpMult: 1,
+    prepBonus: 0,
+    marketScoreBonus: 0,
+    socialHeatMult: 1,
+    posRepMult: 1,
+    momentum: 0
+  });
+  const tier = identity.privilegeTier || FAME_PRIVILEGE_TIERS[0];
+  const activeDealCap = 8 + parseNum(agentCfg.activeCapBonus, 0) + parseNum(tier.activeCapBonus, 0);
   return {
-    restStaminaBonus: parseNum(sCfg.restBonus, 0),
-    gameStaminaBonus: parseNum(sCfg.gameBonus, 0),
-    injuryMult: parseNum(sCfg.injuryMult, 1),
-    xpMult: parseNum(tCfg.xpMult, 1)
+    restStaminaBonus: parseNum(sCfg.restBonus, 0) + parseNum(recoveryCfg.restBonus, 0) + parseNum(facilityFx.restBonus, 0),
+    gameStaminaBonus: parseNum(sCfg.gameBonus, 0) + parseNum(recoveryCfg.gameBonus, 0) + parseNum(facilityFx.gameBonus, 0),
+    injuryMult: parseNum(sCfg.injuryMult, 1) * parseNum(recoveryCfg.injuryMult, 1) * parseNum(facilityFx.injuryMult, 1),
+    injuryDaysMult: parseNum(recoveryCfg.injuryDaysMult, 1) * parseNum(facilityFx.injuryDaysMult, 1),
+    xpMult: parseNum(tCfg.xpMult, 1) * parseNum(analyticsCfg.xpMult, 1) * parseNum(facilityFx.xpMult, 1),
+    prepBonus: parseNum(analyticsCfg.prepBonus, 0) + parseNum(facilityFx.prepBonus, 0),
+    fatigueRelief: parseNum(analyticsCfg.fatigueRelief, 0),
+    repPositiveMult: parseNum(prCfg.posRepMult, 1) * parseNum(facilityFx.posRepMult, 1),
+    repNegativeMult: parseNum(prCfg.negRepMult, 1),
+    endorsementScoreBonus: parseNum(prCfg.marketScoreBonus, 0) + parseNum(agentCfg.marketScoreBonus, 0) + parseNum(analyticsCfg.marketScoreBonus, 0) + parseNum(facilityFx.marketScoreBonus, 0) + parseNum(tier.scoreBonus, 0),
+    endorsementOfferMult: parseNum(agentCfg.offerMult, 1) * parseNum(tier.offerMult, 1),
+    endorsementIncomeMult: parseNum(agentCfg.incomeMult, 1) * parseNum(tier.incomeMult, 1),
+    socialHeatMult: parseNum(prCfg.socialHeatMult, 1) * parseNum(tier.socialHeatMult, 1) * parseNum(facilityFx.socialHeatMult, 1),
+    specialEventChance: clamp(parseNum(prCfg.eventBonus, 0) + parseNum(tier.eventChance, 0) + Math.min(0.03, identity.visibilityMomentum / 2400), 0.02, 0.24),
+    activeDealCap,
+    visibilityMomentum: identity.visibilityMomentum,
+    prestigeScore: identity.prestigeScore,
+    fameTier: parseNum(tier.level, 0),
+    fameTierLabel: String(tier.label || '新秀观察'),
+    perkList: Array.isArray(tier.perks) ? [...tier.perks] : [],
+    commercialIdentity: identity.identityLabel,
+    totalSpent: identity.totalSpent,
+    flashyScore: identity.flashyScore,
+    groundedScore: identity.groundedScore,
+    facilityScore: identity.facilityScore
   };
 }
 function getTrainingCoachXpMultiplier() {
@@ -3417,9 +6194,22 @@ function buildSocialLLMContext(dayResult = {}) {
   const assisters = [...leaguePlayers].sort((a, b) => b.apg - a.apg).slice(0, 5).map(r => ({ name: r.name, team: (getTeam(r.teamId) || {}).a || '--', apg: r.apg?.toFixed(1) }));
   const rebounders = [...leaguePlayers].sort((a, b) => b.rpg - a.rpg).slice(0, 5).map(r => ({ name: r.name, team: (getTeam(r.teamId) || {}).a || '--', rpg: r.rpg?.toFixed(1) }));
   const recentStories = (G.storyLog || []).slice(-3).map(s => typeof s === 'string' ? s.replace(/<[^>]+>/g, '').trim().slice(0, 200) : '').filter(Boolean);
+  const recentStatements = (G.social?.playerStatementLog || []).slice(-3).map(item => ({
+    title: String(item?.title || '').trim(),
+    tone: String(item?.analysisText || '').trim(),
+    text: cleanSocialText(item?.text || '').slice(0, 120)
+  })).filter(item => item.text);
   const commercialEvents = typeof getRecentCommercialEvents === 'function' ? getRecentCommercialEvents(3).map(e => ({
     label: e?.displayLabel || e?.label || '', detail: e?.detail || '', type: e?.type || ''
   })) : [];
+  const relationships = getTrackedSocialRelationships(4).map(item => ({
+    name: String(item?.name || '').trim(),
+    team: String(item?.teamAbbr || item?.profile?.teamAbbr || '--').trim(),
+    status: String(item?.status?.label || '').trim(),
+    affinity: parseNum(item?.affinity, 0),
+    respect: parseNum(item?.respect, 0),
+    heat: parseNum(item?.heat, 0)
+  }));
 
   const context = {
     player: {
@@ -3449,7 +6239,9 @@ function buildSocialLLMContext(dayResult = {}) {
     season: G.season,
     gameToday: !!dayResult.isGame,
     recentStories,
-    commercialEvents
+    recentStatements,
+    commercialEvents,
+    relationships
   };
 
   if (dayResult.isGame && dayResult.gameResult) {
@@ -3466,6 +6258,49 @@ function buildSocialLLMContext(dayResult = {}) {
     };
   }
   return context;
+}
+function buildSocialTweetImagePrompt(post, context = {}) {
+  const src = post || {};
+  const text = cleanSocialText(src.text || '').slice(0, 220);
+  const tags = [
+    context?.gameToday ? 'basketball game night' : 'basketball lifestyle day',
+    context?.player?.team || '',
+    context?.player?.name || '',
+    src.persona || '',
+    context?.commercialEvents?.length ? 'commercial sports buzz' : ''
+  ].filter(Boolean).join(', ');
+  return `为一条中文篮球社媒动态生成配图。画面要像真实社交媒体会配的体育图，不要出现水印、文字墙或海报排版。
+主题标签：${tags}
+动态内容：${text || '联盟日常讨论'}
+要求：横向画面、强体育新闻感、人物与场馆氛围清晰、适合手机推文流展示。`;
+}
+async function attachGeneratedImagesToSocialPosts(posts = [], dayResult = {}, context = null) {
+  ensureSocialState();
+  if (!G.social?.tweetImagesEnabled) return posts;
+  if (typeof generateSignatureShoeImageByLLM !== 'function') return posts;
+  const llm = G.social?.llm || {};
+  if (!llm.enabled || !String(llm.apiKey || '').trim()) return posts;
+  const baseUrl = normalizeLLMBaseUrl(llm.baseUrl);
+  const defaultModel = isGoogleGeminiEndpoint(baseUrl) ? 'gemini-3.1-flash-image-preview' : 'gpt-image-1';
+  const imageModel = String(llm.imageModel || '').trim() || defaultModel;
+  const ctx = context || buildSocialLLMContext(dayResult);
+  const candidates = [...(Array.isArray(posts) ? posts : [])]
+    .filter(post => post && !post.isPlayer && !String(post.image || '').trim())
+    .sort((a, b) => parseNum(b?.likes, 0) - parseNum(a?.likes, 0))
+    .slice(0, dayResult?.isGame ? 2 : 1);
+  for (const post of candidates) {
+    const prompt = buildSocialTweetImagePrompt(post, ctx);
+    try {
+      const res = await generateSignatureShoeImageByLLM(prompt, { model: imageModel, size: '1536x1024' });
+      if (res?.ok && res.image) {
+        post.image = String(res.image || '').trim();
+        post.imagePrompt = prompt;
+        post.imageModel = String(res.model || imageModel).trim();
+        post.imageStatus = 'llm';
+      }
+    } catch (e) { }
+  }
+  return posts;
 }
 
 // 智能社媒推文生成（调用LLM）
@@ -3552,9 +6387,12 @@ async function generateDailySocialTweetsSmart(dayResult = {}, { force = false, c
       if (p) added.push(p);
     });
 
-    markSocialGeneratedDay(day, added.length, season);
+    await attachGeneratedImagesToSocialPosts(added, dayResult, context);
+    const starAdded = generateStarPlayerSocialPosts(dayResult, day, season, Math.min(2, Math.max(1, Math.round(count * 0.34))));
+    const totalAdded = added.concat(starAdded);
+    markSocialGeneratedDay(day, totalAdded.length, season);
     G.social.lastLLMError = '';
-    return added;
+    return totalAdded;
   } catch (err) {
     const message = String(err?.message || err || '推文生成失败');
     console.warn('Social tweet LLM generation failed:', err);
@@ -3602,8 +6440,10 @@ function generateFallbackSocialTweets(dayResult, day, season, count = 6) {
     if (p) added.push(p);
   });
 
-  markSocialGeneratedDay(day, added.length, season);
-  return added;
+  const starAdded = generateStarPlayerSocialPosts(dayResult, day, season, Math.min(2, Math.max(1, Math.round(count * 0.34))));
+  const totalAdded = added.concat(starAdded);
+  markSocialGeneratedDay(day, totalAdded.length, season);
+  return totalAdded;
 }
 function getDailySocialGateStatus() {
   ensureSocialState();
@@ -3654,11 +6494,147 @@ async function ensureDailySocialReadyBeforeAdvance() {
     return { ok: false, blocked: true, requiredDay: day, count: getGeneratedSocialCount(day, gate.season), message };
   }
 }
+function socialPlayerPostKey(day = G.dayNum, season = G.season) {
+  return `${parseNum(season, 0)}_${parseNum(day, 0)}`;
+}
+function postPlayerTweet(text = '') {
+  ensureSocialState();
+  const cleaned = cleanSocialText(text || '');
+  if (!cleaned) return { ok: false, message: '推文内容不能为空' };
+  const day = parseNum(G.dayNum, 0);
+  const key = socialPlayerPostKey(day, G.season);
+  const used = parseNum(G.social.playerPostsByDay?.[key], 0);
+  if (used >= 3) return { ok: false, message: '当天最多发 3 条推文' };
+  const impact = analyzePlayerSocialText(cleaned, { mode: 'post' });
+  const post = appendSocialPost({
+    author: `@${String(G.player?.name || 'player').trim().replace(/\s+/g, '')}`,
+    persona: '球员本人',
+    text: cleaned,
+    tone: impact.tone,
+    likes: rng(80, 680),
+    reposts: rng(8, 88),
+    comments: [],
+    isPlayer: true,
+    day,
+    season: G.season,
+    year: G.year
+  });
+  if (!post) return { ok: false, message: '发布失败' };
+  G.social.playerPostsByDay[key] = used + 1;
+  const rep = applyReputationDelta({ fame: impact.fame, trust: impact.trust, source: '个人推文' });
+  const responders = maybeCreateStarResponseForPlayerPost(post, cleaned, impact);
+  appendPlayerStatementLog({
+    day,
+    season: G.season,
+    title: '个人推文',
+    type: 'social_post',
+    text: cleaned,
+    analysisText: impact.label
+  });
+  if (responders.length) {
+    const names = responders.map(p => p.name).filter(Boolean).join('、');
+    addNews(`📱 你的推文引来了球星互动：${names} 公开回应了你。`, impact.tone === 'negative' ? 'neg' : 'pos');
+  }
+  return { ok: true, post, impact: { ...impact, label: impact.label, fameDelta: rep.fameDelta, trustDelta: rep.trustDelta }, responders };
+}
+async function postPlayerTweetAsync(text = '') {
+  return postPlayerTweet(text);
+}
+function replyToSocialPost(postId, text = '') {
+  ensureSocialState();
+  const target = (G.social.posts || []).find(p => String(p.id) === String(postId));
+  if (!target) return { ok: false, message: '推文不存在' };
+  if (target.isPlayer) return { ok: false, message: '不能回复自己的推文' };
+  const key = String(postId);
+  if (G.social.playerRepliedPostIds?.[key]) return { ok: false, message: '这条推文你已经回复过了' };
+  const cleaned = cleanSocialText(text || '');
+  if (!cleaned) return { ok: false, message: '回复内容不能为空' };
+  const impact = analyzePlayerSocialText(cleaned, { targetPost: target, mode: 'reply' });
+  target.comments = Array.isArray(target.comments) ? target.comments : [];
+  target.comments.unshift({
+    author: `@${String(G.player?.name || 'player').trim().replace(/\s+/g, '')}`,
+    text: cleaned,
+    likes: rng(4, 90)
+  });
+  target.likes = parseNum(target.likes, 0) + rng(6, 46);
+  G.social.playerRepliedPostIds[key] = 1;
+  const rep = applyReputationDelta({ fame: impact.fame, trust: impact.trust, source: '回复推文' });
+  let relation = null;
+  if (target.authorType === 'star' || String(target.playerRefKey || '').trim()) {
+    const profile = getSocialStarProfileByRef({
+      key: target.playerRefKey,
+      playerId: target.playerId,
+      teamId: target.teamId,
+      name: target.playerName
+    });
+    if (profile) {
+      relation = applySocialPlayerLinkDelta(profile, {
+        affinityDelta: impact.relationAffinity,
+        respectDelta: impact.relationRespect,
+        heatDelta: impact.relationHeat,
+        source: '回复球星推文'
+      });
+      const responseText = buildStarReplyComment(profile, resolveSocialLinkStatus(relation?.link), impact, target);
+      target.comments.unshift({
+        author: String(profile.handle || buildStarHandleFromName(profile.name, profile.teamAbbr)).trim(),
+        text: responseText,
+        likes: rng(20, 260)
+      });
+      addPhone('社媒提醒', `${profile.name} 看到了你的回复，并公开回了一句。`, 'info');
+    }
+  }
+  appendPlayerStatementLog({
+    day: parseNum(target.day, G.dayNum),
+    season: parseNum(target.season, G.season),
+    title: `回复 ${target.author || '推文'}`,
+    type: 'social_reply',
+    text: cleaned,
+    analysisText: impact.label
+  });
+  return {
+    ok: true,
+    target,
+    relation,
+    impact: {
+      ...impact,
+      label: relation?.newStatus?.id && relation.newStatus.id !== 'neutral'
+        ? `${impact.label} · ${relation.newStatus.label}`
+        : impact.label,
+      fameDelta: rep.fameDelta,
+      trustDelta: rep.trustDelta
+    }
+  };
+}
+async function regenerateTodaySocialTweets() {
+  ensureSocialState();
+  const fallbackDay = Math.max(0, parseNum(G.dayNum, 0) - 1);
+  const dayResult = G._latestDayResult || {
+    day: fallbackDay,
+    date: getDayDateString(fallbackDay),
+    isGame: false,
+    gameResult: null,
+    events: []
+  };
+  const day = parseNum(dayResult.day, fallbackDay);
+  const season = parseNum(G.season, 1);
+  G.social.posts = (G.social.posts || []).filter(post => !(parseNum(post?.day, -999) === day && parseNum(post?.season, 0) === season && !post?.isPlayer));
+  delete G.social.generatedDayCounts[socialGeneratedKey(day, season)];
+  return generateDailySocialTweetsSmart(dayResult, { force: true });
+}
 function applyReputationDelta({ fame = 0, trust = 0, source = '' } = {}) {
+  const ecoFx = getEconomyEffects();
+  const scaleDelta = (value) => {
+    const raw = parseNum(value, 0);
+    if (!raw) return 0;
+    const mult = raw > 0 ? parseNum(ecoFx.repPositiveMult, 1) : parseNum(ecoFx.repNegativeMult, 1);
+    return raw > 0
+      ? Math.max(1, Math.round(raw * mult))
+      : -Math.max(1, Math.round(Math.abs(raw) * mult));
+  };
   const oldFame = clamp(parseNum(G.player.fame, 10), 0, 100);
   const oldTrust = clamp(parseNum(G.player.trust, 50), 0, 100);
-  G.player.fame = clamp(oldFame + parseNum(fame, 0), 0, 100);
-  G.player.trust = clamp(oldTrust + parseNum(trust, 0), 0, 100);
+  G.player.fame = clamp(oldFame + scaleDelta(fame), 0, 100);
+  G.player.trust = clamp(oldTrust + scaleDelta(trust), 0, 100);
   const fameDelta = G.player.fame - oldFame;
   const trustDelta = G.player.trust - oldTrust;
   if ((fameDelta || trustDelta) && source) {
@@ -3673,24 +6649,169 @@ function ownedLuxurySet() {
   ensureEconomyState();
   return new Set((G.economy.ownedItems || []).map(x => String(x)));
 }
+function buildEconomyEffectSummary(item = {}) {
+  const parts = [];
+  if (parseNum(item.fame, 0)) parts.push(`声望 ${parseNum(item.fame, 0) > 0 ? '+' : ''}${parseNum(item.fame, 0)}`);
+  if (parseNum(item.trust, 0)) parts.push(`信任 ${parseNum(item.trust, 0) > 0 ? '+' : ''}${parseNum(item.trust, 0)}`);
+  if (parseNum(item.restBonus, 0)) parts.push(`休息恢复 +${parseNum(item.restBonus, 0)}`);
+  if (parseNum(item.gameBonus, 0)) parts.push(`赛后恢复 +${parseNum(item.gameBonus, 0)}`);
+  if (parseNum(item.xpMult, 1) > 1) parts.push(`训练 XP ×${parseNum(item.xpMult, 1).toFixed(2)}`);
+  if (parseNum(item.injuryMult, 1) < 1) parts.push(`伤病风险 ×${parseNum(item.injuryMult, 1).toFixed(2)}`);
+  if (parseNum(item.posRepMult, 1) > 1) parts.push(`正面舆论 ×${parseNum(item.posRepMult, 1).toFixed(2)}`);
+  if (parseNum(item.socialHeatMult, 1) > 1) parts.push(`热度 ×${parseNum(item.socialHeatMult, 1).toFixed(2)}`);
+  if (parseNum(item.marketScoreBonus, 0) > 0) parts.push(`市场分 +${parseNum(item.marketScoreBonus, 0)}`);
+  if (parseNum(item.prepBonus, 0) > 0) parts.push(`赛前准备 +${parseNum(item.prepBonus, 0)}`);
+  return parts.join(' | ') || '提升商业曝光与生涯体验';
+}
+function addCommercialMomentum({ label = '', cost = 0, extra = 0, source = '商业运作', quiet = false } = {}) {
+  ensureEconomyState();
+  const gain = clamp(Math.round(parseNum(cost, 0) * 0.7 + parseNum(extra, 0)), 1, 22);
+  G.economy.totalSpent = +(parseNum(G.economy.totalSpent, 0) + Math.max(0, parseNum(cost, 0))).toFixed(2);
+  G.economy.visibilityMomentum = clamp(getActiveVisibilityMomentum() + gain, 0, 120);
+  G.economy.visibilityMomentumUntilDay = Math.max(parseNum(G.economy.visibilityMomentumUntilDay, -1), parseNum(G.dayNum, 0) + 5 + Math.round(parseNum(cost, 0)));
+  if (!quiet && (parseNum(cost, 0) >= 6 || gain >= 7)) {
+    addNews(`💼 商业热度上升：${label || source} 带动了额外曝光`, 'pos');
+    addPhone('商业顾问', `${label || source} 开始发酵，品牌和媒体对你的关注正在升温。`, 'info');
+  }
+  return { gain, momentum: G.economy.visibilityMomentum, untilDay: G.economy.visibilityMomentumUntilDay };
+}
+function decayCommercialMomentum() {
+  ensureEconomyState();
+  const current = getActiveVisibilityMomentum();
+  if (current <= 0) {
+    G.economy.visibilityMomentum = 0;
+    return 0;
+  }
+  G.economy.visibilityMomentum = clamp(current - 1.4, 0, 120);
+  return G.economy.visibilityMomentum;
+}
+function buildCommercialOpportunityPool() {
+  const ecoFx = getEconomyEffects();
+  const identity = buildCommercialIdentityProfile();
+  const pool = [
+    { label: '本地电视专访', type: 'media_event', tag: '采访曝光', cash: 0.06, fame: 1, trust: 0, detail: '本地体育台录制了你的赛季专题' },
+    { label: '城市球迷会见面日', type: 'media_event', tag: '城市活动', cash: 0.05, fame: 1, trust: 1, detail: '球迷互动和本地曝光一起抬升' }
+  ];
+  if (parseNum(ecoFx.fameTier, 0) >= 2) {
+    pool.push(
+      { label: '品牌短片拍摄', type: 'media_event', tag: '品牌曝光', cash: 0.12, fame: 2, trust: 0, detail: '短片上线后，商业讨论度明显升温' },
+      { label: '城市公益活动', type: 'media_event', tag: '公益曝光', cash: 0.08, fame: 1, trust: 2, detail: '社区和媒体对你的好感同步提升' }
+    );
+  }
+  if (parseNum(ecoFx.fameTier, 0) >= 3) {
+    pool.push(
+      { label: '综艺短访邀约', type: 'media_event', tag: '综艺曝光', cash: 0.18, fame: 2, trust: 0, detail: '这次露出把你推到了更大的受众面前' },
+      { label: '高端品牌试探接触', type: 'brand_interest', tag: '品牌主动接触', cash: 0.1, fame: 1, trust: 1, detail: '品牌开始评估更高规格的合作报价', extraMomentum: 4 }
+    );
+  }
+  if (parseNum(ecoFx.fameTier, 0) >= 4) {
+    pool.push(
+      { label: '封面人物拍摄', type: 'media_event', tag: '封面曝光', cash: 0.28, fame: 3, trust: 0, detail: '封面释出后，你的社媒讨论度继续抬升', extraMomentum: 5 },
+      { label: '城市形象宣传片', type: 'media_event', tag: '城市活动', cash: 0.22, fame: 2, trust: 2, detail: '城市级活动开始把你当门面来用', extraMomentum: 4 }
+    );
+  }
+  if (identity.groundedScore >= identity.flashyScore + 2) {
+    pool.push({ label: '公益基金扩散报道', type: 'media_event', tag: '公益曝光', cash: 0.12, fame: 1, trust: 3, detail: '公益线的人设进一步坐实', extraMomentum: 3 });
+  }
+  if (identity.flashyScore >= identity.groundedScore + 2) {
+    pool.push({ label: '生活方式大片', type: 'media_event', tag: '时尚曝光', cash: 0.2, fame: 3, trust: -1, detail: '张扬的生活方式再次冲上热搜', extraMomentum: 5 });
+  }
+  return pool;
+}
+function maybeTriggerCommercialOpportunity(result = null) {
+  ensureEconomyState();
+  const ecoFx = getEconomyEffects();
+  if (parseNum(G.dayNum, 0) - parseNum(G.economy.lastOpportunityDay, -99) < 4) return null;
+  let chance = clamp(parseNum(ecoFx.specialEventChance, 0.04), 0.02, 0.24);
+  if (result?.isGame && result?.gameResult?.win) chance += 0.012;
+  if (parseNum(ecoFx.visibilityMomentum, 0) >= 10) chance += 0.015;
+  if (Math.random() >= chance) return null;
+  const pool = buildCommercialOpportunityPool();
+  if (!pool.length) return null;
+  const evt = pool[rng(0, pool.length - 1)];
+  adjustPlayerCash(parseNum(evt.cash, 0), evt.label);
+  const rep = applyReputationDelta({ fame: parseNum(evt.fame, 0), trust: parseNum(evt.trust, 0), source: evt.label });
+  addCommercialMomentum({ label: evt.label, cost: Math.max(0.6, parseNum(evt.cash, 0) * 16), extra: parseNum(evt.extraMomentum, 0), source: evt.label, quiet: true });
+  addPhone('商业团队', `${evt.label} 已落地。${evt.detail} 收入 $${parseNum(evt.cash, 0).toFixed(2)}M。`, 'info');
+  addEconomyLog(`商业机会：${evt.label}`, 'pos');
+  emitPurchaseSocialBuzz({
+    type: evt.type,
+    label: evt.label,
+    displayLabel: evt.label,
+    tag: evt.tag,
+    category: evt.tag,
+    detail: `${evt.detail} 收入 $${parseNum(evt.cash, 0).toFixed(2)}M`,
+    fame: rep.fameDelta,
+    trust: rep.trustDelta,
+    playerName: G.player?.name || '',
+    teamName: G.team?.z || '',
+    teamAbbr: G.team?.a || ''
+  }, evt.tag);
+  G.economy.lastOpportunityDay = parseNum(G.dayNum, 0);
+  if (result && Array.isArray(result.events)) {
+    const parts = [`收入 $${parseNum(evt.cash, 0).toFixed(2)}M`];
+    if (rep.fameDelta) parts.push(`声望${rep.fameDelta > 0 ? '+' : ''}${rep.fameDelta}`);
+    if (rep.trustDelta) parts.push(`信任${rep.trustDelta > 0 ? '+' : ''}${rep.trustDelta}`);
+    result.events.push(`🎥 ${evt.label}：${parts.join(' / ')}`);
+  }
+  return evt;
+}
 function buildEconomyShopView() {
   ensureEconomyState();
+  const ecoFx = getEconomyEffects();
   const staminaLevel = parseNum(G.economy.staminaCoachLevel, 0);
   const trainingLevel = parseNum(G.economy.trainingCoachLevel, 0);
+  const recoveryLevel = parseNum(G.economy.recoveryTeamLevel, 0);
+  const prLevel = parseNum(G.economy.prTeamLevel, 0);
+  const agentLevel = parseNum(G.economy.agentTeamLevel, 0);
+  const analyticsLevel = parseNum(G.economy.analyticsLevel, 0);
   const staminaCurrent = getStaminaCoachConfig(staminaLevel);
   const trainingCurrent = getTrainingCoachConfig(trainingLevel);
+  const recoveryCurrent = getRecoveryTeamConfig(recoveryLevel);
+  const prCurrent = getPRTeamConfig(prLevel);
+  const agentCurrent = getAgentTeamConfig(agentLevel);
+  const analyticsCurrent = getAnalyticsConfig(analyticsLevel);
   const staminaNext = STAMINA_COACH_MARKET[staminaLevel + 1] || null;
   const trainingNext = TRAINING_COACH_MARKET[trainingLevel + 1] || null;
+  const recoveryNext = RECOVERY_TEAM_MARKET[recoveryLevel + 1] || null;
+  const prNext = PR_TEAM_MARKET[prLevel + 1] || null;
+  const agentNext = AGENT_TEAM_MARKET[agentLevel + 1] || null;
+  const analyticsNext = ANALYTICS_SERVICE_MARKET[analyticsLevel + 1] || null;
   const owned = ownedLuxurySet();
+  const facilityOwned = ownedFacilitySet();
   return {
     cash: +parseNum(G.player.cash, 0).toFixed(2),
     staminaLevel,
     trainingLevel,
+    recoveryLevel,
+    prLevel,
+    agentLevel,
+    analyticsLevel,
     staminaCurrent,
     trainingCurrent,
+    recoveryCurrent,
+    prCurrent,
+    agentCurrent,
+    analyticsCurrent,
     staminaNext,
     trainingNext,
-    luxury: LUXURY_MARKET.map(item => ({ ...item, image: buildLuxuryImage(item), owned: owned.has(String(item.id)) })),
+    recoveryNext,
+    prNext,
+    agentNext,
+    analyticsNext,
+    profile: {
+      privilegeLabel: ecoFx.fameTierLabel,
+      commercialIdentity: ecoFx.commercialIdentity,
+      visibilityMomentum: ecoFx.visibilityMomentum,
+      totalSpent: ecoFx.totalSpent,
+      activeDealCap: ecoFx.activeDealCap,
+      specialEventChance: ecoFx.specialEventChance,
+      perkList: ecoFx.perkList,
+      endorsementScoreBonus: ecoFx.endorsementScoreBonus,
+      socialHeatMult: ecoFx.socialHeatMult
+    },
+    facilities: FACILITY_MARKET.map(item => ({ ...item, owned: facilityOwned.has(String(item.id)), effectText: buildEconomyEffectSummary(item) })),
+    luxury: LUXURY_MARKET.map(item => ({ ...item, image: buildLuxuryImage(item), owned: owned.has(String(item.id)), effectText: buildEconomyEffectSummary(item) })),
     logs: [...(G.economy.logs || [])]
   };
 }
@@ -3710,31 +6831,136 @@ function emitPurchaseSocialBuzz(label, tag = '消费', meta = {}) {
   }
   return post ? [post] : [];
 }
-function buyStaminaCoach() {
+function buyLevelUpgrade({ levelKey = '', market = [], maxMessage = '已满级', message = '', fame = 1, trust = 1, phoneFrom = '团队', buzzTag = '团队升级', eventType = 'coach_upgrade' } = {}) {
   ensureEconomyState();
-  const cur = parseNum(G.economy.staminaCoachLevel, 0);
-  const next = STAMINA_COACH_MARKET[cur + 1];
-  if (!next) return { ok: false, reason: 'max', message: '体能教练已满级' };
+  const cur = parseNum(G.economy[levelKey], 0);
+  const next = market[cur + 1];
+  if (!next) return { ok: false, reason: 'max', message: maxMessage };
   if (parseNum(G.player.cash, 0) < parseNum(next.cost, 0)) return { ok: false, reason: 'cash', message: '资金不足' };
-  adjustPlayerCash(-next.cost, `聘请 ${next.name}`);
-  G.economy.staminaCoachLevel = next.level;
-  const rep = applyReputationDelta({ fame: 1, trust: 1, source: `聘请${next.name}` });
-  addPhone('经纪人', `你已聘请 ${next.name}，体能恢复和伤病管理将提升。`, 'info');
-  emitPurchaseSocialBuzz(next.name, '训练团队升级');
-  return { ok: true, message: `已聘请 ${next.name}`, rep };
+  adjustPlayerCash(-next.cost, `聘请/升级 ${next.name}`);
+  G.economy[levelKey] = next.level;
+  addCommercialMomentum({ label: next.name, cost: parseNum(next.cost, 0), extra: parseNum(next.marketScoreBonus, 0) * 0.8, source: buzzTag });
+  const rep = applyReputationDelta({ fame, trust, source: `启用${next.name}` });
+  addPhone(phoneFrom, message || `${next.name} 已就位。`, 'info');
+  emitPurchaseSocialBuzz({
+    type: eventType,
+    label: next.name,
+    displayLabel: next.name,
+    tag: buzzTag,
+    category: buzzTag,
+    detail: buildEconomyEffectSummary(next),
+    fame: rep.fameDelta,
+    trust: rep.trustDelta,
+    playerName: G.player?.name || '',
+    teamName: G.team?.z || '',
+    teamAbbr: G.team?.a || ''
+  }, buzzTag);
+  return { ok: true, message: `已启用 ${next.name}`, rep };
+}
+function buyStaminaCoach() {
+  return buyLevelUpgrade({
+    levelKey: 'staminaCoachLevel',
+    market: STAMINA_COACH_MARKET,
+    maxMessage: '体能教练已满级',
+    message: '体能恢复和赛后回补会更稳，负荷管理也更专业。',
+    fame: 1,
+    trust: 1,
+    phoneFrom: '体能团队',
+    buzzTag: '训练团队升级',
+    eventType: 'coach_upgrade'
+  });
 }
 function buyTrainingCoach() {
+  return buyLevelUpgrade({
+    levelKey: 'trainingCoachLevel',
+    market: TRAINING_COACH_MARKET,
+    maxMessage: '训练教练已满级',
+    message: '训练强度和成长效率已经拉高，日常练习回报会更明显。',
+    fame: 1,
+    trust: 2,
+    phoneFrom: '训练师',
+    buzzTag: '训练团队升级',
+    eventType: 'coach_upgrade'
+  });
+}
+function buyRecoveryTeam() {
+  return buyLevelUpgrade({
+    levelKey: 'recoveryTeamLevel',
+    market: RECOVERY_TEAM_MARKET,
+    maxMessage: '康复团队已满级',
+    message: '康复团队已接管理疗和伤后恢复，后续身体管理会更稳。',
+    fame: 1,
+    trust: 2,
+    phoneFrom: '医疗团队',
+    buzzTag: '康复团队升级',
+    eventType: 'coach_upgrade'
+  });
+}
+function buyPRTeam() {
+  return buyLevelUpgrade({
+    levelKey: 'prTeamLevel',
+    market: PR_TEAM_MARKET,
+    maxMessage: '公关团队已满级',
+    message: '公关团队已上线。今后的舆论放大和危机缓冲都会更强。',
+    fame: 2,
+    trust: 1,
+    phoneFrom: '公关主管',
+    buzzTag: '公关团队升级',
+    eventType: 'coach_upgrade'
+  });
+}
+function buyAgentTeam() {
+  return buyLevelUpgrade({
+    levelKey: 'agentTeamLevel',
+    market: AGENT_TEAM_MARKET,
+    maxMessage: '经纪团队已满级',
+    message: '经纪团队已开始推高你的报价和品牌池，后续谈判空间会更大。',
+    fame: 2,
+    trust: 1,
+    phoneFrom: '经纪团队',
+    buzzTag: '经纪团队升级',
+    eventType: 'coach_upgrade'
+  });
+}
+function buyAnalyticsService() {
+  return buyLevelUpgrade({
+    levelKey: 'analyticsLevel',
+    market: ANALYTICS_SERVICE_MARKET,
+    maxMessage: '数据分析服务已满级',
+    message: '数据分析服务已接入，训练反馈和赛前准备都会更细。',
+    fame: 1,
+    trust: 2,
+    phoneFrom: '数据分析师',
+    buzzTag: '数据服务升级',
+    eventType: 'coach_upgrade'
+  });
+}
+function buyFacilityItem(itemId) {
   ensureEconomyState();
-  const cur = parseNum(G.economy.trainingCoachLevel, 0);
-  const next = TRAINING_COACH_MARKET[cur + 1];
-  if (!next) return { ok: false, reason: 'max', message: '训练教练已满级' };
-  if (parseNum(G.player.cash, 0) < parseNum(next.cost, 0)) return { ok: false, reason: 'cash', message: '资金不足' };
-  adjustPlayerCash(-next.cost, `聘请 ${next.name}`);
-  G.economy.trainingCoachLevel = next.level;
-  const rep = applyReputationDelta({ fame: 1, trust: 2, source: `聘请${next.name}` });
-  addPhone('训练师', `${next.name} 已上岗，训练效率提升。`, 'info');
-  emitPurchaseSocialBuzz(next.name, '训练团队升级');
-  return { ok: true, message: `已聘请 ${next.name}`, rep };
+  const item = FACILITY_MARKET.find(x => String(x.id) === String(itemId));
+  if (!item) return { ok: false, reason: 'invalid', message: '设施不存在' };
+  const owned = ownedFacilitySet();
+  if (owned.has(String(item.id))) return { ok: false, reason: 'owned', message: '已拥有该设施' };
+  if (parseNum(G.player.cash, 0) < parseNum(item.cost, 0)) return { ok: false, reason: 'cash', message: '资金不足' };
+  adjustPlayerCash(-item.cost, `购入 ${item.name}`);
+  G.economy.ownedFacilities.push(item.id);
+  addCommercialMomentum({ label: item.name, cost: parseNum(item.cost, 0), extra: parseNum(item.momentum, 0) + parseNum(item.marketScoreBonus, 0), source: '基础设施升级' });
+  const rep = applyReputationDelta({ fame: parseNum(item.fame, 0), trust: parseNum(item.trust, 0), source: `启用${item.name}` });
+  addPhone('资产经理', `${item.name} 已投入使用。${buildEconomyEffectSummary(item)}`, 'info');
+  emitPurchaseSocialBuzz({
+    type: 'facility_upgrade',
+    label: item.name,
+    displayLabel: item.name,
+    tag: item.socialTag || '设施升级',
+    category: item.socialTag || '设施升级',
+    detail: buildEconomyEffectSummary(item),
+    fame: rep.fameDelta,
+    trust: rep.trustDelta,
+    playerName: G.player?.name || '',
+    teamName: G.team?.z || '',
+    teamAbbr: G.team?.a || ''
+  }, item.socialTag || '设施升级');
+  return { ok: true, message: `已购入 ${item.name}`, rep };
 }
 function buyLuxuryItem(itemId) {
   ensureEconomyState();
@@ -3745,6 +6971,12 @@ function buyLuxuryItem(itemId) {
   if (parseNum(G.player.cash, 0) < parseNum(item.cost, 0)) return { ok: false, reason: 'cash', message: '资金不足' };
   adjustPlayerCash(-item.cost, `购入 ${item.name}`);
   G.economy.ownedItems.push(item.id);
+  addCommercialMomentum({
+    label: item.name,
+    cost: parseNum(item.cost, 0),
+    extra: /公益/.test(String(item.socialTag || '')) ? 4 : /豪宅|超跑|游艇|私人飞机/.test(String(item.socialTag || '')) ? 6 : 3,
+    source: item.socialTag || '消费'
+  });
   const rep = applyReputationDelta({ fame: parseNum(item.fame, 0), trust: parseNum(item.trust, 0), source: `购入${item.name}` });
   addPhone('私人助理', `已完成采购：${item.name}。`, 'info');
   emitPurchaseSocialBuzz({
@@ -3756,8 +6988,8 @@ function buyLuxuryItem(itemId) {
     brand: item.name,
     product: '',
     detail: `购买价 $${parseNum(item.cost, 0).toFixed(1)}M`,
-    fame: parseNum(item.fame, 0),
-    trust: parseNum(item.trust, 0),
+    fame: rep.fameDelta,
+    trust: rep.trustDelta,
     playerName: G.player?.name || '',
     teamName: G.team?.z || '',
     teamAbbr: G.team?.a || '',
@@ -4017,6 +7249,8 @@ function getEndorsementMarketLabel(score) {
   return '新秀观察';
 }
 function buildEndorsementProfile() {
+  const ecoFx = getEconomyEffects();
+  const identity = buildCommercialIdentityProfile();
   const fame = clamp(parseNum(G.player.fame, 10), 0, 100);
   const trust = clamp(parseNum(G.player.trust, 50), 0, 100);
   const overall = typeof ovr === 'function' ? ovr(G.player.attrs || {}) : parseNum(G.player.tradeValue, 50);
@@ -4038,7 +7272,8 @@ function buildEndorsementProfile() {
     0,
     70
   );
-  const marketScore = clamp(statsScore + fame * 0.55 + trust * 0.25 + honorScore * 0.85, 0, 140);
+  const identityBonus = identity.visibilityMomentum * 0.18 + identity.facilityScore * 1.15 + Math.max(0, identity.totalSpent - 5) * 0.18;
+  const marketScore = clamp(statsScore + fame * 0.55 + trust * 0.25 + honorScore * 0.85 + parseNum(ecoFx.endorsementScoreBonus, 0) + identityBonus, 0, 155);
   return {
     playerName: String(G.player.name || '球员'),
     teamName: String(G.team?.z || ''),
@@ -4057,7 +7292,17 @@ function buildEndorsementProfile() {
     statsScore: +statsScore.toFixed(1),
     marketScore: +marketScore.toFixed(1),
     marketLabel: getEndorsementMarketLabel(marketScore),
-    activeCount: Array.isArray(G.economy?.endorsements?.active) ? G.economy.endorsements.active.length : 0
+    activeCount: Array.isArray(G.economy?.endorsements?.active) ? G.economy.endorsements.active.length : 0,
+    maxActiveDeals: parseNum(ecoFx.activeDealCap, 8),
+    fameTier: parseNum(ecoFx.fameTier, 0),
+    fameTierLabel: String(ecoFx.fameTierLabel || '新秀观察'),
+    commercialIdentity: String(ecoFx.commercialIdentity || identity.identityLabel || '上升新贵'),
+    visibilityMomentum: parseNum(ecoFx.visibilityMomentum, 0),
+    specialEventChance: parseNum(ecoFx.specialEventChance, 0),
+    endorsementOfferMult: parseNum(ecoFx.endorsementOfferMult, 1),
+    endorsementIncomeMult: parseNum(ecoFx.endorsementIncomeMult, 1),
+    socialHeatMult: parseNum(ecoFx.socialHeatMult, 1),
+    perkList: Array.isArray(ecoFx.perkList) ? [...ecoFx.perkList] : []
   };
 }
 function getEndorsementState() {
@@ -4071,7 +7316,7 @@ function evaluateEndorsementOffer(template, profile, state = null) {
   const minFame = Math.max(0, tierRule.fame + parseNum(categoryMod.fame, 0));
   const minTrust = Math.max(0, tierRule.trust + parseNum(categoryMod.trust, 0));
   const minHonor = Math.max(0, tierRule.honor + parseNum(categoryMod.honor, 0));
-  const scale = clamp(0.8 + parseNum(profile?.marketScore, 0) / 160, 0.85, 2.5);
+  const scale = clamp((0.8 + parseNum(profile?.marketScore, 0) / 160) * parseNum(profile?.endorsementOfferMult, 1), 0.85, 3.0);
   const activeState = state || getEndorsementState();
   const active = (activeState.active || []).find(x => String(x.id) === String(template.id)) || null;
   const rejectedSeason = parseNum(activeState.rejected?.[template.id], -1);
@@ -4102,12 +7347,14 @@ function evaluateEndorsementOffer(template, profile, state = null) {
     minTrust,
     minHonor,
     categoryLabel: template.category,
-    scale: +scale.toFixed(2)
+    scale: +scale.toFixed(2),
+    activeCap: parseNum(profile?.maxActiveDeals, 8)
   };
 }
 function buildEndorsementOffersView() {
   const profile = buildEndorsementProfile();
   const state = getEndorsementState();
+  const liveIncomeMult = clamp(parseNum(profile?.endorsementIncomeMult, 1), 1, 1.5);
   const categories = [];
   const seen = new Map();
   ENDORSEMENT_CATALOG.forEach(template => {
@@ -4120,12 +7367,12 @@ function buildEndorsementOffersView() {
   });
   const activeDeals = (state.active || []).map(deal => ({
     ...deal,
-    totalIncome: +(parseNum(deal.baseDailyIncome, 0) + parseNum(deal.baseGameIncome, 0) + parseNum(deal.shoe?.dailyIncome, 0) + parseNum(deal.shoe?.gameIncome, 0)).toFixed(3),
+    totalIncome: +((parseNum(deal.baseDailyIncome, 0) + parseNum(deal.baseGameIncome, 0) + parseNum(deal.shoe?.dailyIncome, 0) + parseNum(deal.shoe?.gameIncome, 0)) * liveIncomeMult).toFixed(3),
     remainingDays: parseNum(deal.remainingDays, 0)
   }));
   const totals = activeDeals.reduce((acc, deal) => {
-    acc.daily += parseNum(deal.baseDailyIncome, 0) + parseNum(deal.shoe?.dailyIncome, 0);
-    acc.game += parseNum(deal.baseGameIncome, 0) + parseNum(deal.shoe?.gameIncome, 0);
+    acc.daily += (parseNum(deal.baseDailyIncome, 0) + parseNum(deal.shoe?.dailyIncome, 0)) * liveIncomeMult;
+    acc.game += (parseNum(deal.baseGameIncome, 0) + parseNum(deal.shoe?.gameIncome, 0)) * liveIncomeMult;
     return acc;
   }, { daily: 0, game: 0 });
   const summary = {
@@ -4136,6 +7383,13 @@ function buildEndorsementOffersView() {
     rejectedCount: categories.reduce((sum, c) => sum + c.items.filter(i => i.status === 'rejected').length, 0),
     marketScore: profile.marketScore,
     marketLabel: profile.marketLabel,
+    fameTierLabel: profile.fameTierLabel,
+    commercialIdentity: profile.commercialIdentity,
+    visibilityMomentum: profile.visibilityMomentum,
+    specialEventChance: profile.specialEventChance,
+    maxActiveDeals: profile.maxActiveDeals,
+    socialHeatMult: profile.socialHeatMult,
+    perkList: profile.perkList,
     fame: profile.fame,
     trust: profile.trust,
     honorText: profile.honorText,

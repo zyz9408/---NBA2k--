@@ -5,55 +5,68 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NBA球员生涯模拟器 | NBA Career Simulator</title>
-  <link rel="stylesheet" href="assets/css/app.css?v=20260325g">
+  <link rel="stylesheet" href="assets/css/app.css?v=20260402ui">
 </head>
 
 <body>
-  <header class="header">
-    <div class="logo">
-      <div class="logo-icon">🏀</div><span>NBA Career Sim</span>
+  <div class="arena-backdrop" aria-hidden="true">
+    <div class="arena-backdrop-glow arena-backdrop-glow-left"></div>
+    <div class="arena-backdrop-glow arena-backdrop-glow-right"></div>
+    <div class="arena-backdrop-grid"></div>
+  </div>
+  <div class="app-shell">
+    <header class="header">
+      <div class="logo">
+        <div class="logo-icon">🏀</div>
+        <div class="header-brand-copy">
+          <div class="header-kicker">Franchise Command</div>
+          <span>NBA Career Sim</span>
+        </div>
+      </div>
+      <div class="header-info" id="hdrInfo">
+        <span id="hdrSeason">赛季: --</span>
+        <span id="hdrTeam">球队: --</span>
+        <span id="hdrOvr">OVR: --</span>
+      </div>
+    </header>
+    <div class="shell-main">
+      <nav class="nav" id="mainNav" style="display:none">
+        <button class="nav-btn active" data-p="home"><span class="nav-btn-icon">⌂</span><span class="nav-btn-copy"><span class="nav-btn-title">主页</span><span class="nav-btn-sub">指挥台</span></span></button>
+        <button class="nav-btn" data-p="matches"><span class="nav-btn-icon">◈</span><span class="nav-btn-copy"><span class="nav-btn-title">比赛中心</span><span class="nav-btn-sub">赛程</span></span></button>
+        <button class="nav-btn" data-p="stats"><span class="nav-btn-icon">▤</span><span class="nav-btn-copy"><span class="nav-btn-title">数据</span><span class="nav-btn-sub">纪录</span></span></button>
+        <button class="nav-btn" data-p="roster"><span class="nav-btn-icon">◎</span><span class="nav-btn-copy"><span class="nav-btn-title">阵容</span><span class="nav-btn-sub">更衣室</span></span></button>
+        <button class="nav-btn" data-p="upgrade"><span class="nav-btn-icon">⬆</span><span class="nav-btn-copy"><span class="nav-btn-title">加点</span><span class="nav-btn-sub">成长</span></span></button>
+        <button class="nav-btn" data-p="trade"><span class="nav-btn-icon">⇄</span><span class="nav-btn-copy"><span class="nav-btn-title">交易</span><span class="nav-btn-sub">市场</span></span></button>
+        <button class="nav-btn" data-p="awards"><span class="nav-btn-icon">★</span><span class="nav-btn-copy"><span class="nav-btn-title">荣誉</span><span class="nav-btn-sub">生涯簿</span></span></button>
+        <button class="nav-btn" data-p="phone"><span class="nav-btn-icon">✦</span><span class="nav-btn-copy"><span class="nav-btn-title">手机</span><span class="nav-btn-sub">社媒终端</span></span></button>
+        <button class="nav-btn" data-p="save"><span class="nav-btn-icon">⛁</span><span class="nav-btn-copy"><span class="nav-btn-title">存档</span><span class="nav-btn-sub">档案库</span></span></button>
+        <button class="nav-btn" data-p="commerce"><span class="nav-btn-icon">◫</span><span class="nav-btn-copy"><span class="nav-btn-title">商业中心</span><span class="nav-btn-sub">品牌库</span></span></button>
+      </nav>
+      <div class="container">
+        <div class="page active" id="mainMenuPage"></div>
+        <div class="page" id="createPage"></div>
+        <div class="page" id="homePage"></div>
+        <div class="page" id="gamePage"></div>
+        <div class="page" id="matchesPage"></div>
+        <div class="page" id="statsPage"></div>
+        <div class="page" id="rosterPage"></div>
+        <div class="page" id="upgradePage"></div>
+        <div class="page" id="tradePage"></div>
+        <div class="page" id="awardsPage"></div>
+        <div class="page" id="phonePage"></div>
+        <div class="page" id="savePage"></div>
+        <div class="page" id="commercePage"></div>
+      </div>
     </div>
-    <div class="header-info" id="hdrInfo">
-      <span id="hdrSeason">赛季: --</span>
-      <span id="hdrTeam">球队: --</span>
-      <span id="hdrOvr">OVR: --</span>
-    </div>
-  </header>
-  <nav class="nav" id="mainNav" style="display:none">
-    <button class="nav-btn active" data-p="home">主页</button>
-    <button class="nav-btn" data-p="matches">比赛中心</button>
-    <button class="nav-btn" data-p="stats">数据</button>
-    <button class="nav-btn" data-p="roster">阵容</button>
-    <button class="nav-btn" data-p="upgrade">加点</button>
-    <button class="nav-btn" data-p="trade">交易</button>
-    <button class="nav-btn" data-p="awards">荣誉</button>
-    <button class="nav-btn" data-p="phone">手机</button>
-    <button class="nav-btn" data-p="save">存档</button>
-    <button class="nav-btn" data-p="commerce">商业中心</button>
-  </nav>
-  <div class="container">
-    <div class="page active" id="mainMenuPage"></div>
-    <div class="page" id="createPage"></div>
-    <div class="page" id="homePage"></div>
-    <div class="page" id="gamePage"></div>
-    <div class="page" id="matchesPage"></div>
-    <div class="page" id="statsPage"></div>
-    <div class="page" id="rosterPage"></div>
-    <div class="page" id="upgradePage"></div>
-    <div class="page" id="tradePage"></div>
-    <div class="page" id="awardsPage"></div>
-    <div class="page" id="phonePage"></div>
-    <div class="page" id="savePage"></div>
-    <div class="page" id="commercePage"></div>
   </div>
   <div class="modal-bg" id="modalBg">
     <div class="modal" id="modalBox"></div>
   </div>
 
-  <script src="assets/js/core.js?v=20260325g"></script>
-  <script src="assets/js/sim.js?v=20260325g"></script>
-  <script src="assets/js/signature-shoe.js?v=20260325g"></script>
-  <script src="assets/js/ui.js?v=20260325g"></script>
+  <script src="assets/js/core.js?v=20260402ui"></script>
+  <script src="assets/js/sim.js?v=20260402ui"></script>
+  <script src="assets/js/signature-shoe.js?v=20260402ui"></script>
+  <script src="assets/js/ui.js?v=20260402ui"></script>
 </body>
 
 </html>

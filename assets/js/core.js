@@ -254,6 +254,10 @@ let G = {
     pendingRequiredDay: -1,
     playerRepliedPostIds: {},
     playerPostsByDay: {},
+    playerStatementLog: [],
+    playerLinks: {},
+    starProfiles: {},
+    tweetImagesEnabled: false,
     llm: {
       enabled: false,
       baseUrl: 'https://api.openai.com/v1',
@@ -275,7 +279,24 @@ let G = {
       }
     }
   },
-  economy: { staminaCoachLevel: 0, trainingCoachLevel: 0, ownedItems: [], logs: [], salaryPaidSeason: 0 },
+  coachRelations: { byKey: {} },
+  coachDynamics: { lastConversationDay: -99, lastDailyPromptDay: -99, lastRenewalBriefSeason: 0, directives: { usageDemandUntilDay: -1, startingDemandUntilDay: -1, buyInUntilDay: -1 } },
+  economy: {
+    staminaCoachLevel: 0,
+    trainingCoachLevel: 0,
+    recoveryTeamLevel: 0,
+    prTeamLevel: 0,
+    agentTeamLevel: 0,
+    analyticsLevel: 0,
+    ownedItems: [],
+    ownedFacilities: [],
+    logs: [],
+    salaryPaidSeason: 0,
+    totalSpent: 0,
+    visibilityMomentum: 0,
+    visibilityMomentumUntilDay: -1,
+    lastOpportunityDay: -99
+  },
   offseasonStage: 0,
   offseasonSummary: [],
   _pendingRegularSeasonAwardsModal: false,
@@ -298,6 +319,7 @@ const LEAGUE = {
   years: { roster: 25, coach: 1, rosterCode: 1 }
 };
 
+const LEAGUE_SALARY_CAP_M = 170;
 const APK_NBA_START_YEARS = [
   2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017,
   2015, 2011, 2008, 2005, 2004, 1995, 1983, 1971, 1946
@@ -368,6 +390,15 @@ function normalizeLeagueSalaryUnits({ includeUser = true } = {}) {
       p.salary = normalizeSalaryMillion(p.salary);
     });
   });
+}
+function teamPayrollMillion(teamId, { includeUser = false } = {}) {
+  const tid = parseNum(teamId, 0);
+  if (!tid || !LEAGUE?.loaded || !LEAGUE?.teams?.[tid]) {
+    return includeUser && tid === parseNum(G.teamId, 0) ? normalizeSalaryMillion(G.player?.salary) : 0;
+  }
+  let total = (LEAGUE.teams[tid].players || []).reduce((sum, player) => sum + normalizeSalaryMillion(player?.salary), 0);
+  if (includeUser && tid === parseNum(G.teamId, 0)) total += normalizeSalaryMillion(G.player?.salary);
+  return +total.toFixed(2);
 }
 function parseCSV(text) {
   const rows = (text || '').replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
@@ -554,6 +585,9 @@ function rowToPlayer(row, fallbackId, extra = {}) {
   const potValue = potential; // Assuming potValue is potential
   const attrs = parsePlayerAttrs(row); // Assuming attrs is parsed from row
   const imgId = parseNum(row.image, 0); // Assuming imgId is parsed from row.image
+  const draftValue = parseNum(row.draft, 0) > 0
+    ? parseNum(row.draft, 0)
+    : (parseNum(row.draftYear, 0) * 100 + parseNum(row.draftRound, 0));
 
   const player = {
     id: parseNum(row.id, fallbackId),
@@ -570,8 +604,9 @@ function rowToPlayer(row, fallbackId, extra = {}) {
     att: calcPlayerAtt(attrs),
     def: calcPlayerDef(attrs),
     age: clamp(parseNum(row.age, 24), 18, 45),
-    yearsLeague: parseNum(row.yearsLeague, 0),
-    draft: parseNum(row.draftYear, 0) * 100 + parseNum(row.draftRound, 0), // rough draft info
+    yearsLeague,
+    draft: draftValue,
+    draftPick: parseDraftPickValue(draftValue),
     contract: { amount: parseNum(row.contractAmount, 50), years: parseNum(row.contractExpDifference, 1) },
     photo: getPlayerPhotoPath(imgId),
     image: imgId,
@@ -764,7 +799,12 @@ function roleScoreForPlayer(player) {
   if (player?.isSelf) {
     const trust = clamp(parseNum(G.player?.trust, 50), 0, 100);
     const mood = clamp(parseNum(G.player?.mood, 50), 0, 100);
+    const coach = getTeamCoach(parseNum(G.teamId, 0));
+    const coachTreatment = typeof getUserCoachTreatmentProfile === 'function'
+      ? getUserCoachTreatmentProfile(player, coach)
+      : null;
     score += 0.6 + (trust - 50) * 0.12 + (mood - 50) * 0.05;
+    score += parseNum(coachTreatment?.roleScoreBonus, 0);
   }
   score += Math.min(3.5, getPlayerBadgePower(player) * 0.18);
   return score + rng(-2, 2);
@@ -775,6 +815,10 @@ function adjustUserMinutesByTrust(rotation) {
   const trust = clamp(parseNum(G.player?.trust, 50), 0, 100);
   const mood = clamp(parseNum(G.player?.mood, 50), 0, 100);
   const rating = parseNum(self.rating, ovr(G.player?.attrs || {}));
+  const coach = getTeamCoach(parseNum(G.teamId, 0));
+  const coachTreatment = typeof getUserCoachTreatmentProfile === 'function'
+    ? getUserCoachTreatmentProfile(self, coach)
+    : null;
   const sortedRatings = (rotation || []).map(r => parseNum(r?.rating, 65)).sort((a, b) => b - a);
   const second = parseNum(sortedRatings[1], rating);
 
@@ -788,8 +832,11 @@ function adjustUserMinutesByTrust(rotation) {
   const trustAdj = Math.round((trust - 50) / 16);
   const moodAdj = Math.round((mood - 50) / 35);
   const ratingAdj = Math.round((rating - Math.max(70, second)) / 5);
-  const target = current + trustAdj + moodAdj + ratingAdj;
-  self.minutes = clamp(Math.max(target, min), min, max);
+  const coachAdj = Math.round(parseNum(coachTreatment?.minuteDelta, 0));
+  const target = current + trustAdj + moodAdj + ratingAdj + coachAdj;
+  const minAdj = clamp(min + Math.min(0, coachAdj), 6, 40);
+  const maxAdj = clamp(max + Math.max(0, coachAdj), minAdj, 40);
+  self.minutes = clamp(Math.max(target, minAdj), minAdj, maxAdj);
 }
 function normalizeRotationMinutes(rotation, target = 240) {
   rotation.forEach(r => r.minutes = clamp(Math.round(parseNum(r.minutes, 0)), 0, 40));
@@ -1315,6 +1362,7 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
     LEAGUE.teams = {};
     LEAGUE.coaches = [];
     LEAGUE.rookieCatalog = [];
+    LEAGUE.rookiesBySeason = {};
     rosterRows.forEach((r, idx) => {
       const teamId = resolveTeamId(r.teamID, r.team);
       if (teamId <= 0 || teamId > 30) return;
@@ -1329,10 +1377,15 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
       if (!LEAGUE.teams[teamId]) {
         LEAGUE.teams[teamId] = { meta: toTeamMeta(teamId, c.team), players: [], rotation: [], coach: null, strength: 75 };
       }
+      const systemId = resolveCoachSystemIdByName(c.name);
+      const systemProfile = getCoachSystemProfile(systemId);
       const coach = {
         id: idx + 1,
         name: c.name || 'Coach',
         teamId,
+        age: parseNum(c.age, 45),
+        yearsContract: parseNum(c.yearsContract, 3),
+        salary: parseNum(c.salary, 0),
         techLevel: parseNum(c.techLevel, 2),
         techDev: parseNum(c.techDev, 2),
         baseShotIntPercent: parseNum(c.baseShotIntPercent, 40),
@@ -1343,7 +1396,10 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
         currentShotTriplePercent: parseNum(c.baseShotTriplePercent, 40),
         currentOffensive: parseNum(c.baseOffensive, 40),
         currentDefense: parseNum(c.baseDefense, 40),
-        loyalty: parseNum(c.loyalty, 5)
+        loyalty: parseNum(c.loyalty, 5),
+        systemId,
+        systemLabel: systemProfile.label,
+        secondaryLean: systemProfile.secondaryLean
       };
       LEAGUE.teams[teamId].coach = coach;
       LEAGUE.coaches.push({ ...coach, teamMeta: LEAGUE.teams[teamId].meta });
@@ -1374,23 +1430,10 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
       G.year = G.startYear;
     }
 
-    // Fix: All existing roster players get +1 year experience initially, EXCEPT current class rookies
-    // User request: "Draft 2004 players in 2004 start (0 years) should stay 0. Previous classes get +1."
-    const currentSeasonYear = parseNum(G.year, 2025);
-    Object.values(LEAGUE.teams).forEach(t => {
-      t.players.forEach(p => {
-        const draftYear = Math.floor(parseNum(p.draft, 0) / 100);
-        if (draftYear === currentSeasonYear) {
-          p.yearsLeague = 0;
-        } else {
-          p.yearsLeague = parseNum(p.yearsLeague, 0) + 1;
-          p.age = parseNum(p.age, 20) + 1;
-        }
-      });
-    });
-
-    // Rookie catalog years are already correct in the file (e.g. 2005 class = yearsLeague 2005).
-    // Do NOT shift them — the roster file already contains previous draft picks as active players.
+    // 名单文件本身已经是赛季开局状态，球龄不需要额外 +1。
+    // 但如果当前年份的已选秀球员已经在名单里，需要先退回选秀池，
+    // 这样用户可以直接参加当年选秀，而不会和上一届/下一届新秀混在一起。
+    detachCurrentDraftClassFromLeague(requestedStartYear);
 
     normalizeLeagueSalaryUnits({ includeUser: false });
     Object.values(LEAGUE.teams).forEach(t => {
@@ -1432,6 +1475,270 @@ function getTeamCoach(id) {
 function getLeagueCoaches() {
   return LEAGUE.coaches || [];
 }
+function coachRelationshipKey(coach) {
+  if (!coach || typeof coach !== 'object') return '';
+  const id = parseNum(coach.id, 0);
+  if (id > 0) return `coach_${id}`;
+  const normName = String(coach.name || '').trim().toLowerCase().replace(/\s+/g, '_');
+  return normName ? `coach_${normName}` : '';
+}
+function getDefaultCoachFavorability(coach, teamId = null) {
+  const trust = clamp(parseNum(G.player?.trust, 50), 0, 100);
+  const morale = clamp(parseNum(G.teamMorale, 50), 0, 100);
+  const loyalty = clamp(parseNum(coach?.loyalty, 5), 0, 10);
+  const currentTeamId = parseNum(teamId, parseNum(coach?.teamId, parseNum(G.teamId, 0)));
+  let base = 48 + (trust - 50) * 0.24 + (morale - 50) * 0.10 + (loyalty - 5) * 1.3;
+  if (currentTeamId !== parseNum(G.teamId, 0)) base -= 4;
+  return clamp(Math.round(base), 28, 78);
+}
+function ensureCoachRelationshipState() {
+  if (!G.coachRelations || typeof G.coachRelations !== 'object') G.coachRelations = { byKey: {} };
+  if (!G.coachRelations.byKey || typeof G.coachRelations.byKey !== 'object') G.coachRelations.byKey = {};
+  const currentCoach = getTeamCoach(parseNum(G.teamId, 0));
+  const key = coachRelationshipKey(currentCoach);
+  if (currentCoach && key && !G.coachRelations.byKey[key]) {
+    G.coachRelations.byKey[key] = {
+      coachId: parseNum(currentCoach.id, 0) || null,
+      coachName: String(currentCoach.name || 'Coach'),
+      favorability: getDefaultCoachFavorability(currentCoach),
+      lastTeamId: parseNum(currentCoach.teamId, parseNum(G.teamId, 0)),
+      lastSeason: parseNum(G.season, 1),
+      games: 0
+    };
+  }
+  return G.coachRelations;
+}
+function ensureCoachDynamicsState() {
+  if (!G.coachDynamics || typeof G.coachDynamics !== 'object') {
+    G.coachDynamics = {
+      lastConversationDay: -99,
+      lastDailyPromptDay: -99,
+      lastRenewalBriefSeason: 0,
+      directives: { usageDemandUntilDay: -1, startingDemandUntilDay: -1, buyInUntilDay: -1 }
+    };
+  }
+  if (!G.coachDynamics.directives || typeof G.coachDynamics.directives !== 'object') {
+    G.coachDynamics.directives = { usageDemandUntilDay: -1, startingDemandUntilDay: -1, buyInUntilDay: -1 };
+  }
+  G.coachDynamics.lastConversationDay = parseNum(G.coachDynamics.lastConversationDay, -99);
+  G.coachDynamics.lastDailyPromptDay = parseNum(G.coachDynamics.lastDailyPromptDay, -99);
+  G.coachDynamics.lastRenewalBriefSeason = parseNum(G.coachDynamics.lastRenewalBriefSeason, 0);
+  G.coachDynamics.directives.usageDemandUntilDay = parseNum(G.coachDynamics.directives.usageDemandUntilDay, -1);
+  G.coachDynamics.directives.startingDemandUntilDay = parseNum(G.coachDynamics.directives.startingDemandUntilDay, -1);
+  G.coachDynamics.directives.buyInUntilDay = parseNum(G.coachDynamics.directives.buyInUntilDay, -1);
+  return G.coachDynamics;
+}
+function ensureCoachRelationEntry(coach, seedValue = null) {
+  if (!coach || typeof coach !== 'object') return null;
+  const state = ensureCoachRelationshipState();
+  const key = coachRelationshipKey(coach);
+  if (!key) return null;
+  if (!state.byKey[key] || typeof state.byKey[key] !== 'object') {
+    state.byKey[key] = {
+      coachId: parseNum(coach.id, 0) || null,
+      coachName: String(coach.name || 'Coach'),
+      favorability: clamp(Math.round(parseNum(seedValue, getDefaultCoachFavorability(coach))), 0, 100),
+      lastTeamId: parseNum(coach.teamId, parseNum(G.teamId, 0)),
+      lastSeason: parseNum(G.season, 1),
+      games: 0
+    };
+  }
+  const entry = state.byKey[key];
+  entry.coachId = parseNum(coach.id, entry.coachId || 0) || entry.coachId || null;
+  entry.coachName = String(coach.name || entry.coachName || 'Coach');
+  entry.lastTeamId = parseNum(coach.teamId, entry.lastTeamId || parseNum(G.teamId, 0));
+  entry.lastSeason = parseNum(G.season, entry.lastSeason || 1);
+  entry.favorability = clamp(Math.round(parseNum(entry.favorability, getDefaultCoachFavorability(coach, entry.lastTeamId))), 0, 100);
+  entry.games = Math.max(0, Math.floor(parseNum(entry.games, 0)));
+  return entry;
+}
+function getCoachFavorability(coach = null) {
+  const target = coach || getTeamCoach(parseNum(G.teamId, 0));
+  const entry = ensureCoachRelationEntry(target);
+  return entry ? clamp(parseNum(entry.favorability, 50), 0, 100) : 50;
+}
+function setCoachFavorability(coach, value, meta = {}) {
+  const entry = ensureCoachRelationEntry(coach, value);
+  if (!entry) return 50;
+  entry.favorability = clamp(Math.round(parseNum(value, entry.favorability || 50)), 0, 100);
+  if (Number.isFinite(parseNum(meta.teamId, NaN))) entry.lastTeamId = parseNum(meta.teamId, entry.lastTeamId);
+  if (Number.isFinite(parseNum(meta.season, NaN))) entry.lastSeason = parseNum(meta.season, entry.lastSeason);
+  if (Number.isFinite(parseNum(meta.games, NaN))) entry.games = Math.max(0, Math.floor(parseNum(meta.games, entry.games)));
+  return entry.favorability;
+}
+function changeCoachFavorability(coach, delta, meta = {}) {
+  const entry = ensureCoachRelationEntry(coach);
+  if (!entry) return 50;
+  const current = clamp(parseNum(entry.favorability, 50), 0, 100);
+  const next = clamp(Math.round(current + parseNum(delta, 0)), 0, 100);
+  return setCoachFavorability(coach, next, meta);
+}
+function getCoachFavorabilityTier(value = 50) {
+  const score = clamp(parseNum(value, 50), 0, 100);
+  if (score >= 85) return { label: '强绑定', hint: '极大降低休赛期换帅概率' };
+  if (score >= 72) return { label: '高度信任', hint: '会明显提升留任倾向' };
+  if (score >= 58) return { label: '稳定认可', hint: '基本愿意继续合作' };
+  if (score >= 42) return { label: '一般', hint: '仍会优先看战绩和合同' };
+  if (score >= 28) return { label: '紧张', hint: '一旦战绩下滑就容易换帅' };
+  return { label: '危险', hint: '管理层与教练都可能倾向拆开' };
+}
+function getCoachPlayerSystemFit(player = null, coach = null) {
+  const targetPlayer = player && typeof player === 'object' ? player : G.player;
+  const targetCoach = coach || getTeamCoach(parseNum(targetPlayer?.teamId, parseNum(G.teamId, 0))) || null;
+  const attrs = (targetPlayer?.attrs && Object.keys(targetPlayer.attrs).length) ? targetPlayer.attrs : parsePlayerAttrs(targetPlayer || {});
+  const pos = clamp(parseNum(targetPlayer?.pos, 3), 1, 5);
+  const rating = clamp(parseNum(targetPlayer?.rating, ovr(attrs)), 40, 99);
+  const shotExt = parseNum(attrs.shotExt, 55);
+  const shotInt = parseNum(attrs.shotInt, 55);
+  const pass = parseNum(attrs.pass, 55);
+  const reb = parseNum(attrs.reb, 55);
+  const stl = parseNum(attrs.stl, 55);
+  const blk = parseNum(attrs.blk, 55);
+  const speed = parseNum(attrs.speed, 55);
+  const physique = parseNum(attrs.physique, 55);
+  const strength = parseNum(attrs.strength, physique);
+  const balanceScore = 100 - Math.min(40, Math.abs(shotExt - shotInt));
+  const systemId = String(targetCoach?.systemId || resolveCoachSystemIdByName(targetCoach?.name) || 'balance').trim() || 'balance';
+  let raw = 55;
+  switch (systemId) {
+    case 'defense':
+      raw = 10 + ((stl + blk) * 0.28) + reb * 0.16 + physique * 0.12 + rating * 0.12 + (pos >= 3 ? 8 : 4);
+      break;
+    case 'grit':
+      raw = 8 + shotInt * 0.18 + reb * 0.22 + physique * 0.18 + strength * 0.16 + (pos >= 4 ? 10 : 2);
+      break;
+    case 'pace_space':
+      raw = 10 + shotExt * 0.28 + speed * 0.18 + pass * 0.15 + rating * 0.10 + (pos <= 3 ? 10 : 4);
+      break;
+    case 'perimeter_star':
+      raw = 6 + shotExt * 0.28 + pass * 0.22 + speed * 0.12 + rating * 0.12 + (pos <= 3 ? 14 : -2);
+      break;
+    case 'interior_star':
+      raw = 6 + shotInt * 0.28 + reb * 0.22 + physique * 0.12 + strength * 0.14 + (pos >= 4 ? 14 : -4);
+      break;
+    case 'triangle':
+      raw = 8 + pass * 0.24 + shotInt * 0.12 + shotExt * 0.12 + balanceScore * 0.14 + (pos !== 5 ? 6 : 2);
+      break;
+    case 'seven_seconds':
+      raw = 4 + speed * 0.26 + shotExt * 0.18 + pass * 0.16 + physique * 0.08 + (pos <= 3 ? 16 : -4);
+      break;
+    case 'balance':
+    default:
+      raw = 10 + rating * 0.18 + pass * 0.12 + reb * 0.08 + balanceScore * 0.18 + (pos <= 3 ? 4 : 6);
+      break;
+  }
+  const fitScore = clamp(Math.round(raw), 18, 96);
+  let fitLabel = '错配';
+  let fitHint = '这套体系不会优先照顾你的强项。';
+  if (fitScore >= 84) {
+    fitLabel = '完美适配';
+    fitHint = '你的特点就是这位教练最想放大的那一档。';
+  } else if (fitScore >= 70) {
+    fitLabel = '顺手适配';
+    fitHint = '体系会主动给你更多舒服的回合。';
+  } else if (fitScore >= 56) {
+    fitLabel = '可用适配';
+    fitHint = '你能打，但不会吃满体系红利。';
+  } else if (fitScore >= 42) {
+    fitLabel = '勉强适配';
+    fitHint = '你还能上场，但教练会更谨慎分配球权。';
+  }
+  return { systemId, fitScore, fitLabel, fitHint };
+}
+function getUserCoachTreatmentProfile(player = null, coach = null) {
+  const targetPlayer = player && typeof player === 'object' ? player : G.player;
+  const targetCoach = coach || getTeamCoach(parseNum(targetPlayer?.teamId, parseNum(G.teamId, 0))) || null;
+  const favorability = getCoachFavorability(targetCoach);
+  const favorTier = getCoachFavorabilityTier(favorability);
+  const fit = getCoachPlayerSystemFit(targetPlayer, targetCoach);
+  const dynamics = ensureCoachDynamicsState();
+  const directives = dynamics.directives || {};
+  const day = parseNum(G.dayNum, 0);
+  const usageDemandActive = parseNum(directives.usageDemandUntilDay, -1) >= day;
+  const startingDemandActive = parseNum(directives.startingDemandUntilDay, -1) >= day;
+  const buyInActive = parseNum(directives.buyInUntilDay, -1) >= day;
+  let effectiveFitScore = fit.fitScore;
+  let directiveLeverage = 0;
+  let directiveMinuteAdj = 0;
+  let directiveRoleAdj = 0;
+  let directiveUsageAdj = 0;
+  let directiveCreationAdj = 0;
+  const directiveLabels = [];
+  const directiveHints = [];
+  if (usageDemandActive) {
+    effectiveFitScore -= 2;
+    directiveLeverage -= 3.5;
+    directiveUsageAdj += 0.016;
+    directiveRoleAdj += 0.6;
+    directiveLabels.push('球权施压');
+    directiveHints.push('你近期公开抱怨球权，短期会多拿一些回合，但关系也会更紧。');
+  }
+  if (startingDemandActive) {
+    effectiveFitScore -= 4;
+    directiveLeverage -= 4.5;
+    directiveMinuteAdj += 1;
+    directiveRoleAdj += 1.3;
+    directiveLabels.push('首发施压');
+    directiveHints.push('你要求更大位置，短期有机会抢分钟，但教练不会完全舒服。');
+  }
+  if (buyInActive) {
+    effectiveFitScore += 6;
+    directiveLeverage += 4.5;
+    directiveUsageAdj -= 0.010;
+    directiveCreationAdj += 0.008;
+    directiveRoleAdj += 0.8;
+    directiveLabels.push('服从体系');
+    directiveHints.push('你主动服从体系，球权未必更多，但教练更愿意长期重用你。');
+  }
+  effectiveFitScore = clamp(effectiveFitScore, 20, 99);
+  const leverage = clamp((favorability - 50) * 0.62 + (effectiveFitScore - 50) * 0.48 + directiveLeverage, -42, 42);
+  const minuteDelta = clamp(Math.round(leverage / 11) + directiveMinuteAdj, -5, 5);
+  const roleScoreBonus = clamp(+((leverage / 7.5 + directiveRoleAdj).toFixed(2)), -6, 6);
+  const usageDelta = clamp(+(leverage / 650 + directiveUsageAdj).toFixed(3), -0.075, 0.075);
+  const creationDelta = clamp(+(leverage / 900 + directiveCreationAdj).toFixed(3), -0.05, 0.05);
+  let label = '正常轮换';
+  let summary = '教练会按正常轮换和体系要求使用你。';
+  if (leverage >= 22) {
+    label = '绝对重用';
+    summary = '教练愿意把关键回合、球权和高分钟都压给你。';
+  } else if (leverage >= 10) {
+    label = '稳定重用';
+    summary = '教练会持续给你稳定分钟和较高战术优先级。';
+  } else if (leverage <= -20) {
+    label = '冷处理';
+    summary = '教练会明显压缩你的球权和末节存在感。';
+  } else if (leverage <= -8) {
+    label = '观望使用';
+    summary = '你还能打，但教练更愿意把回合给更适配的球员。';
+  }
+  if (directiveHints.length) summary = `${summary} ${directiveHints[directiveHints.length - 1]}`.trim();
+  return {
+    favorability,
+    favorTier,
+    fitScore: effectiveFitScore,
+    fitLabel: fit.fitLabel,
+    fitHint: fit.fitHint,
+    label,
+    summary,
+    leverage,
+    minuteDelta,
+    roleScoreBonus,
+    usageDelta,
+    creationDelta,
+    directives: directiveLabels,
+    directiveText: directiveLabels.length ? directiveLabels.join(' / ') : '无额外沟通指令'
+  };
+}
+function syncLeagueCoachList() {
+  LEAGUE.coaches = Object.entries(LEAGUE.teams || {})
+    .map(([tid, teamObj]) => {
+      if (!teamObj?.coach) return null;
+      teamObj.coach.teamId = parseNum(tid, parseNum(teamObj.coach.teamId, 0));
+      return { ...teamObj.coach, teamMeta: teamObj.meta };
+    })
+    .filter(Boolean);
+  return LEAGUE.coaches;
+}
 function getRookieCatalog() {
   return LEAGUE.rookieCatalog || [];
 }
@@ -1441,6 +1748,40 @@ function rookieDraftYear(p) {
   const d = parseNum(p?.draft, 0);
   if (d >= 190000) return Math.floor(d / 100);
   return 0;
+}
+function detachCurrentDraftClassFromLeague(startYear) {
+  const targetYear = clamp(parseNum(startYear, parseNum(G.startYear, G.year || 2025)), 1947, 2100);
+  if (targetYear < 1947) return [];
+  if (!Array.isArray(LEAGUE.rookieCatalog)) LEAGUE.rookieCatalog = [];
+  const catalogKeys = new Set(LEAGUE.rookieCatalog.map(playerIdentityKey).filter(Boolean));
+  const stripped = [];
+  Object.values(LEAGUE.teams || {}).forEach(team => {
+    const kept = [];
+    (team.players || []).forEach(player => {
+      const draftYear = rookieDraftYear(player);
+      const draftPick = parseNum(player?.draftPick, 0) || parseDraftPickValue(player?.draft);
+      const isCurrentDraftPick = draftYear === targetYear && draftPick > 0 && parseNum(player?.yearsLeague, 0) <= 0;
+      if (!isCurrentDraftPick) {
+        kept.push(player);
+        return;
+      }
+      const draftPoolPlayer = {
+        ...player,
+        teamId: 0,
+        rookie: true,
+        yearsLeague: 0,
+        injury: { active: false, games: 0, type: "" }
+      };
+      stripped.push(draftPoolPlayer);
+      const key = playerIdentityKey(draftPoolPlayer);
+      if (key && !catalogKeys.has(key)) {
+        LEAGUE.rookieCatalog.push(draftPoolPlayer);
+        catalogKeys.add(key);
+      }
+    });
+    team.players = kept;
+  });
+  return stripped;
 }
 function resolveRosterScriptStartYear(rosterCode) {
   const code = parseNum(rosterCode, 0);
@@ -2551,13 +2892,127 @@ function getPlayerXFactorEffect(player = G.player) {
   const xf = getXFactor(player?.xfactor);
   return xf ? xf.effect : {};
 }
+const COACH_SYSTEMS = Object.freeze({
+  balance: {
+    id: 'balance',
+    label: '均衡体系',
+    secondaryLean: '按阵容灵活分配球权',
+    summary: '回合分配平均，强调稳定和阵容均衡。',
+    paceMult: 1.00, threeRateMult: 1.00, paintRateMult: 1.00, astMult: 1.02, rebMult: 1.00, stocksMult: 1.00,
+    usageByPos: { 1: 0.000, 2: 0.000, 3: 0.000, 4: 0.000, 5: 0.000 }
+  },
+  defense: {
+    id: 'defense',
+    label: '防守体系',
+    secondaryLean: '防守纪律与轮转保护',
+    summary: '优先保证防守纪律、轮转和篮板保护。',
+    paceMult: 0.96, threeRateMult: 0.96, paintRateMult: 1.03, astMult: 0.98, rebMult: 1.08, stocksMult: 1.10,
+    usageByPos: { 1: -0.010, 2: -0.005, 3: 0.000, 4: 0.012, 5: 0.020 }
+  },
+  grit: {
+    id: 'grit',
+    label: '强硬磨阵体系',
+    secondaryLean: '慢节奏对抗与冲板',
+    summary: '偏慢节奏和身体对抗，强调冲板、罚球和硬仗属性。',
+    paceMult: 0.93, threeRateMult: 0.92, paintRateMult: 1.10, astMult: 0.96, rebMult: 1.08, stocksMult: 1.05,
+    usageByPos: { 1: -0.020, 2: -0.015, 3: -0.005, 4: 0.018, 5: 0.028 }
+  },
+  pace_space: {
+    id: 'pace_space',
+    label: '节奏与空间体系',
+    secondaryLean: '快速推进与拉开空间',
+    summary: '强调快节奏、外拆内切和空间拉扯。',
+    paceMult: 1.08, threeRateMult: 1.16, paintRateMult: 1.04, astMult: 1.08, rebMult: 0.97, stocksMult: 0.98,
+    usageByPos: { 1: 0.022, 2: 0.018, 3: 0.010, 4: -0.008, 5: -0.022 }
+  },
+  perimeter_star: {
+    id: 'perimeter_star',
+    label: '外线核心体系',
+    secondaryLean: '持球大核与外线强投',
+    summary: '围绕持球后场或侧翼核心设计出手和回合。',
+    paceMult: 1.05, threeRateMult: 1.12, paintRateMult: 0.96, astMult: 1.06, rebMult: 0.98, stocksMult: 0.98,
+    usageByPos: { 1: 0.032, 2: 0.024, 3: 0.010, 4: -0.018, 5: -0.032 }
+  },
+  interior_star: {
+    id: 'interior_star',
+    label: '内线核心体系',
+    secondaryLean: '低位、顺下和二次进攻',
+    summary: '围绕内线支点、肘区和篮下终结建立回合。',
+    paceMult: 0.97, threeRateMult: 0.90, paintRateMult: 1.18, astMult: 0.97, rebMult: 1.10, stocksMult: 1.06,
+    usageByPos: { 1: -0.018, 2: -0.015, 3: -0.006, 4: 0.020, 5: 0.032 }
+  },
+  triangle: {
+    id: 'triangle',
+    label: '三角进攻体系',
+    secondaryLean: '肘区中转与弱侧联动',
+    summary: '通过肘区、低位和弱侧空切形成连续传导。',
+    paceMult: 0.98, threeRateMult: 0.94, paintRateMult: 1.08, astMult: 1.12, rebMult: 1.02, stocksMult: 1.00,
+    usageByPos: { 1: -0.008, 2: 0.004, 3: 0.010, 4: 0.008, 5: 0.004 }
+  },
+  seven_seconds: {
+    id: 'seven_seconds',
+    label: '七秒炮轰体系',
+    secondaryLean: '早攻推进与转换外线',
+    summary: '第一时间推进回合，追求转换速度和早攻投射。',
+    paceMult: 1.14, threeRateMult: 1.10, paintRateMult: 1.02, astMult: 1.05, rebMult: 0.96, stocksMult: 0.97,
+    usageByPos: { 1: 0.026, 2: 0.020, 3: 0.012, 4: -0.010, 5: -0.026 }
+  }
+});
+const COACH_SYSTEM_MAP = Object.freeze({
+  '乔-马祖拉': 'pace_space',
+  '约迪-费尔南德斯': 'defense',
+  '迈克-布朗': 'defense',
+  '尼克-纳斯': 'defense',
+  '达尔科-拉亚科维奇': 'balance',
+  '比利-多诺万': 'balance',
+  '肯尼-阿特金森': 'pace_space',
+  'JB-比克斯塔夫': 'grit',
+  '里克-卡莱尔': 'pace_space',
+  '道格-里弗斯': 'balance',
+  '奎因-斯奈德': 'pace_space',
+  '斯蒂夫-克里福德': 'defense',
+  '埃里克-斯波尔斯特拉': 'defense',
+  '贾马尔-莫斯利': 'defense',
+  '布莱恩-基夫': 'balance',
+  '贾森-基德': 'perimeter_star',
+  '艾米-乌度卡': 'grit',
+  '托马斯-伊萨洛': 'seven_seconds',
+  '威利-格林': 'interior_star',
+  '米奇-约翰逊': 'balance',
+  '大卫-阿德尔曼': 'interior_star',
+  '克里斯-芬奇': 'interior_star',
+  '昌西-比卢普斯': 'grit',
+  '马克-戴格诺特': 'balance',
+  '威尔-哈迪': 'pace_space',
+  '斯蒂夫-科尔': 'triangle',
+  '泰伦-卢': 'perimeter_star',
+  'JJ-雷迪克': 'pace_space',
+  '乔丹-奥特': 'perimeter_star',
+  '道格-克里斯蒂': 'balance'
+});
+function getCoachSystemProfile(systemId = 'balance') {
+  const key = String(systemId || '').trim().toLowerCase();
+  return COACH_SYSTEMS[key] || COACH_SYSTEMS.balance;
+}
+function getCoachSystemLabel(systemId = 'balance') {
+  return getCoachSystemProfile(systemId).label;
+}
+function resolveCoachSystemIdByName(name = '') {
+  const raw = String(name || '').trim();
+  return COACH_SYSTEM_MAP[raw] || 'balance';
+}
 function getCoachEffectsByCoach(coach) {
+  const system = getCoachSystemProfile(coach?.systemId || resolveCoachSystemIdByName(coach?.name));
   if (!coach) {
     return {
       offPct: 0, defPct: 0, tacticsPct: 0, xpPct: 0, xpMult: 1, teamRatingMult: 1,
       coachSkill1: -2, coachSkill2: -2, coachSkill5: 40, coachSkill6: 40,
       insideBias: 0, threeBias: 0, offensiveBias: 0, defensiveBias: 0,
-      tacticsMult: 1, devMult: 1, loyaltyMod: 0
+      tacticsMult: 1, devMult: 1, loyaltyMod: 0,
+      systemId: system.id, systemLabel: system.label, secondaryLean: system.secondaryLean, systemSummary: system.summary,
+      paceMult: system.paceMult, threeRateMult: system.threeRateMult, paintRateMult: system.paintRateMult,
+      astMult: system.astMult, rebMult: system.rebMult, stocksMult: system.stocksMult,
+      usageByPos: { ...system.usageByPos }
     };
   }
   // 原有技能
@@ -2596,13 +3051,37 @@ function getCoachEffectsByCoach(coach) {
   const tacticsPct = clamp(coachSkill2 * 0.015, -0.08, 0.08);
   const xpPct = clamp(coachSkill1 * 0.12 + techDev * 0.06, -0.4, 0.6); // 加入techDev影响
   const teamRatingMult = clamp(1 + tacticsPct + ((offPct + defPct) * 0.5) + techLevel * 0.015, 0.85, 1.15);
+  const paceMult = clamp(system.paceMult + threeBias * 0.12 - insideBias * 0.08, 0.88, 1.18);
+  const threeRateMult = clamp(system.threeRateMult + threeBias * 0.45 - insideBias * 0.10, 0.82, 1.30);
+  const paintRateMult = clamp(system.paintRateMult + insideBias * 0.45 - threeBias * 0.12, 0.82, 1.30);
+  const astMult = clamp(system.astMult + tacticsPct * 0.25 + offensiveBias * 0.10, 0.90, 1.22);
+  const rebMult = clamp(system.rebMult + defensiveBias * 0.18 + insideBias * 0.08, 0.90, 1.20);
+  const stocksMult = clamp(system.stocksMult + defensiveBias * 0.28, 0.90, 1.22);
+  const usageByPos = {
+    1: clamp(parseNum(system.usageByPos?.[1], 0) + threeBias * 0.16 - insideBias * 0.05, -0.09, 0.09),
+    2: clamp(parseNum(system.usageByPos?.[2], 0) + threeBias * 0.12 - insideBias * 0.04, -0.09, 0.09),
+    3: clamp(parseNum(system.usageByPos?.[3], 0) + threeBias * 0.05 + insideBias * 0.02, -0.08, 0.08),
+    4: clamp(parseNum(system.usageByPos?.[4], 0) + insideBias * 0.10 - threeBias * 0.05, -0.08, 0.08),
+    5: clamp(parseNum(system.usageByPos?.[5], 0) + insideBias * 0.16 - threeBias * 0.08, -0.10, 0.10)
+  };
 
   return {
     offPct, defPct, tacticsPct, xpPct, xpMult: 1 + xpPct, teamRatingMult,
     coachSkill1, coachSkill2, coachSkill5, coachSkill6,
     insideBias, threeBias, offensiveBias, defensiveBias,
     tacticsMult, devMult, loyaltyMod,
-    baseShotInt, baseShotTriple, baseOff, baseDef, techLevel, techDev, loyalty
+    baseShotInt, baseShotTriple, baseOff, baseDef, techLevel, techDev, loyalty,
+    systemId: system.id,
+    systemLabel: system.label,
+    secondaryLean: system.secondaryLean,
+    systemSummary: system.summary,
+    paceMult,
+    threeRateMult,
+    paintRateMult,
+    astMult,
+    rebMult,
+    stocksMult,
+    usageByPos
   };
 }
 function getCoachEffects(teamId) {

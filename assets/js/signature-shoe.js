@@ -509,8 +509,10 @@ function settleEndorsementIncome(result) {
   const state = getEndorsementState();
   const day = parseNum(result?.day, G.dayNum);
   if (parseNum(state.lastPayoutDay, -1) === day) return result?.endorsementIncome || null;
+  const ecoFx = typeof getEconomyEffects === 'function' ? getEconomyEffects() : { endorsementIncomeMult: 1 };
+  const incomeMult = clamp(parseNum(ecoFx?.endorsementIncomeMult, 1), 1, 1.5);
   const nextActive = [];
-  const summary = { total: 0, daily: 0, game: 0, shoeDaily: 0, shoeGame: 0, expired: 0 };
+  const summary = { total: 0, daily: 0, game: 0, shoeDaily: 0, shoeGame: 0, expired: 0, boost: 0 };
   const isGame = !!result?.isGame;
   (Array.isArray(state.active) ? state.active : []).forEach(contract => {
     if (!contract || typeof contract !== 'object') return;
@@ -528,11 +530,13 @@ function settleEndorsementIncome(result) {
         summary.shoeGame += parseNum(shoeView.gameIncome, 0);
       }
     }
-    const payout = daily + game;
+    const basePayout = daily + game;
+    const payout = +(basePayout * incomeMult).toFixed(3);
     if (payout > 0) {
       contract.earned = +(parseNum(contract.earned, 0) + payout).toFixed(3);
-      summary.daily += daily;
-      summary.game += game;
+      summary.daily += +(daily * incomeMult).toFixed(3);
+      summary.game += +(game * incomeMult).toFixed(3);
+      summary.boost += Math.max(0, payout - basePayout);
       summary.total += payout;
     }
     contract.remainingDays = Math.max(0, daysLeft - 1);
@@ -548,6 +552,7 @@ function settleEndorsementIncome(result) {
       const parts = [`代言收入 ${formatSignatureShoeMoney(summary.daily)}`];
       if (summary.game > 0) parts.push(`比赛日 ${formatSignatureShoeMoney(summary.game)}`);
       if (summary.shoeDaily > 0 || summary.shoeGame > 0) parts.push(`签名鞋 ${formatSignatureShoeMoney(summary.shoeDaily)} / ${formatSignatureShoeMoney(summary.shoeGame)}`);
+      if (summary.boost > 0.001) parts.push(`团队放大 ${formatSignatureShoeMoney(summary.boost)}`);
       result.events.push(`💼 ${parts.join(' | ')}`);
     }
   }
@@ -560,7 +565,8 @@ function acceptEndorsementOffer(offerId) {
   const profile = buildEndorsementProfile();
   const template = ENDORSEMENT_CATALOG.find(x => String(x.id) === String(offerId));
   if (!template) return { ok: false, reason: 'invalid', message: '代言不存在' };
-  if (state.active.length >= 8) return { ok: false, reason: 'cap', message: '最多同时签约 8 个代言' };
+  const maxActiveDeals = Math.max(1, parseNum(profile?.maxActiveDeals, 8));
+  if (state.active.length >= maxActiveDeals) return { ok: false, reason: 'cap', message: `最多同时签约 ${maxActiveDeals} 个代言` };
   if (state.active.some(x => String(x.id) === String(offerId))) return { ok: false, reason: 'active', message: '这个代言已经签约了' };
   const offer = evaluateEndorsementOffer(template, profile, state);
   if (offer.status === 'locked') return { ok: false, reason: 'locked', message: `暂时未解锁：${offer.lockReason}` };
@@ -575,6 +581,15 @@ function acceptEndorsementOffer(offerId) {
   state.active.unshift(contract);
   delete state.rejected[offer.id];
   adjustPlayerCash(offer.signingBonus, `签约代言 ${offer.brand}`);
+  if (typeof addCommercialMomentum === 'function') {
+    addCommercialMomentum({
+      label: `${offer.brand} 代言`,
+      cost: Math.max(0.8, parseNum(offer.signingBonus, 0) * 2.4),
+      extra: parseNum(offer.tier, 1) * 1.2,
+      source: '代言签约',
+      quiet: true
+    });
+  }
   addPhone('代言经纪人', `已签下 ${offer.brand}（${offer.category}）代言，签约金 $${offer.signingBonus.toFixed(2)}M。`, 'info');
   addEconomyLog(`签约代言 ${offer.brand}（${offer.category}）`, 'pos');
   postSignatureShoeBuzz(contract, {
