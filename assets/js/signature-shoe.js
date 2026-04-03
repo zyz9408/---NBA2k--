@@ -344,15 +344,35 @@ function getSignatureShoeUpgradeStatus(contractRef, shoeRef = null) {
 }
 function postSignatureShoeBuzz(contract, shoe, action, detail = '') {
   if (typeof emitPurchaseSocialBuzz !== 'function') return [];
+  const actionText = String(action || '').trim();
+  const eventType = actionText.includes('代言拒绝')
+    ? 'endorsement_reject'
+    : actionText.includes('代言签约')
+      ? 'endorsement_sign'
+      : 'signature_shoe';
+  const displayLabel = eventType === 'signature_shoe'
+    ? `${String(contract?.brand || '').trim()} 签名鞋`
+    : `${String(contract?.brand || '').trim()} ${String(contract?.product || '').trim()}`.trim();
   const payload = {
-    label: `${contract?.brand || '品牌'} ${shoe?.name || '签名鞋'}`.trim(),
+    label: `${contract?.brand || '品牌'} ${shoe?.name || contract?.product || '签名鞋'}`.trim(),
     brand: String(contract?.brand || '').trim(),
-    product: '签名鞋',
-    tag: '签名鞋',
-    type: 'signature_shoe',
-    displayLabel: `${String(contract?.brand || '').trim()} 签名鞋`,
+    product: eventType === 'signature_shoe' ? '签名鞋' : String(contract?.product || '').trim(),
+    categoryKey: String(contract?.categoryKey || '').trim(),
+    logo: typeof buildCommercialBrandLogo === 'function'
+      ? buildCommercialBrandLogo({
+          brand: String(contract?.brand || '').trim(),
+          product: eventType === 'signature_shoe' ? '签名鞋' : String(contract?.product || '').trim(),
+          categoryKey: String(contract?.categoryKey || '').trim(),
+          category: String(contract?.category || '').trim(),
+          kind: String(contract?.kind || contract?.categoryKey || '').trim()
+        })
+      : String(contract?.logo || shoe?.logo || '').trim(),
+    tag: eventType === 'signature_shoe' ? '签名鞋' : actionText,
+    type: eventType,
+    displayLabel,
     detail: String(detail || `${action} · ${shoe?.styleLabel || ''} · L${parseNum(shoe?.level, 1)} · ${shoe?.summary || ''}`).trim(),
     image: String(shoe?.image || '').trim(),
+    imageStatus: String(shoe?.imageStatus || '').trim(),
     playerName: String(G.player?.name || '球员').trim()
   };
   return emitPurchaseSocialBuzz(payload, '签名鞋', { action, contractId: contract?.id, level: parseNum(shoe?.level, 1), day: parseNum(G.dayNum, 0), season: parseNum(G.season, 1), year: parseNum(G.year, 2025), image: String(shoe?.image || '').trim(), detail: payload.detail });
@@ -576,6 +596,15 @@ function acceptEndorsementOffer(offerId) {
     id: offer.id, categoryKey: offer.categoryKey, category: offer.category, brand: offer.brand, product: offer.product,
     tier: offer.tier, kind: offer.kind, signingBonus: offer.signingBonus, baseDailyIncome: offer.dailyIncome,
     baseGameIncome: offer.gameIncome, remainingDays: offer.termDays, earned: 0, shoeEligible: !!offer.shoeEligible,
+    logo: typeof buildCommercialBrandLogo === 'function'
+      ? buildCommercialBrandLogo({
+          brand: offer.brand,
+          product: offer.product,
+          categoryKey: offer.categoryKey,
+          category: offer.category,
+          kind: offer.kind
+        })
+      : String(offer.logo || '').trim(),
     shoe: null, signedSeason: parseNum(G.season, 1), signedDay: parseNum(G.dayNum, 0)
   };
   state.active.unshift(contract);
@@ -597,7 +626,9 @@ function acceptEndorsementOffer(offerId) {
     styleLabel: offer.shoeEligible ? '鞋类代言' : '代言',
     level: 1,
     summary: offer.shoeEligible ? '可在商业中心创建签名鞋' : '代言签约完成',
-    image: buildEndorsementImage(offer)
+    image: '',
+    imageStatus: '',
+    logo: String(offer.logo || '').trim()
   }, '代言签约', `已签下 ${offer.brand}（${offer.category}）`);
   return { ok: true, message: `已签约 ${offer.brand}`, contract };
 }
@@ -608,12 +639,35 @@ function rejectEndorsementOffer(offerId) {
   state.rejected[template.id] = parseNum(G.season, 1);
   addPhone('代言经纪人', `你拒绝了 ${template.brand} 的代言邀约。`, 'neu');
   addEconomyLog(`拒绝代言 ${template.brand}`, 'neu');
-  postSignatureShoeBuzz({ brand: template.brand }, {
+  postSignatureShoeBuzz({
+    brand: template.brand,
+    product: template.product,
+    logo: typeof buildCommercialBrandLogo === 'function'
+      ? buildCommercialBrandLogo({
+          brand: template.brand,
+          product: template.product,
+          categoryKey: template.categoryKey,
+          category: template.category,
+          kind: template.kind
+        })
+      : template.logo,
+    categoryKey: template.categoryKey
+  }, {
     name: template.product || template.brand,
     styleLabel: '代言拒绝',
     level: 1,
     summary: template.category || '代言拒绝',
-    image: buildEndorsementImage(template)
+    image: '',
+    imageStatus: '',
+    logo: typeof buildCommercialBrandLogo === 'function'
+      ? buildCommercialBrandLogo({
+          brand: template.brand,
+          product: template.product,
+          categoryKey: template.categoryKey,
+          category: template.category,
+          kind: template.kind
+        })
+      : String(template.logo || '').trim()
   }, '代言拒绝', `拒绝了 ${template.brand} 的代言邀约`);
   return { ok: true, message: `已拒绝 ${template.brand}` };
 }

@@ -70,6 +70,35 @@ tr:hover{background:rgba(255,255,255,.02)}
 .modal-bg{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.8);z-index:1000;justify-content:center;align-items:center}
 .modal-bg.active{display:flex}
 .modal{background:var(--card);border-radius:14px;padding:28px;max-width:650px;width:92%;max-height:85vh;overflow-y:auto;animation:mIn .3s}
+.modal-coach-prompt{max-width:min(860px,94vw);width:min(860px,94vw);padding:30px 32px;background:linear-gradient(180deg,rgba(18,24,39,.98),rgba(11,16,28,.98));border:1px solid rgba(122,164,255,.18);box-shadow:0 28px 64px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.04)}
+.modal-coach-prompt .modal-hd{margin-bottom:14px;padding-bottom:14px;border-bottom:2px solid rgba(83,216,255,.22)}
+.modal-coach-prompt .modal-hd h3{font-size:36px;line-height:1.05;font-weight:900;letter-spacing:.01em;color:#f7fbff}
+.modal-coach-prompt .modal-x{width:40px;height:40px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);display:inline-flex;align-items:center;justify-content:center;color:#dbe7ff}
+.coach-prompt-head{align-items:flex-start}
+.coach-prompt-lead{font-size:18px;line-height:1.8;color:#d9e6ff;margin-bottom:18px}
+.coach-prompt-panel{padding:20px 22px;border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.08);box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+.coach-prompt-panel-kicker{font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);font-weight:800}
+.coach-prompt-panel-copy{margin-top:10px;font-size:16px;line-height:1.72;color:#ccd9f4}
+.coach-prompt-textarea{min-height:180px;padding:18px 20px;font-size:20px;line-height:1.75;background:rgba(255,255,255,.06);border-color:rgba(148,176,255,.2);color:#f8fbff}
+.coach-prompt-textarea::placeholder{color:rgba(218,229,255,.42)}
+.coach-prompt-textarea:focus{background:rgba(255,255,255,.08);border-color:rgba(83,216,255,.46);box-shadow:0 0 0 1px rgba(83,216,255,.12)}
+.coach-prompt-section-title{font-size:18px;font-weight:900;color:#f4f8ff}
+.coach-prompt-section-sub{margin-top:8px;font-size:15px;line-height:1.7;color:#b8c7e4}
+.coach-prompt-choice-grid{margin-top:14px}
+.coach-prompt-choice{height:100%;padding:20px 20px 18px;border-radius:20px;text-align:left;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.025));border:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start}
+.coach-prompt-choice:hover{background:linear-gradient(180deg,rgba(83,216,255,.1),rgba(255,255,255,.04));border-color:rgba(83,216,255,.24);transform:translateY(-2px)}
+.coach-prompt-choice-title{font-size:17px;line-height:1.4;font-weight:900;color:#f7fbff}
+.coach-prompt-choice-detail{margin-top:12px;font-size:15px;line-height:1.75;color:#d2def7}
+.coach-prompt-choice-badge{font-size:12px;letter-spacing:.04em}
+.coach-prompt-hint{padding:14px 16px;border-radius:16px;background:rgba(83,216,255,.08);border:1px solid rgba(83,216,255,.16);font-size:15px;line-height:1.65;color:#d5e8ff}
+.coach-prompt-actions .btn{min-height:52px;font-size:16px}
+.coach-prompt-submitted{margin-top:12px;white-space:pre-wrap;font-size:18px;line-height:1.85;color:#f8fbff}
+.coach-prompt-outcome{padding:22px;border-radius:22px;background:linear-gradient(180deg,rgba(255,200,87,.12),rgba(255,255,255,.04));border:1px solid rgba(255,200,87,.2)}
+.coach-prompt-outcome-title{font-size:24px;font-weight:900;color:#fff4d0}
+.coach-prompt-outcome-badge{margin-top:10px;font-size:14px;line-height:1.5;color:#68dcff;font-weight:800}
+.coach-prompt-outcome-copy{margin-top:14px;font-size:17px;line-height:1.78;color:#f4f8ff}
+.coach-prompt-outcome-analysis{margin-top:12px;font-size:15px;line-height:1.7;color:#c6d5ef}
+.coach-prompt-summary .t-2{font-size:15px;line-height:1.7;color:#d0ddf8}
 .modal.modal-game-detail{max-width:min(1500px,98vw);width:98vw;max-height:94vh;padding:14px 16px}
 .modal.modal-game-detail .modal-hd{margin-bottom:10px;padding-bottom:8px}
 .modal.modal-game-detail .card{padding:14px;margin-bottom:10px}
@@ -82,6 +111,16 @@ tr:hover{background:rgba(255,255,255,.02)}
 @media(max-width:1024px){
   .modal.modal-game-detail{max-width:100vw;width:100vw;height:100vh;max-height:100vh;border-radius:0;padding:10px}
   .modal.modal-game-detail th,.modal.modal-game-detail td{padding:5px 6px;font-size:11px}
+}
+@media(max-width:768px){
+  .modal-coach-prompt{width:96vw;max-width:96vw;padding:22px 18px}
+  .modal-coach-prompt .modal-hd h3{font-size:28px}
+  .coach-prompt-lead{font-size:16px;line-height:1.72}
+  .coach-prompt-panel{padding:16px}
+  .coach-prompt-textarea{min-height:160px;font-size:18px;padding:16px}
+  .coach-prompt-choice-title{font-size:16px}
+  .coach-prompt-choice-detail,.coach-prompt-section-sub,.coach-prompt-hint,.coach-prompt-outcome-copy,.coach-prompt-summary .t-2{font-size:14px}
+  .coach-prompt-actions{grid-template-columns:1fr}
 }
 @keyframes mIn{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}
 .modal-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:2px solid var(--primary)}
@@ -346,6 +385,45 @@ tr:hover{background:rgba(255,255,255,.02)}
 .terminal-content{min-width:0}
 .terminal-scroll{max-height:min(75vh,940px);overflow:auto;padding-right:4px}
 
+/* Social / endorsement visuals */
+.social-post-card{padding:16px 18px}
+.social-post-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.social-post-author-wrap{display:flex;gap:12px;min-width:0}
+.social-post-author-copy{min-width:0}
+.social-post-author-line{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.social-post-subline{margin-top:4px;color:var(--text2);font-size:12px;line-height:1.45}
+.social-post-avatar{flex:0 0 46px;width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid rgba(255,255,255,.10);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+.social-post-avatar-text{font-size:18px;font-weight:900;color:#fff;text-transform:uppercase}
+.social-post-avatar-logo{background:rgba(255,255,255,.05)}
+.social-post-text{line-height:1.75;font-size:17px;color:#f6f8ff}
+.social-post-visual{position:relative;width:min(34%,360px);max-width:100%;min-width:min(220px,100%)}
+.social-post-image-frame{position:relative;width:100%;aspect-ratio:1 / 1;border-radius:18px;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center}
+.social-post-image{width:100%;height:100%;object-fit:contain;display:block;background:radial-gradient(circle at top,rgba(255,255,255,.08),rgba(255,255,255,0) 58%)}
+.social-post-image-frame-logo{padding:14px}
+.social-post-logo-stage{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+.social-post-logo-copy{font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--text2);text-align:center}
+.social-post-logo-chip{position:absolute;top:12px;left:12px}
+.social-post-badge-overlay{position:absolute;right:12px;top:12px}
+.social-post-metrics{letter-spacing:.02em}
+.social-post-comments{padding:10px 12px;background:rgba(255,255,255,.04);border-radius:12px;border:1px solid rgba(255,255,255,.06)}
+.social-post-comment{margin-bottom:8px;line-height:1.55}
+.social-post-comment:last-child{margin-bottom:0}
+.brand-logo-thumb{position:relative;display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);overflow:hidden;flex:0 0 auto}
+.brand-logo-thumb-lg{width:78px;height:78px;border-radius:22px}
+.brand-logo-thumb-xl{width:min(56vw,240px);height:min(56vw,240px);max-width:240px;max-height:240px;border-radius:32px}
+.brand-logo-thumb-chip{width:48px;height:48px;border-radius:14px;background:rgba(8,12,20,.66);backdrop-filter:blur(10px)}
+.brand-logo-fallback{font-size:18px;font-weight:900;color:#fff}
+@media (max-width: 768px){
+  .social-post-visual{width:min(48%,280px);min-width:min(180px,100%)}
+}
+.brand-logo-fallback-label{font-size:18px;font-weight:900;color:#fff;letter-spacing:.04em;text-transform:uppercase}
+.brand-logo-img{position:relative;z-index:1;width:100%;height:100%;display:block;object-fit:contain}
+.brand-logo-fallback-surface{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:linear-gradient(135deg,rgba(255,255,255,.06),rgba(255,255,255,.02));z-index:0}
+.brand-logo-fallback-surface.is-visible{display:flex}
+.endorse-offer-card,.endorse-active-card{padding:14px 16px}
+.endorse-offer-head{display:flex;align-items:center;gap:12px}
+.endorse-offer-main{min-width:0;flex:1}
+
 @media(max-width:1080px){
   .terminal-shell{grid-template-columns:1fr}
 }
@@ -357,6 +435,9 @@ tr:hover{background:rgba(255,255,255,.02)}
   .terminal-sidebar,.terminal-screen{padding:14px}
   .terminal-toolbar{flex-direction:column;align-items:flex-start}
   .terminal-screen .page-tabbar{justify-content:flex-start}
+  .social-post-card{padding:14px}
+  .social-post-text{font-size:16px}
+  .social-post-avatar{width:42px;height:42px;border-radius:13px;flex-basis:42px}
 }
 
 /* Main menu launcher */

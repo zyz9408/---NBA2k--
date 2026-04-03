@@ -458,6 +458,7 @@ function startCareer() {
   G._phoneTab = 'feed';
   if (typeof ensureEconomyState === 'function') ensureEconomyState();
   if (typeof ensureSocialState === 'function') ensureSocialState();
+  if (typeof migrateLegacyCommercialSocialState === 'function') migrateLegacyCommercialSocialState();
   if (typeof ensureCoachRelationshipState === 'function') ensureCoachRelationshipState();
   if (typeof ensureCoachDynamicsState === 'function') ensureCoachDynamicsState();
   if (typeof applySeasonSalaryPayout === 'function') applySeasonSalaryPayout({ force: false, reason: '新秀赛季薪资发放' });
@@ -523,7 +524,7 @@ function renderHome() {
   const relationView = typeof buildSocialRelationshipFeedView === 'function' ? buildSocialRelationshipFeedView(3) : { list: [], friendCount: 0, rivalCount: 0, respectCount: 0 };
 
   if (!G.storyLog) {
-    G.storyLog = ["欢迎来到《篮球生涯模拟器》。你的传奇，从这里开始——\\n点击【推进日程】开启新的一天或直接去打比赛。"];
+    G.storyLog = ["欢迎来到《篮球生涯模拟器》。你的传奇，从这里开始——点击【推进日程】开启新的一天或直接去打比赛。"];
   }
   if (!G.gameDays || G.gameDays.length === 0) generateGameDays();
 
@@ -1300,26 +1301,27 @@ function showCoachChoiceModal(prompt, result = null, opts = {}) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
       showModal(`
-        <div class="modal-hd">
+        <div class="modal-hd coach-prompt-head">
           <h3>${promptObj.title}</h3>
           ${mandatory ? '' : '<button class="modal-x" id="coachChoiceCloseBtn">✕</button>'}
         </div>
-        ${submittedText ? `<div class="card" style="margin:0 0 12px 0;background:rgba(6,10,24,.5)">
-          <div class="t-2 fs-sm">你的回答</div>
-          <div class="mt-8">${submittedSafe}</div>
+        <div class="coach-prompt-lead">${promptObj.desc || '教练组希望你给出明确态度。'}</div>
+        ${submittedText ? `<div class="coach-prompt-panel">
+          <div class="coach-prompt-panel-kicker">你的回答</div>
+          <div class="coach-prompt-submitted">${submittedSafe}</div>
         </div>` : ''}
-        <div class="card" style="margin:0;background:rgba(255,255,255,.03)">
-          <div class="fw-b">${choice?.title || '已完成沟通'}</div>
-          ${choice?.badge ? `<div class="t-cyan fs-sm mt-8">${choice.badge}</div>` : ''}
-          <div class="t-2 mt-12">${outcome?.text || '这次沟通已经产生影响。'}</div>
-          ${outcome?.analysisText ? `<div class="t-2 fs-sm mt-12">${outcome.analysisText}</div>` : ''}
+        <div class="coach-prompt-outcome${submittedText ? ' mt-16' : ''}">
+          <div class="coach-prompt-outcome-title">${choice?.title || '已完成沟通'}</div>
+          ${choice?.badge ? `<div class="coach-prompt-outcome-badge">${choice.badge}</div>` : ''}
+          <div class="coach-prompt-outcome-copy">${outcome?.text || '这次沟通已经产生影响。'}</div>
+          ${outcome?.analysisText ? `<div class="coach-prompt-outcome-analysis">${outcome.analysisText}</div>` : ''}
         </div>
-        <div class="card" style="margin:12px 0 0 0;background:rgba(0,0,0,.18)">
-          <div class="card-title">当前反馈</div>
-          ${summaryHtml}
+        <div class="coach-prompt-panel mt-16">
+          <div class="coach-prompt-panel-kicker">当前反馈</div>
+          <div class="coach-prompt-summary">${summaryHtml}</div>
         </div>
         <button class="btn btn-gold mt-16" id="coachChoiceDoneBtn" style="width:100%">继续</button>
-      `);
+      `, { className: 'modal-coach-prompt' });
       if (!mandatory) {
         const closeBtn = $('coachChoiceCloseBtn');
         if (closeBtn) closeBtn.onclick = () => finish(outcome || null);
@@ -1335,33 +1337,35 @@ function showCoachChoiceModal(prompt, result = null, opts = {}) {
 
     if (freeTextMode) {
       showModal(`
-        <div class="modal-hd">
+        <div class="modal-hd coach-prompt-head">
           <h3>${promptObj.title || '教练事件'}</h3>
           ${mandatory ? '' : '<button class="modal-x" id="coachChoiceCloseBtn">✕</button>'}
         </div>
-        <div class="mb-16 t-2">${promptObj.desc || '教练组希望你给出明确态度。'}</div>
-        <div class="card" style="margin:0;background:rgba(255,255,255,.03)">
-          <div class="t-2 fs-sm">自己打字回答，系统会识别你的语气、立场、情商和团队倾向。</div>
-          <textarea id="coachFreeTextInput" class="form-control mt-12" rows="6" placeholder="${promptObj.placeholder || '输入你的回答……'}"></textarea>
+        <div class="coach-prompt-lead">${promptObj.desc || '教练组希望你给出明确态度。'}</div>
+        <div class="coach-prompt-panel">
+          <div class="coach-prompt-panel-kicker">自己打字回答</div>
+          <div class="coach-prompt-panel-copy">系统会识别你的语气、立场、情商和团队倾向。强硬、圆滑、团队化、要球、替体系背书，都会得到不同反馈。</div>
+          <textarea id="coachFreeTextInput" class="form-control coach-prompt-textarea mt-12" rows="6" placeholder="${promptObj.placeholder || '输入你的回答……'}"></textarea>
         </div>
-        <div class="mt-12">
-          <div class="t-2 fs-sm mb-8">可识别的表达方向</div>
-          <div class="grid g3">
+        <div class="coach-prompt-section mt-16">
+          <div class="coach-prompt-section-title">可识别的表达方向</div>
+          <div class="coach-prompt-section-sub">点一下会把这个方向的表述自动填进输入框，你也可以继续自己改。</div>
+          <div class="grid g3 coach-prompt-choice-grid">
             ${promptObj.choices.map((choice, index) => `
-              <button class="choice-card" type="button" data-coach-fill="${index}" style="text-align:left">
-                <div class="fw-b">${choice.title || `方向${index + 1}`}</div>
-                <div class="t-2 fs-sm mt-12">${choice.detail || '会影响你和教练组的关系。'}</div>
-                ${choice.badge ? `<div class="mt-12"><span class="badge b-cyan">${choice.badge}</span></div>` : ''}
+              <button class="choice-card coach-prompt-choice" type="button" data-coach-fill="${index}">
+                <div class="coach-prompt-choice-title">${choice.title || `方向${index + 1}`}</div>
+                <div class="coach-prompt-choice-detail">${choice.detail || '会影响你和教练组的关系。'}</div>
+                ${choice.badge ? `<div class="mt-12"><span class="badge b-cyan coach-prompt-choice-badge">${choice.badge}</span></div>` : ''}
               </button>
             `).join('')}
           </div>
         </div>
-        <div id="coachChoiceHint" class="t-2 fs-sm mt-12">${mandatory ? '你需要先表态，今天的流程才会继续。' : '你可以强硬、圆滑、团队化，系统会按文本判定结果。'}</div>
-        <div class="grid g2 mt-16">
+        <div id="coachChoiceHint" class="coach-prompt-hint mt-16">${mandatory ? '你需要先表态，今天的流程才会继续。' : '你可以强硬、圆滑、团队化，系统会按文本判定结果。'}</div>
+        <div class="grid g2 mt-16 coach-prompt-actions">
           ${mandatory ? '' : '<button class="btn btn-danger" id="coachChoiceCancelBtn">先不沟通</button>'}
           <button class="btn btn-gold" id="coachChoiceSubmitBtn" style="width:100%">${mandatory ? '提交态度' : '发送给教练'}</button>
         </div>
-      `);
+      `, { className: 'modal-coach-prompt' });
 
       if (!mandatory) {
         const closeBtn = $('coachChoiceCloseBtn');
@@ -2709,7 +2713,7 @@ function setPhoneTab(tab) {
   renderPhone();
 }
 function getPhoneTab() {
-  const allowed = new Set(['feed', 'compose', 'market', 'endorse', 'inbox', 'llm']);
+  const allowed = new Set(['feed', 'compose', 'inbox']);
   const tab = String(G._phoneTab || 'feed');
   return allowed.has(tab) ? tab : 'feed';
 }
@@ -2743,7 +2747,7 @@ function renderPhoneLLMTab() {
   const resultMsg = G._phoneLlmResult ? `<div class="ev ${G._phoneLlmResult.ok ? 'pos' : 'neg'}" style="margin-bottom:10px">${G._phoneLlmResult.message}</div>` : '';
   return `
   <div class="card" style="margin:0">
-    <div class="card-title">🤖 模型配置</div>
+    <div class="card-title">🤖 AI 与模型</div>
     ${resultMsg}
     <div class="grid g2">
       <div>
@@ -2780,9 +2784,74 @@ function renderPhoneLLMTab() {
     </div>
   </div>`;
 }
+function getSocialAvatarInitial(text = '') {
+  const clean = String(text || '').replace(/^@+/, '').trim();
+  if (!clean) return '球';
+  const ascii = clean.replace(/[^A-Za-z0-9]/g, '');
+  return ascii ? ascii.charAt(0).toUpperCase() : clean.charAt(0);
+}
+function getSocialAvatarTone(seed = '') {
+  const hue = typeof hashStringToHue === 'function' ? hashStringToHue(String(seed || 'social')) : 210;
+  const hue2 = (hue + 28) % 360;
+  return `background:linear-gradient(135deg,hsl(${hue} 78% 56%),hsl(${hue2} 72% 44%));`;
+}
+function renderBrandLogoThumb(logo, label = '品牌', className = 'brand-logo-thumb') {
+  const src = String(logo || '').trim();
+  const fallback = `<span class="brand-logo-fallback-label">${getSocialAvatarInitial(label)}</span>`;
+  if (src) {
+    return `<span class="${className} brand-logo-thumb-has-image"><img src="${src}" alt="${label}" class="brand-logo-img" onerror="this.style.display='none';this.nextElementSibling&&this.nextElementSibling.classList.add('is-visible')"><span class="brand-logo-fallback-surface">${fallback}</span></span>`;
+  }
+  return `<span class="${className} brand-logo-fallback">${fallback}</span>`;
+}
+function getPostVisualBadge(post = {}) {
+  const status = String(post.imageStatus || '').trim().toLowerCase();
+  if (status === 'llm') return { label: '模型图', cls: 'b-cyan' };
+  if (String(post.image || '').trim()) return { label: '品牌图', cls: 'b-pri' };
+  if (String(post.logo || '').trim()) return { label: '品牌LOGO', cls: 'b-gold' };
+  return null;
+}
+function renderSocialPostVisual(post = {}) {
+  const image = String(post.image || '').trim();
+  const logo = String(post.logo || '').trim();
+  const title = String(post.brand || post.author || '品牌').trim();
+  if (!image && !logo) return '';
+  const badge = getPostVisualBadge(post);
+  if (!image) {
+    return `
+      <div class="social-post-visual mt-12">
+        <div class="social-post-image-frame social-post-image-frame-logo">
+          <div class="social-post-logo-stage">
+            ${renderBrandLogoThumb(logo, title, 'brand-logo-thumb brand-logo-thumb-xl')}
+            <div class="social-post-logo-copy">${title}</div>
+            ${badge ? `<span class="badge ${badge.cls} social-post-badge-overlay">${badge.label}</span>` : ''}
+          </div>
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="social-post-visual mt-12">
+      <div class="social-post-image-frame">
+        <img src="${image}" alt="${title}" class="social-post-image" onerror="this.closest('.social-post-visual')?.remove()">
+        ${logo ? `<div class="social-post-logo-chip">${renderBrandLogoThumb(logo, title, 'brand-logo-thumb brand-logo-thumb-chip')}</div>` : ''}
+        ${badge ? `<span class="badge ${badge.cls} social-post-badge-overlay">${badge.label}</span>` : ''}
+      </div>
+    </div>`;
+}
 function renderPhoneFeedTab() {
   const timeline = typeof getSocialTimeline === 'function' ? getSocialTimeline(50) : [];
   const relationView = typeof buildSocialRelationshipFeedView === 'function' ? buildSocialRelationshipFeedView(4) : null;
+  const feedStatus = G._phoneFeedResult ? `<div class="ev ${G._phoneFeedResult.ok ? 'pos' : 'neg'}" style="margin:0">${G._phoneFeedResult.message}</div>` : '';
+  const feedTools = `
+    <div class="card" style="margin-bottom:10px">
+      <div class="flex fb gap-16" style="align-items:flex-start;flex-wrap:wrap">
+        <div style="min-width:0;flex:1">
+          <div class="fw-b">当天舆情控制台</div>
+          <div class="t-2 fs-sm mt-8">会重新生成当天的非玩家推文，并重建当日商业动态。适合在文案太死板、重复发帖或模型切换后重新刷一遍。</div>
+        </div>
+        <button class="btn btn-gold" ${G._phoneGenerating ? 'disabled' : ''} onclick="doPhoneGenerateTweets()">${G._phoneGenerating ? '重新生成中...' : '重新生成当天舆情'}</button>
+      </div>
+      ${feedStatus ? `<div class="mt-12">${feedStatus}</div>` : ''}
+    </div>`;
   const relationCard = relationView ? `
     <div class="card" style="margin-bottom:10px">
       <div class="card-title">球星关系网</div>
@@ -2804,35 +2873,46 @@ function renderPhoneFeedTab() {
     </div>` : '';
   if (!timeline.length) {
     return `
+    ${feedTools}
     ${relationCard}
     <div class="card" style="margin:0">
       <div class="t-2">今日推文尚未生成。</div>
       <button class="btn btn-gold mt-12" onclick="doPhoneGenerateTweets()">补生成当天推文</button>
     </div>`;
   }
-  return relationCard + timeline.map(post => {
+  return feedTools + relationCard + timeline.map(post => {
     const replied = !!(G.social?.playerRepliedPostIds?.[String(post.id)]);
     const comments = Array.isArray(post.comments) ? post.comments.slice(0, 4) : [];
     const relationBadge = typeof getSocialRelationshipBadgeForPost === 'function' ? getSocialRelationshipBadgeForPost(post) : null;
+    const visualBadge = getPostVisualBadge(post);
+    const avatar = String(post.logo || '').trim()
+      ? renderBrandLogoThumb(post.logo, post.brand || post.author, 'social-post-avatar social-post-avatar-logo')
+      : `<span class="social-post-avatar social-post-avatar-text" style="${getSocialAvatarTone(post.author || post.persona || post.text)}">${getSocialAvatarInitial(post.author || post.persona || post.text)}</span>`;
     return `
-    <div class="card" style="margin-bottom:10px">
-      <div class="flex fb">
-        <div>
-          <span class="fw-b">${post.author}</span>
-          <span class="badge b-pri">${post.persona || '中立'}</span>
-          ${post.isPlayer ? '<span class="badge b-gold">你</span>' : ''}
-          ${post.authorType === 'star' ? '<span class="badge b-cyan">球星</span>' : ''}
-          ${relationBadge ? `<span class="badge ${relationBadge.badgeClass || 'b-pri'}">${relationBadge.label}</span>` : ''}
-          ${post.mentionsPlayer ? '<span class="badge b-silver">提到你</span>' : ''}
-          ${post.image ? '<span class="badge b-cyan">AI配图</span>' : ''}
+    <div class="card social-post-card" style="margin-bottom:10px">
+      <div class="social-post-head">
+        <div class="social-post-author-wrap">
+          ${avatar}
+          <div class="social-post-author-copy">
+            <div class="social-post-author-line">
+              <span class="fw-b">${post.author}</span>
+              <span class="badge b-pri">${post.persona || '中立'}</span>
+              ${post.isPlayer ? '<span class="badge b-gold">你</span>' : ''}
+              ${post.authorType === 'star' ? '<span class="badge b-cyan">球星</span>' : ''}
+              ${relationBadge ? `<span class="badge ${relationBadge.badgeClass || 'b-pri'}">${relationBadge.label}</span>` : ''}
+              ${post.mentionsPlayer ? '<span class="badge b-silver">提到你</span>' : ''}
+              ${visualBadge && !String(post.image || '').trim() ? `<span class="badge ${visualBadge.cls}">${visualBadge.label}</span>` : ''}
+            </div>
+            ${post.brand ? `<div class="social-post-subline">${post.brand}${post.product ? ` · ${post.product}` : ''}</div>` : ''}
+          </div>
         </div>
         <span class="t-2 fs-xs">${formatPhoneTime(post.ts, post.day)}</span>
       </div>
-      <div class="mt-12">${post.text || ''}</div>
-      ${post.image ? `<div class="mt-12"><img src="${post.image}" alt="tweet-image" style="width:100%;border-radius:12px;display:block;object-fit:cover;background:rgba(255,255,255,.04);max-height:260px" onerror="this.style.display='none'"></div>` : ''}
-      <div class="t-2 fs-sm mt-12">👍 ${parseNum(post.likes, 0)} | 🔁 ${parseNum(post.reposts, 0)} | 💬 ${Array.isArray(post.comments) ? post.comments.length : 0}</div>
-      ${comments.length ? `<div class="mt-12" style="padding:8px;background:rgba(255,255,255,.04);border-radius:8px">
-        ${comments.map(c => `<div class="fs-sm" style="margin-bottom:6px"><span class="fw-b">${c.author}</span>: ${c.text}</div>`).join('')}
+      <div class="social-post-text mt-12">${post.text || ''}</div>
+      ${renderSocialPostVisual(post)}
+      <div class="social-post-metrics t-2 fs-sm mt-12">👍 ${parseNum(post.likes, 0)} | 🔁 ${parseNum(post.reposts, 0)} | 💬 ${Array.isArray(post.comments) ? post.comments.length : 0}</div>
+      ${comments.length ? `<div class="social-post-comments mt-12">
+        ${comments.map(c => `<div class="social-post-comment fs-sm"><span class="fw-b">${c.author}</span>: ${c.text}</div>`).join('')}
       </div>` : ''}
       ${replied ? '<div class="t-2 fs-sm mt-12">你已回复过这条推文</div>' : `
       <div class="mt-12">
@@ -3182,11 +3262,18 @@ function doPhoneCreateSignatureShoe(offerId, styleKey) {
 }
 async function doPhoneGenerateTweets() {
   if (typeof regenerateTodaySocialTweets !== 'function') return;
+  if (G._phoneGenerating) return;
+  G._phoneGenerating = true;
+  G._phoneFeedResult = null;
+  renderPhone();
   try {
-    await regenerateTodaySocialTweets();
-    G._phoneComposeResult = { ok: true, message: '补生成完成' };
+    const added = await regenerateTodaySocialTweets();
+    const count = Array.isArray(added) ? added.length : 0;
+    G._phoneFeedResult = { ok: true, message: `重新生成完成：${count} 条当天舆情已刷新` };
   } catch (e) {
-    G._phoneComposeResult = { ok: false, message: `补生成失败: ${e?.message || e}` };
+    G._phoneFeedResult = { ok: false, message: `重新生成失败: ${e?.message || e}` };
+  } finally {
+    G._phoneGenerating = false;
   }
   renderPhone();
 }
@@ -3195,7 +3282,8 @@ function doPhoneSaveLLMSettings() {
   const draft = syncPhoneLlmDraftFromDom();
   saveSocialLLMSettings(draft);
   G._phoneLlmResult = { ok: true, message: '游戏内模型设置已保存' };
-  renderPhone();
+  if ($('settingsPage')?.classList.contains('active')) renderSettings();
+  else renderPhone();
 }
 async function doPhoneTestLLMConnectivity() {
   if (typeof saveSocialLLMSettings !== 'function' || typeof testSocialLLMConnectivity !== 'function') return;
@@ -3213,7 +3301,8 @@ async function doPhoneTestLLMConnectivity() {
     apiKey: String(G.social?.llm?.apiKey || draft.apiKey || '').trim(),
     tweetImagesEnabled: !!G.social?.tweetImagesEnabled
   };
-  renderPhone();
+  if ($('settingsPage')?.classList.contains('active')) renderSettings();
+  else renderPhone();
 }
 
 function doAcceptTradeOffer() {
@@ -3310,9 +3399,13 @@ function renderCommerceOverview() {
   <div class="card" style="margin-bottom:12px">
     <div class="card-title">已签约代言</div>
     ${(endorseView.activeDeals || []).map(deal => `
-      <div class="ev pos" style="margin-bottom:8px">
-        <div class="flex fb">
-          <div><div class="fw-b">${deal.brand}</div><div class="t-2 fs-xs">${deal.category} · ${deal.product}</div></div>
+      <div class="ev pos endorse-active-card" style="margin-bottom:8px">
+        <div class="endorse-offer-head">
+          ${renderBrandLogoThumb(deal.logo, deal.brand, 'brand-logo-thumb brand-logo-thumb-lg')}
+          <div class="endorse-offer-main">
+            <div class="fw-b">${deal.brand}</div>
+            <div class="t-2 fs-xs">${deal.category} · ${deal.product}</div>
+          </div>
           <span class="badge b-ok">生效中</span>
         </div>
         <div class="t-2 fs-sm mt-8">剩余 ${parseNum(deal.remainingDays, 0)} 天 | 实时收入 $${phoneFmtM(deal.totalIncome)} | 累计 $${phoneFmtM(deal.earned)}</div>
@@ -3344,9 +3437,13 @@ function renderCommerceEndorse() {
     const active = offer.active || null;
     const activeShoe = active?.shoe || null;
     return `
-      <div class="ev ${offer.status === 'active' ? 'pos' : offer.status === 'locked' ? 'neu' : 'neu'}" style="margin-bottom:8px;opacity:${offer.status === 'locked' ? 0.78 : 1}">
-        <div class="flex fb">
-          <div><div class="fw-b">${offer.brand}</div><div class="t-2 fs-xs">${offer.product} · ${offer.category}</div></div>
+      <div class="ev endorse-offer-card ${offer.status === 'active' ? 'pos' : offer.status === 'locked' ? 'neu' : 'neu'}" style="margin-bottom:8px;opacity:${offer.status === 'locked' ? 0.78 : 1}">
+        <div class="endorse-offer-head">
+          ${renderBrandLogoThumb(offer.logo, offer.brand, 'brand-logo-thumb brand-logo-thumb-lg')}
+          <div class="endorse-offer-main">
+            <div class="fw-b">${offer.brand}</div>
+            <div class="t-2 fs-xs">${offer.product} · ${offer.category}</div>
+          </div>
           <span class="badge ${st.cls}">${st.text}</span>
         </div>
         <div class="t-2 fs-sm mt-8">签约金 $${phoneFmtM(offer.signingBonus)} | 日常 $${phoneFmtM(offer.dailyIncome)} | 比赛日 $${phoneFmtM(offer.gameIncome)} | 合约 ${parseNum(offer.termDays, 0)} 天</div>
@@ -3795,18 +3892,12 @@ function renderPhone() {
   const tabMap = {
     feed: { label: '舆情流', note: '联盟舆论、球星互动和赛后热度都会在这里汇合。' },
     compose: { label: '主动发声', note: '这里决定你的人设风格，也会直接反作用到声望、信任和关系线。' },
-    market: { label: '资源调配', note: '团队、设施和奢侈消费不再是商城，而是生涯推进资源。' },
-    endorse: { label: '品牌作战室', note: '代言与签名鞋会和你的市场定位一起增长。' },
-    inbox: { label: '通讯记录', note: '系统通知、球队消息和商业邀约都会沉淀在这里。' },
-    llm: { label: '模型控制台', note: '游戏内直接调整文字模型、图片模型和 AI 推文配图。' }
+    inbox: { label: '通讯记录', note: '球队消息、系统提醒和关键来信都沉淀在这里。' }
   };
   const tabBtn = (id) => `<button class="page-tab ${tab === id ? 'active' : ''}" onclick="setPhoneTab('${id}')">${tabMap[id]?.label || id}</button>`;
   let content = '';
   if (tab === 'feed') content = renderPhoneFeedTab();
   else if (tab === 'compose') content = renderPhoneComposeTab();
-  else if (tab === 'market') content = renderPhoneMarketTab();
-  else if (tab === 'endorse') content = renderPhoneEndorseTab();
-  else if (tab === 'llm') content = renderPhoneLLMTab();
   else content = renderPhoneInboxTab();
 
   const posts = Array.isArray(G.social?.posts) ? G.social.posts : [];
@@ -3815,9 +3906,7 @@ function renderPhone() {
   const relationView = typeof buildSocialRelationshipFeedView === 'function'
     ? buildSocialRelationshipFeedView(4)
     : { friendCount: 0, rivalCount: 0, respectCount: 0 };
-  const endorseView = typeof buildEndorsementOffersView === 'function' ? buildEndorsementOffersView() : null;
-  const activeDeals = parseNum(endorseView?.summary?.activeCount, 0);
-  const llmEnabled = !!G.social?.llm?.enabled;
+  const playerPostCount = posts.filter(post => !!post?.isPlayer && parseNum(post?.day, -999) === parseNum(G.dayNum, 0)).length;
   const pendingTradeBanner = G.pendingTrade ? `
     <div class="ev neu" style="margin:0">
       <div class="fw-b">${G.pendingTrade.team.z} 发来交易邀请</div>
@@ -3844,13 +3933,13 @@ function renderPhone() {
         <div>
           <div class="subpage-kicker">Social Command</div>
           <div class="subpage-title">社媒作战终端</div>
-          <div class="subpage-copy">这不是手机 App，而是你的联盟影响力中控台。推文、球星关系、品牌接触和模型配置都从这里进入同一条叙事链。</div>
+          <div class="subpage-copy">这里现在只负责社媒与通讯。推文、回复、球星关系和消息流在这一页独立处理，商业与设置已经拆到各自页面。</div>
         </div>
         <div class="subpage-stat-grid">
           ${statCard('今日舆情', `${todayPosts} 条`)}
           ${statCard('朋友 / 宿敌', `${parseNum(relationView.friendCount, 0)} / ${parseNum(relationView.rivalCount, 0)}`)}
-          ${statCard('活跃代言', `${activeDeals} 份`)}
-          ${statCard('AI 终端', llmEnabled ? '在线' : '离线')}
+          ${statCard('消息盒', `${inboxCount} 条`)}
+          ${statCard('球星尊重', parseNum(relationView.respectCount, 0))}
         </div>
       </section>
       <div class="terminal-shell">
@@ -3862,26 +3951,23 @@ function renderPhone() {
           </div>
           <div class="terminal-stat-grid">
             ${sideStat('日期', getDayDateString(Math.max(0, G.dayNum - 1)))}
+            ${sideStat('今日发声', `${playerPostCount} 条`)}
             ${sideStat('消息盒', `${inboxCount} 条`)}
             ${sideStat('球星尊重', parseNum(relationView.respectCount, 0))}
-            ${sideStat('配图开关', G.social?.tweetImagesEnabled ? '已开启' : '已关闭')}
           </div>
           ${pendingTradeBanner}
-          <div class="terminal-note">当前账号会把你的采访、主动发声、回复球星和 AI 推文一起写入长期舆论，关系值不会只停留在这一页。</div>
+          <div class="terminal-note">当前账号会把你的采访、主动发声和回复球星全部写入长期舆论。商业合作请去商业中心，模型与 AI 设置请去设置页。</div>
         </aside>
         <section class="terminal-screen">
           <div class="terminal-toolbar">
             <div>
               <div class="fw-b">${tabMap[tab]?.label || '社媒终端'}</div>
-              <div class="terminal-toolbar-meta">赛季 S${G.season} · Day ${G.dayNum + 1}${llmEnabled ? ' · AI 评估开启' : ' · 本地评估模式'}</div>
+              <div class="terminal-toolbar-meta">赛季 S${G.season} · Day ${G.dayNum + 1} · 社媒与通讯分离视图</div>
             </div>
             <div class="page-tabbar">
               ${tabBtn('feed')}
               ${tabBtn('compose')}
-              ${tabBtn('market')}
-              ${tabBtn('endorse')}
               ${tabBtn('inbox')}
-              ${tabBtn('llm')}
             </div>
           </div>
           <div class="terminal-content terminal-scroll">${content}</div>
@@ -3976,6 +4062,94 @@ function renderCommerce() {
             </div>
           </div>
           <div class="terminal-content terminal-scroll">${content}</div>
+        </section>
+      </div>
+    </div>`;
+}
+
+function renderSettings() {
+  if (typeof ensureSocialState === 'function') ensureSocialState();
+  const pg = $('settingsPage');
+  const llm = G.social?.llm || {};
+  const models = Array.isArray(G.social?.llmModels) ? G.social.llmModels : [];
+  const saveDir = G._saveHandle?.name || '未绑定';
+  const status = llm.enabled ? '在线' : '关闭';
+  const textModel = String(llm.model || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
+  const imageModel = String(llm.imageModel || '').trim() || '未设置';
+  const baseUrl = String(llm.baseUrl || 'https://api.openai.com/v1').trim();
+  const baseLabel = baseUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '') || '--';
+  const statCard = (label, value) => `
+    <div class="subpage-stat-card">
+      <div class="subpage-stat-label">${label}</div>
+      <div class="subpage-stat-value">${value}</div>
+    </div>`;
+  const sideStat = (label, value) => `
+    <div class="terminal-stat">
+      <div class="terminal-stat-label">${label}</div>
+      <div class="terminal-stat-value">${value}</div>
+    </div>`;
+  const modelListHtml = models.length
+    ? `<div class="t-2 fs-sm mt-8">已读取模型：${models.slice(0, 6).join('、')}${models.length > 6 ? ` 等 ${models.length} 个` : ''}</div>`
+    : '<div class="t-2 fs-sm mt-8">尚未读取模型列表，可点击测试连通性更新。</div>';
+  pg.innerHTML = `
+    <div class="subpage-shell">
+      <section class="subpage-hero">
+        <div>
+          <div class="subpage-kicker">System Control</div>
+          <div class="subpage-title">设置</div>
+          <div class="subpage-copy">模型、AI 推文配图和系统级偏好统一放在这里。商业功能已经全部回到商业中心，存档管理固定在最底部的存档页。</div>
+        </div>
+        <div class="subpage-stat-grid">
+          ${statCard('AI 终端', status)}
+          ${statCard('文字模型', textModel)}
+          ${statCard('图片模型', imageModel)}
+          ${statCard('存档目录', saveDir)}
+        </div>
+      </section>
+      <div class="terminal-shell">
+        <aside class="terminal-sidebar">
+          <div class="terminal-brand">
+            <div class="terminal-kicker">Control Deck</div>
+            <div class="terminal-title">系统设置</div>
+            <div class="terminal-copy">这里负责模型连接和系统级开关，不再和手机社媒、商业经营混在一起。</div>
+          </div>
+          <div class="terminal-stat-grid">
+            ${sideStat('接口', baseLabel)}
+            ${sideStat('AI 推文配图', G.social?.tweetImagesEnabled ? '已开启' : '已关闭')}
+            ${sideStat('最近错误', G.social?.lastLLMError ? '有记录' : '无')}
+            ${sideStat('存档页', '最底部')}
+          </div>
+          <div class="terminal-note">
+            <div class="fw-b mb-8">页面分工</div>
+            <div class="t-2 fs-sm">手机页只保留社媒与消息。</div>
+            <div class="t-2 fs-sm mt-8">商业中心负责代言、签名鞋、资产和消费。</div>
+            <div class="t-2 fs-sm mt-8">存档管理固定放在导航最底部。</div>
+          </div>
+        </aside>
+        <section class="terminal-screen">
+          <div class="terminal-toolbar">
+            <div>
+              <div class="fw-b">AI 与系统配置</div>
+              <div class="terminal-toolbar-meta">当前修改会直接作用于游戏内剧情、采访判定、推文生成和 AI 配图。</div>
+            </div>
+          </div>
+          <div class="terminal-content terminal-scroll">
+            <div style="display:grid;gap:14px">
+              ${renderPhoneLLMTab()}
+              <div class="card" style="margin:0">
+                <div class="card-title">系统说明</div>
+                <div class="t-2 fs-sm">当前文字模型：${textModel}</div>
+                <div class="t-2 fs-sm mt-8">当前图片模型：${imageModel}</div>
+                <div class="t-2 fs-sm mt-8">当前接口：${baseUrl}</div>
+                ${modelListHtml}
+                ${G.social?.lastLLMError ? `<div class="ev neg mt-12" style="margin-bottom:0">最近错误：${G.social.lastLLMError}</div>` : '<div class="ev pos mt-12" style="margin-bottom:0">最近没有记录到模型连接错误。</div>'}
+                <div class="grid g2 mt-16">
+                  <button class="btn btn-pri" onclick="navTo('commerce')">前往商业中心</button>
+                  <button class="btn btn-s" onclick="navTo('save')">前往存档页</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
     </div>`;
@@ -4335,6 +4509,7 @@ function applySaveData(data) {
   G._phoneTab = 'feed';
   if (typeof ensureEconomyState === 'function') ensureEconomyState();
   if (typeof ensureSocialState === 'function') ensureSocialState();
+  if (typeof migrateLegacyCommercialSocialState === 'function') migrateLegacyCommercialSocialState();
   if (typeof ensureCoachRelationshipState === 'function') ensureCoachRelationshipState();
   if (typeof ensureCoachDynamicsState === 'function') ensureCoachDynamicsState();
   if (typeof ensureLeagueBadges === 'function') ensureLeagueBadges();
@@ -4419,7 +4594,7 @@ function navTo(page) {
   const renderers = {
     home: renderHome, stats: renderStats,
     matches: renderMatchCenter, roster: renderRoster, upgrade: renderUpgrade, trade: renderTrade, awards: renderAwards,
-    phone: renderPhone, save: renderSave, commerce: renderCommerce
+    phone: renderPhone, commerce: renderCommerce, settings: renderSettings, save: renderSave
   };
   if (renderers[page]) renderers[page]();
 }

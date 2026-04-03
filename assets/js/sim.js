@@ -1105,6 +1105,19 @@ function getLuxuryItemsNames() {
   }).filter(Boolean);
   return names.length ? names.join('、') : '无';
 }
+function sanitizeImmersiveStoryText(text, { playerName = G.player?.name || '球员' } = {}) {
+  let out = String(text || '').replace(/\r/g, '').trim();
+  if (!out) return '';
+  out = out.replace(/【\s*第\s*\d+\s*天\s*】/g, '');
+  out = out.replace(/(^|[\n。！？])\s*今天是第\s*\d+\s*天[。！？]*/g, '$1');
+  out = out.replace(/(^|[\n。！？])\s*综合评分[:：]?\s*\d+[^。！？\n]*[。！？]*/g, '$1');
+  out = out.replace(/(^|[\n。！？])\s*[^。！？\n]{0,24}(?:OVR|POT|能力值|潜力值|属性点|属性|面板|任务)[^。！？\n]*[。！？]*/gi, '$1');
+  out = out.replace(/(^|[\n。！？])\s*[^。！？\n]{0,18}\d{2,3}\s*(?:的)?评分[^。！？\n]*[。！？]*/g, '$1');
+  out = out.replace(/休赛日/g, '休息日');
+  out = out.replace(/玩家/g, String(playerName || '球员').trim() || '球员');
+  out = out.replace(/\n{3,}/g, '\n\n');
+  return out.trim();
+}
 
 function formatGameStoryPeriodLines(flow = {}) {
   const periodLabels = Array.isArray(flow.periodLabels) && flow.periodLabels.length
@@ -1228,7 +1241,7 @@ function buildMatchRecapPromptContext(result, matchup, narrative) {
   const st = gameRes.st || {};
   const userTeam = matchup?.userTeam?.name || matchup?.userTeam?.abbr || G.team?.z || '我方';
   const oppTeam = matchup?.opponentTeam?.name || matchup?.opponentTeam?.abbr || opp.z || opp.a || '对手';
-  let text = `玩家${G.player.name}(${getPos(G.player.pos).n})效力于${userTeam}。\n`;
+  let text = `${G.player.name}司职${getPos(G.player.pos).n}，目前效力于${userTeam}。\n`;
   text += `本场对阵${oppTeam}，最终比分 ${userTeam} ${parseNum(gameRes.teamPts, 0)} - ${parseNum(gameRes.oppPts, 0)} ${oppTeam}，结果：${win}。\n`;
   text += `个人数据：${parseNum(st.pts, 0)}分 ${parseNum(st.reb, 0)}板 ${parseNum(st.ast, 0)}助 ${parseNum(st.stl, 0)}断 ${parseNum(st.blk, 0)}帽，命中 ${parseNum(st.fgm, 0)}/${parseNum(st.fga, 0)}，三分 ${parseNum(st.tpm, 0)}/${parseNum(st.tpa, 0)}。\n`;
   if (narrative?.lines?.length) {
@@ -1255,12 +1268,13 @@ async function generateMatchRecapByLLM(result, { force = false } = {}) {
   const narrative = buildGameStoryNarrativeContext(result, matchup);
   const promptContext = buildMatchRecapPromptContext(result, matchup, narrative);
 
-  let sysPrompt = `你是篮球比赛战报解说员。
+  let sysPrompt = `你是中文篮球战报记者。
 请基于输入的比赛信息写一段 120-180 字的比赛战报，要求：
 - 必须提到比分、比赛走势（四节/关键连段/焦灼与否）
-- 必须提到玩家个人数据
+- 必须提到 ${G.player.name} 的个人数据
 - 不允许虚构不存在的绝杀/逆转
-- 风格燃、干净、有节奏
+- 风格干净、利落、像真实比赛报道
+- 禁止出现玩家、系统、游戏、OVR、POT、评分、能力值、潜力值、第几天等游戏化词汇
 输出 JSON：
 {
   "headline": "20字以内标题",
@@ -1308,8 +1322,8 @@ async function generateMatchRecapByLLM(result, { force = false } = {}) {
     } catch {
       parsed = null;
     }
-    const headline = String(parsed?.headline || '').trim() || '比赛战报';
-    const recap = String(parsed?.recap || raw || '').trim();
+    const headline = sanitizeImmersiveStoryText(String(parsed?.headline || '').trim() || '比赛战报');
+    const recap = sanitizeImmersiveStoryText(String(parsed?.recap || raw || '').trim());
     if (!recap) throw new Error('LLM 战报为空');
 
     const recapObj = { headline, recap, model, at: Date.now(), gameId };
@@ -1338,22 +1352,26 @@ async function generateDailyStoryByLLM(result) {
   
   const matchup = result.matchup || (result.isGame && result.gameResult ? buildMatchupContextForLLM(result, { limit: 4 }) : null);
   const gameNarrative = result.isGame && result.gameResult ? buildGameStoryNarrativeContext(result, matchup) : null;
+  const seasonStats = G.seasonStats || {};
+  const gp = Math.max(1, parseNum(seasonStats.gp, parseNum(G.gameNum, 0)));
+  const luxuryNames = getLuxuryItemsNames();
 
-  let promptContext = `玩家是${G.player.age}岁的${G.player.name}(${getPos(G.player.pos).n})。当前效力于 ${G.team.z}。
-综合评分：${ovr(G.player.attrs)}。当前拥有奢侈品：${getLuxuryItemsNames()}。现金：$${parseNum(G.player.cash, 0).toFixed(2)}M。
-今日是第${result.day + 1}天。`;
+  let promptContext = `${G.player.name}今年${G.player.age}岁，司职${getPos(G.player.pos).n}，目前效力于${G.team.z}。
+这是他进入联盟后的第${parseNum(G.season, 1)}个赛季。本赛季至今场均 ${(parseNum(seasonStats.pts, 0) / gp).toFixed(1)} 分、${(parseNum(seasonStats.reb, 0) / gp).toFixed(1)} 篮板、${(parseNum(seasonStats.ast, 0) / gp).toFixed(1)} 助攻。
+${luxuryNames !== '无' ? `他在场外已经购入 ${luxuryNames}。` : '他在场外暂时没有高调消费记录。'}
+可支配现金约 $${parseNum(G.player.cash, 0).toFixed(2)}M。`;
 
   if (result.isGame && result.gameResult) {
     const opp = getTeam(result.gameResult.opp) || {};
     const win = result.gameResult.win ? "胜利" : "失败";
     const st = result.gameResult.st || {};
     promptContext += `
-今天进行了一场比赛，对阵 ${opp.z || opp.a || opp.name || '对手'}(OVR ${getTeamStrength(opp.id || result.gameResult.opp)})。比赛结果：${win}。
+今天进行了一场比赛，对阵 ${opp.z || opp.a || opp.name || '对手'}。比赛结果：${win}。
 主队得分：${result.gameResult.teamPts}，客队得分：${result.gameResult.oppPts}。
-玩家个人数据：${st.pts}分、${st.reb}篮板、${st.ast}助攻、${st.stl}抢断、${st.blk}盖帽。
+${G.player.name}个人数据：${st.pts}分、${st.reb}篮板、${st.ast}助攻、${st.stl}抢断、${st.blk}盖帽。
 ${gameNarrative ? gameNarrative.lines.join('\n') : ''}`;
   } else {
-    promptContext += "今天是休息日，或进行了一些日常训练。";
+    promptContext += "\n今天没有正式比赛，可能安排了训练、恢复、采访、品牌行程或私人生活。";
   }
   
   if (G.storyLog && G.storyLog.length > 0) {
@@ -1366,15 +1384,16 @@ ${gameNarrative ? gameNarrative.lines.join('\n') : ''}`;
     }
   }
   
-  let sysPrompt = `你是一个篮球养成文字游戏的故事推演引擎。
-请根据提供的当天游戏信息，推演今日发生的事。
-如果是休息日，请推演出场外生活事件（例如买了名表或豪车后产生的社交新闻或绯闻），字数控制在 200 字左右。
-如果是比赛日，请生成一篇不少于 400 字的生动且燃向的“比赛战报/小说”。默认按全场四节走势来写，概括前三节铺垫、第三节转折和第四节收束；只有在最终分差很小、进入加时或末段真的焦灼时，才把末节/加时写成核心高潮。请优先使用输入里给出的四节比分、走势概括、关键连段和球员表现，不要只盯着第四节，更不要虚构不存在的绝杀、逆转或额外回合。
-要求：无论是生活还是比赛，文笔必须极度生动，剧情张力拉满！
-且必须返回合法的 JSON 格式。
+  let sysPrompt = `你是中文篮球纪实写作者兼跟队记者。
+请根据提供的当天信息，写出一段沉浸式、生动但克制的生涯记录。
+如果是休息日，请写 160-240 字的场外片段，可以涉及训练、恢复、采访、品牌活动或私人生活，但必须像真实体育人物报道，不要像游戏播报。
+如果是比赛日，请写 220-320 字的比赛纪实。默认按全场四节走势来写，概括前三节铺垫、第三节转折和第四节收束；只有在最终分差很小、进入加时或末段真的焦灼时，才把末节/加时写成核心高潮。请优先使用输入里给出的四节比分、走势概括、关键连段和球员表现，不要只盯着第四节，更不要虚构不存在的绝杀、逆转或额外回合。
+要求：语言自然、具体、克制，不要堆砌华丽辞藻，不要写成系统播报或网文旁白。
+严格禁止出现：玩家、系统、游戏、回合、属性、数值、面板、任务、休赛日、OVR、POT、评分、能力值、潜力值、第几天等游戏化词汇。
+必须返回合法的 JSON 格式。
 JSON 格式要求如下：
 {
-  "story": "旁白口吻的事件推演内容或燃向比赛战报（支持分段）...",
+  "story": "旁白口吻的事件推演内容或比赛纪实（支持分段）...",
   "changes": {"mood": 10, "cash": -0.5, "fame": 20} // 本周事件额外带来的心情变化、金钱惩罚/奖励(单位M)、声望/粉丝变动
 }`;
 
@@ -1440,11 +1459,12 @@ JSON 格式要求如下：
     }
 
     if (typeof appendStoryToBoard === 'function') {
-      let finalStory = parsed.story;
+      let finalStory = sanitizeImmersiveStoryText(parsed.story);
       if (typeof applySillyTavernRegex === 'function') {
         finalStory = applySillyTavernRegex(finalStory, false);
       }
-      appendStoryToBoard(`【第${result.day + 1}天】 ${finalStory}`, '#fff', true);
+      finalStory = sanitizeImmersiveStoryText(finalStory);
+      appendStoryToBoard(finalStory, '#fff', true);
     }
     
     if (parsed.changes) {
@@ -4726,6 +4746,238 @@ function buildArtPalette(seed, shift = 0) {
     `hsl(${(hue2 + 180) % 360} 42% 14%)`
   ];
 }
+function buildCommercialPaletteKey(categoryKey = '', kind = '', tag = '') {
+  return String(categoryKey || kind || tag || 'gear').trim().toLowerCase();
+}
+function getCommercialPalette(categoryKey = '', kind = '', tag = '') {
+  const key = buildCommercialPaletteKey(categoryKey, kind, tag);
+  return {
+    gear: ['#37a6ff', '#1154bf', '#0f172a'],
+    shoe: ['#37a6ff', '#1154bf', '#0f172a'],
+    apparel: ['#f59e0b', '#ef4444', '#18181b'],
+    wearable: ['#06b6d4', '#2563eb', '#0f172a'],
+    drink: ['#22c55e', '#0ea5e9', '#09111d'],
+    food: ['#ff8d3a', '#f43f5e', '#180f16'],
+    tech: ['#00d4ff', '#7c3aed', '#07111e'],
+    auto: ['#ef4444', '#f59e0b', '#1a1010'],
+    finance: ['#22c55e', '#0f766e', '#081412'],
+    fashion: ['#f97316', '#8b5cf6', '#171022'],
+    beauty: ['#ec4899', '#a855f7', '#1a1020'],
+    game: ['#22c55e', '#00d4ff', '#08131c'],
+    public: ['#14b8a6', '#22c55e', '#081713'],
+    city: ['#f59e0b', '#2563eb', '#0f172a'],
+    luxury: ['#f59e0b', '#d97706', '#140f08'],
+    default: buildArtPalette(`${key || 'brand'}_logo`)
+  }[key] || buildArtPalette(`${key || 'brand'}_logo`);
+}
+function buildBrandMarkText(brand = '') {
+  const clean = String(brand || '').replace(/\s+/g, '').trim();
+  if (!clean) return { mark: '牌', wordmark: '品牌', submark: '' };
+  const ascii = clean.replace(/[^A-Za-z0-9]/g, '');
+  const mark = ascii.length >= 2 ? ascii.slice(0, 2).toUpperCase() : clean.slice(0, Math.min(2, clean.length));
+  const wordmark = clean.slice(0, 8);
+  const submark = clean.length > 8 ? clean.slice(8, 12) : '';
+  return { mark, wordmark, submark };
+}
+function hashStringToInt(seed) {
+  let h = 2166136261;
+  const src = String(seed || 'logo');
+  for (let i = 0; i < src.length; i++) {
+    h ^= src.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+function pickSeedItem(list, seed, shift = 0) {
+  if (!Array.isArray(list) || !list.length) return '';
+  const idx = (hashStringToInt(seed) + Math.max(0, parseNum(shift, 0))) % list.length;
+  return list[idx];
+}
+function splitBrandWordmark(wordmark = '') {
+  const clean = String(wordmark || '').trim();
+  if (!clean) return ['品牌', ''];
+  const ascii = clean.replace(/[^A-Za-z0-9]/g, '');
+  if (ascii.length >= 5) return [ascii.slice(0, 4).toUpperCase(), ascii.slice(4, 8).toUpperCase()];
+  if (clean.length >= 5) return [clean.slice(0, 4), clean.slice(4, 8)];
+  return [clean.slice(0, 8), ''];
+}
+function getCommercialLogoStyle(categoryKey = '', kind = '', tag = '', seed = '') {
+  const key = buildCommercialPaletteKey(categoryKey, kind, tag);
+  const styleGroups = {
+    gear: ['speed', 'shield', 'ribbon'],
+    shoe: ['speed', 'shield', 'orbital'],
+    apparel: ['ribbon', 'speed', 'luxe'],
+    wearable: ['circuit', 'orbital', 'speed'],
+    drink: ['wave', 'orbital', 'ribbon'],
+    food: ['wave', 'ribbon', 'seal'],
+    tech: ['circuit', 'orbital', 'shield'],
+    auto: ['shield', 'speed', 'seal'],
+    finance: ['seal', 'ribbon', 'skyline'],
+    fashion: ['luxe', 'ribbon', 'orbital'],
+    beauty: ['luxe', 'wave', 'orbital'],
+    game: ['circuit', 'speed', 'orbital'],
+    public: ['seal', 'skyline', 'ribbon'],
+    city: ['skyline', 'seal', 'ribbon'],
+    luxury: ['luxe', 'shield', 'seal']
+  };
+  return pickSeedItem(styleGroups[key] || ['shield', 'ribbon', 'orbital'], `${key}_${seed}`) || 'shield';
+}
+function buildCommercialLogoSvg(ctx = {}, body = '', extraDefs = '') {
+  const fontFamily = "Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+  const outerStroke = Math.max(2, Math.round(ctx.sizeNum * 0.008));
+  return `
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${ctx.sizeNum} ${ctx.sizeNum}" role="img" aria-label="${ctx.wordText}">
+    <defs>
+      <linearGradient id="${ctx.ids.bg}" x1="0" x2="1" y1="0" y2="1">
+        <stop offset="0%" stop-color="${ctx.c1}" />
+        <stop offset="58%" stop-color="${ctx.c2}" />
+        <stop offset="100%" stop-color="${ctx.c3}" />
+      </linearGradient>
+      <linearGradient id="${ctx.ids.edge}" x1="0" x2="1" y1="0" y2="1">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity=".34" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity=".02" />
+      </linearGradient>
+      <radialGradient id="${ctx.ids.glow}" cx="28%" cy="18%" r="78%">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity=".28" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+      </radialGradient>
+      ${extraDefs}
+    </defs>
+    <rect width="${ctx.sizeNum}" height="${ctx.sizeNum}" rx="${ctx.radius}" fill="url(#${ctx.ids.bg})" />
+    <rect width="${ctx.sizeNum}" height="${ctx.sizeNum}" rx="${ctx.radius}" fill="url(#${ctx.ids.glow})" />
+    <rect x="${outerStroke / 2}" y="${outerStroke / 2}" width="${ctx.sizeNum - outerStroke}" height="${ctx.sizeNum - outerStroke}" rx="${ctx.radius - outerStroke / 2}" fill="none" stroke="url(#${ctx.ids.edge})" stroke-width="${outerStroke}" />
+    ${body}
+  </svg>`;
+}
+function buildCommercialBrandLogo(meta = {}, { size = 320 } = {}) {
+  const brand = String(meta?.brand || meta?.label || '品牌').trim() || '品牌';
+  const product = String(meta?.product || meta?.subtitle || '').trim();
+  const categoryKey = String(meta?.categoryKey || '').trim();
+  const kind = String(meta?.kind || '').trim();
+  const tag = String(meta?.tag || meta?.category || '').trim();
+  const eventType = String(meta?.eventType || '').trim();
+  const seed = `${brand}_${product}_${categoryKey}_${kind}_${tag}`;
+  const [c1, c2, c3] = getCommercialPalette(categoryKey, kind, tag);
+  const icon = meta?.eventType === 'luxury_purchase'
+    ? getLuxuryIcon(tag)
+    : getEndorsementIcon(kind || categoryKey || tag || 'gear');
+  const { mark, wordmark, submark } = buildBrandMarkText(brand);
+  const productText = escapeSvgText(product || tag || '品牌合作').slice(0, 16);
+  const wordText = escapeSvgText(wordmark).slice(0, 10);
+  const submarkText = escapeSvgText(submark).slice(0, 6);
+  const markText = escapeSvgText(mark).slice(0, 3);
+  const sizeNum = Math.max(180, parseNum(size, 320));
+  const pad = Math.round(sizeNum * 0.08);
+  const radius = Math.round(sizeNum * 0.18);
+  const seedInt = hashStringToInt(seed);
+  const ids = {
+    bg: `logoBg_${seedInt.toString(36)}`,
+    edge: `logoEdge_${seedInt.toString(36)}`,
+    glow: `logoGlow_${seedInt.toString(36)}`,
+    accent: `logoAccent_${seedInt.toString(36)}`
+  };
+  const [wordLine1, wordLine2] = splitBrandWordmark(wordmark);
+  const style = getCommercialLogoStyle(categoryKey, kind, tag, seed);
+  const categoryText = escapeSvgText((tag || categoryKey || kind || 'brand').toUpperCase()).slice(0, 12);
+  const fontFamily = "Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+  const ctx = {
+    brand,
+    productText,
+    wordText,
+    submarkText,
+    markText,
+    iconText: escapeSvgText(icon).slice(0, 2),
+    categoryText,
+    sizeNum,
+    pad,
+    radius,
+    c1,
+    c2,
+    c3,
+    ids,
+    wordLine1: escapeSvgText(wordLine1),
+    wordLine2: escapeSvgText(wordLine2),
+    fontFamily,
+    seedInt,
+    eventType
+  };
+  const monogramSize = Math.round(sizeNum * 0.24);
+  const chipSize = Math.round(sizeNum * 0.2);
+  const chipRadius = Math.round(sizeNum * 0.07);
+  const stroke = Math.max(4, Math.round(sizeNum * 0.016));
+  const compactStyles = {
+    speed: `
+      <path d="M${pad} ${sizeNum * 0.3} C${sizeNum * 0.28} ${sizeNum * 0.12}, ${sizeNum * 0.55} ${sizeNum * 0.14}, ${sizeNum * 0.9} ${sizeNum * 0.3}" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="${stroke}" stroke-linecap="round"/>
+      <path d="M${sizeNum * 0.18} ${sizeNum * 0.76} L${sizeNum * 0.56} ${sizeNum * 0.34} L${sizeNum * 0.78} ${sizeNum * 0.34} L${sizeNum * 0.42} ${sizeNum * 0.82}" fill="#08111c" fill-opacity=".28"/>
+      <text x="${sizeNum * 0.48}" y="${sizeNum * 0.58}" text-anchor="middle" font-size="${monogramSize}" font-family="${fontFamily}" font-style="italic" font-weight="900" fill="#fff">${ctx.markText}</text>
+      <rect x="${pad}" y="${pad}" width="${chipSize}" height="${chipSize}" rx="${chipRadius}" fill="#08111c" fill-opacity=".24"/>
+      <text x="${pad + chipSize / 2}" y="${pad + chipSize * 0.64}" text-anchor="middle" font-size="${Math.round(sizeNum * 0.12)}" font-family="${fontFamily}" font-weight="900" fill="#fff">${ctx.iconText}</text>
+    `,
+    shield: `
+      <path d="M${sizeNum * 0.5} ${sizeNum * 0.12} L${sizeNum * 0.76} ${sizeNum * 0.22} L${sizeNum * 0.72} ${sizeNum * 0.62} C${sizeNum * 0.69} ${sizeNum * 0.8}, ${sizeNum * 0.58} ${sizeNum * 0.91}, ${sizeNum * 0.5} ${sizeNum * 0.95} C${sizeNum * 0.42} ${sizeNum * 0.91}, ${sizeNum * 0.31} ${sizeNum * 0.8}, ${sizeNum * 0.28} ${sizeNum * 0.62} L${sizeNum * 0.24} ${sizeNum * 0.22} Z" fill="#09111d" fill-opacity=".28" stroke="#fff" stroke-opacity=".18" stroke-width="${Math.max(2, sizeNum * 0.01)}"/>
+      <text x="${sizeNum * 0.5}" y="${sizeNum * 0.56}" text-anchor="middle" font-size="${Math.round(sizeNum * 0.28)}" font-family="${fontFamily}" font-weight="900" fill="#fff">${ctx.markText}</text>
+      <circle cx="${sizeNum * 0.5}" cy="${sizeNum * 0.27}" r="${sizeNum * 0.07}" fill="#fff" fill-opacity=".14"/>
+      <text x="${sizeNum * 0.5}" y="${sizeNum * 0.295}" text-anchor="middle" font-size="${Math.round(sizeNum * 0.08)}" font-family="${fontFamily}" font-weight="900" fill="#fff">${ctx.iconText}</text>
+    `,
+    wave: `
+      <circle cx="${sizeNum * 0.34}" cy="${sizeNum * 0.3}" r="${sizeNum * 0.17}" fill="#fff" fill-opacity=".14"/>
+      <path d="M${pad} ${sizeNum * 0.74} C${sizeNum * 0.24} ${sizeNum * 0.66}, ${sizeNum * 0.36} ${sizeNum * 0.82}, ${sizeNum * 0.5} ${sizeNum * 0.74} C${sizeNum * 0.63} ${sizeNum * 0.67}, ${sizeNum * 0.76} ${sizeNum * 0.82}, ${sizeNum - pad} ${sizeNum * 0.72}" fill="none" stroke="#fff" stroke-opacity=".34" stroke-width="${stroke}" stroke-linecap="round"/>
+      <path d="M${sizeNum * 0.3} ${sizeNum * 0.16} C${sizeNum * 0.41} ${sizeNum * 0.29}, ${sizeNum * 0.41} ${sizeNum * 0.44}, ${sizeNum * 0.3} ${sizeNum * 0.58} C${sizeNum * 0.2} ${sizeNum * 0.45}, ${sizeNum * 0.2} ${sizeNum * 0.3}, ${sizeNum * 0.3} ${sizeNum * 0.16} Z" fill="#fff" fill-opacity=".88"/>
+      <text x="${sizeNum * 0.62}" y="${sizeNum * 0.56}" text-anchor="middle" font-size="${Math.round(sizeNum * 0.24)}" font-family="${fontFamily}" font-weight="900" fill="#fff">${ctx.markText}</text>
+    `,
+    circuit: `
+      <rect x="${sizeNum * 0.18}" y="${sizeNum * 0.18}" width="${sizeNum * 0.64}" height="${sizeNum * 0.64}" rx="${sizeNum * 0.12}" fill="#07111d" fill-opacity=".28"/>
+      <path d="M${sizeNum * 0.32} ${sizeNum * 0.22} V${sizeNum * 0.1} M${sizeNum * 0.5} ${sizeNum * 0.22} V${sizeNum * 0.1} M${sizeNum * 0.68} ${sizeNum * 0.22} V${sizeNum * 0.1} M${sizeNum * 0.32} ${sizeNum * 0.9} V${sizeNum * 0.78} M${sizeNum * 0.5} ${sizeNum * 0.9} V${sizeNum * 0.78} M${sizeNum * 0.68} ${sizeNum * 0.9} V${sizeNum * 0.78}" stroke="#fff" stroke-opacity=".24" stroke-width="${Math.max(2, sizeNum * 0.012)}" stroke-linecap="round"/>
+      <circle cx="${sizeNum * 0.76}" cy="${sizeNum * 0.24}" r="${sizeNum * 0.028}" fill="#fff" fill-opacity=".82"/>
+      <circle cx="${sizeNum * 0.24}" cy="${sizeNum * 0.76}" r="${sizeNum * 0.028}" fill="#fff" fill-opacity=".82"/>
+      <text x="${sizeNum * 0.5}" y="${sizeNum * 0.57}" text-anchor="middle" font-size="${Math.round(sizeNum * 0.26)}" font-family="${fontFamily}" font-weight="900" fill="#fff">${ctx.markText}</text>
+    `,
+    luxe: `
+      <rect x="${sizeNum * 0.16}" y="${sizeNum * 0.16}" width="${sizeNum * 0.68}" height="${sizeNum * 0.68}" rx="${sizeNum * 0.12}" fill="#0d0e17" fill-opacity=".22" stroke="#fff" stroke-opacity=".18" stroke-width="${Math.max(2, sizeNum * 0.01)}"/>
+      <path d="M${sizeNum * 0.34} ${sizeNum * 0.2} L${sizeNum * 0.4} ${sizeNum * 0.14} L${sizeNum * 0.5} ${sizeNum * 0.22} L${sizeNum * 0.6} ${sizeNum * 0.14} L${sizeNum * 0.66} ${sizeNum * 0.2}" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="${Math.max(2, sizeNum * 0.01)}" stroke-linecap="round"/>
+      <text x="${sizeNum * 0.5}" y="${sizeNum * 0.58}" text-anchor="middle" font-size="${Math.round(sizeNum * 0.25)}" font-family="${fontFamily}" font-style="italic" font-weight="800" fill="#fff">${ctx.markText}</text>
+      <circle cx="${sizeNum * 0.5}" cy="${sizeNum * 0.76}" r="${sizeNum * 0.018}" fill="#fff" fill-opacity=".6"/>
+    `,
+    ribbon: `
+      <path d="M${pad} ${sizeNum * 0.38} L${sizeNum * 0.28} ${sizeNum * 0.22} H${sizeNum - pad} L${sizeNum * 0.72} ${sizeNum * 0.78} H${pad}" fill="#09111d" fill-opacity=".24"/>
+      <path d="M${sizeNum * 0.14} ${sizeNum * 0.8} L${sizeNum * 0.86} ${sizeNum * 0.2}" stroke="#fff" stroke-opacity=".22" stroke-width="${stroke}" stroke-linecap="round"/>
+      <text x="${sizeNum * 0.5}" y="${sizeNum * 0.58}" text-anchor="middle" font-size="${Math.round(sizeNum * 0.24)}" font-family="${fontFamily}" font-weight="900" fill="#fff">${ctx.markText}</text>
+      <rect x="${pad}" y="${pad}" width="${chipSize}" height="${chipSize}" rx="${chipRadius}" fill="#fff" fill-opacity=".12"/>
+      <text x="${pad + chipSize / 2}" y="${pad + chipSize * 0.64}" text-anchor="middle" font-size="${Math.round(sizeNum * 0.1)}" font-family="${fontFamily}" font-weight="900" fill="#fff">${ctx.iconText}</text>
+    `,
+    skyline: `
+      <circle cx="${sizeNum * 0.76}" cy="${sizeNum * 0.24}" r="${sizeNum * 0.11}" fill="#fff" fill-opacity=".14"/>
+      <path d="M${pad} ${sizeNum * 0.72} V${sizeNum * 0.92} H${sizeNum - pad} V${sizeNum * 0.72} H${sizeNum * 0.78} V${sizeNum * 0.56} H${sizeNum * 0.68} V${sizeNum * 0.62} H${sizeNum * 0.56} V${sizeNum * 0.42} H${sizeNum * 0.46} V${sizeNum * 0.6} H${sizeNum * 0.34} V${sizeNum * 0.5} H${sizeNum * 0.24} V${sizeNum * 0.72} Z" fill="#08111c" fill-opacity=".28"/>
+      <text x="${sizeNum * 0.5}" y="${sizeNum * 0.48}" text-anchor="middle" font-size="${Math.round(sizeNum * 0.23)}" font-family="${fontFamily}" font-weight="900" fill="#fff">${ctx.markText}</text>
+    `,
+    seal: `
+      <circle cx="${sizeNum * 0.5}" cy="${sizeNum * 0.5}" r="${sizeNum * 0.28}" fill="#08111c" fill-opacity=".24" stroke="#fff" stroke-opacity=".2" stroke-width="${Math.max(2, sizeNum * 0.01)}"/>
+      <circle cx="${sizeNum * 0.5}" cy="${sizeNum * 0.5}" r="${sizeNum * 0.21}" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="${Math.max(2, sizeNum * 0.008)}"/>
+      <text x="${sizeNum * 0.5}" y="${sizeNum * 0.57}" text-anchor="middle" font-size="${Math.round(sizeNum * 0.26)}" font-family="${fontFamily}" font-weight="900" fill="#fff">${ctx.markText}</text>
+      <circle cx="${sizeNum * 0.5}" cy="${sizeNum * 0.22}" r="${sizeNum * 0.05}" fill="#fff" fill-opacity=".14"/>
+      <text x="${sizeNum * 0.5}" y="${sizeNum * 0.238}" text-anchor="middle" font-size="${Math.round(sizeNum * 0.06)}" font-family="${fontFamily}" font-weight="900" fill="#fff">${ctx.iconText}</text>
+    `,
+    orbital: `
+      <ellipse cx="${sizeNum * 0.5}" cy="${sizeNum * 0.5}" rx="${sizeNum * 0.28}" ry="${sizeNum * 0.15}" fill="none" stroke="#fff" stroke-opacity=".24" stroke-width="${Math.max(2, sizeNum * 0.01)}"/>
+      <ellipse cx="${sizeNum * 0.5}" cy="${sizeNum * 0.5}" rx="${sizeNum * 0.18}" ry="${sizeNum * 0.3}" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="${Math.max(2, sizeNum * 0.008)}" transform="rotate(-20 ${sizeNum * 0.5} ${sizeNum * 0.5})"/>
+      <circle cx="${sizeNum * 0.68}" cy="${sizeNum * 0.34}" r="${sizeNum * 0.035}" fill="#fff" fill-opacity=".84"/>
+      <text x="${sizeNum * 0.5}" y="${sizeNum * 0.58}" text-anchor="middle" font-size="${Math.round(sizeNum * 0.24)}" font-family="${fontFamily}" font-weight="900" fill="#fff">${ctx.markText}</text>
+    `
+  };
+  const svg = buildCommercialLogoSvg(ctx, compactStyles[style] || compactStyles.shield);
+  return makeSvgDataUri(svg.trim());
+}
+function buildCommercialEventLogo(meta = {}) {
+  const src = meta || {};
+  return buildCommercialBrandLogo({
+    brand: String(src.brand || src.label || src.displayLabel || '品牌').trim(),
+    product: String(src.product || src.category || src.tag || '').trim(),
+    categoryKey: String(src.categoryKey || '').trim(),
+    kind: String(src.kind || '').trim(),
+    tag: String(src.tag || src.category || '').trim(),
+    eventType: String(src.type || '').trim()
+  });
+}
 function getEndorsementIcon(kind = 'gear') {
   const map = {
     gear: '鞋',
@@ -4870,25 +5122,58 @@ function buildCommercialBuzzText(event) {
   const label = String(evt.displayLabel || evt.label || evt.brand || '商业动态').trim();
   const category = String(evt.tag || evt.category || '商业').trim();
   const detail = String(evt.detail || '').trim();
+  const seed = String(evt.eventKey || `${evt.type || 'purchase'}_${label}_${detail}`).trim();
+  const pick = (list = []) => pickSeedItem(list, seed) || list[0] || `${playerName}和${label}有了新动向。`;
   switch (String(evt.type || 'purchase')) {
     case 'endorsement_sign':
-      return `${playerName}和${label}正式牵手，${category}代言落袋，商业版图又往外扩了一圈。${detail ? ` ${detail}` : ''}`.trim();
+      return pick([
+        `${playerName}和${label}正式牵手，${category}合作落地了。${detail ? ` ${detail}` : ''}`.trim(),
+        `${label}这份合作已经敲定，${playerName}的商业线又往前走了一步。${detail ? ` ${detail}` : ''}`.trim(),
+        `${playerName}拿下了${label}这单合作，今天的场外热度也跟着起来了。${detail ? ` ${detail}` : ''}`.trim()
+      ]);
     case 'endorsement_reject':
-      return `${playerName}婉拒了${label}的邀约，球迷已经开始讨论下一份更大的合约了。${detail ? ` ${detail}` : ''}`.trim();
+      return pick([
+        `${playerName}这次没有接下${label}的邀约，外界已经在猜下一步会是谁。${detail ? ` ${detail}` : ''}`.trim(),
+        `${label}这份合作没有谈成，讨论点反而被拉高了。${detail ? ` ${detail}` : ''}`.trim(),
+        `${playerName}暂时放过了${label}这单，后面的商业选择更值得看。${detail ? ` ${detail}` : ''}`.trim()
+      ]);
     case 'signature_shoe':
-      return `${playerName}把${label}做成了签名鞋，属性和分成一起到位，球鞋圈今天有新话题了。${detail ? ` ${detail}` : ''}`.trim();
+      return pick([
+        `${playerName}的${label}已经成型，今天球鞋圈有新图能聊了。${detail ? ` ${detail}` : ''}`.trim(),
+        `${label}这双鞋的消息放出来了，签名鞋线算是正式启动。${detail ? ` ${detail}` : ''}`.trim(),
+        `${playerName}把${label}推进到了新阶段，这双签名鞋开始有实感了。${detail ? ` ${detail}` : ''}`.trim()
+      ]);
     case 'coach_upgrade':
-      return `${playerName}的新团队配置到位，${label}上线后，训练和恢复都更稳了。${detail ? ` ${detail}` : ''}`.trim();
+      return pick([
+        `${playerName}把${label}配齐了，训练和恢复条件都在往上提。${detail ? ` ${detail}` : ''}`.trim(),
+        `${label}已经到位，这套团队配置明显是冲着长期提升去的。${detail ? ` ${detail}` : ''}`.trim()
+      ]);
     case 'facility_upgrade':
-      return `${playerName}把${label}配齐了，个人训练和恢复条件直接升档。${detail ? ` ${detail}` : ''}`.trim();
+      return pick([
+        `${playerName}把${label}也补上了，个人训练条件直接升档。${detail ? ` ${detail}` : ''}`.trim(),
+        `${label}这一步落地之后，场外投入已经越来越成体系了。${detail ? ` ${detail}` : ''}`.trim()
+      ]);
     case 'luxury_purchase':
-      return `${playerName}刚入手${label}，${category}热度直接被拉起来。${detail ? ` ${detail}` : ''}`.trim();
+      return pick([
+        `${playerName}刚把${label}拿下，${category}讨论度一下就起来了。${detail ? ` ${detail}` : ''}`.trim(),
+        `${label}这笔消费已经落地，场外风格又被拉高了一档。${detail ? ` ${detail}` : ''}`.trim()
+      ]);
     case 'media_event':
-      return `${playerName}拿到一档更高规格的曝光：${label}。${detail ? ` ${detail}` : ''}`.trim();
+      return pick([
+        `${playerName}拿到了一档更高规格的曝光：${label}。${detail ? ` ${detail}` : ''}`.trim(),
+        `${label}这次露出已经落地，媒体热度开始往上走。${detail ? ` ${detail}` : ''}`.trim()
+      ]);
     case 'brand_interest':
-      return `${label}开始主动接触${playerName}，商业风向已经明显升温。${detail ? ` ${detail}` : ''}`.trim();
+      return pick([
+        `${label}已经开始主动接触${playerName}，商业风向有点升温了。${detail ? ` ${detail}` : ''}`.trim(),
+        `${playerName}和${label}之间有了新的试探接触，后续值得继续看。${detail ? ` ${detail}` : ''}`.trim()
+      ]);
     default:
-      return `${playerName}又完成了一笔${category}相关采购：${label}。${detail ? ` ${detail}` : ''}`.trim();
+      return pick([
+        `${playerName}这边又有新的${category}动态：${label}。${detail ? ` ${detail}` : ''}`.trim(),
+        `${label}这条${category}消息已经出来了。${detail ? ` ${detail}` : ''}`.trim(),
+        `${playerName}的场外动作又更新了一条：${label}。${detail ? ` ${detail}` : ''}`.trim()
+      ]);
   }
 }
 function createCommercialBuzzPost(event, { day = Math.max(0, G.dayNum - 1), season = G.season, year = G.year } = {}) {
@@ -4905,34 +5190,267 @@ function createCommercialBuzzPost(event, { day = Math.max(0, G.dayNum - 1), seas
         ? 'tactical'
         : String(evt.type || 'purchase') === 'facility_upgrade'
           ? 'tactical'
-          : String(evt.type || 'purchase') === 'brand_interest'
+        : String(evt.type || 'purchase') === 'brand_interest'
             ? 'news'
         : (String(evt.tag || '').includes('公益') ? 'neutral' : 'casual');
   const text = buildCommercialBuzzText(evt);
+  const eventKey = String(evt.eventKey || buildCommercialEventGroupKey(evt)).trim();
   return {
     day,
     season,
     year,
-    author: personaHandle(personaKey),
+    author: personaHandle(personaKey, eventKey),
     persona: SOCIAL_PERSONAS[personaKey]?.type || SOCIAL_PERSONAS.neutral.type,
     tone,
+    sourceType: 'commercial',
+    eventType: String(evt.type || 'purchase').trim(),
+    eventKey,
+    brand: String(evt.brand || '').trim(),
+    product: String(evt.product || '').trim(),
     text,
+    logo: String(evt.logo || '').trim(),
     image: String(evt.image || '').trim(),
+    imageStatus: String(evt.imageStatus || '').trim(),
     likes: clamp(Math.round((110 + Math.max(0, score * 22) + rng(20, 180)) * heatMult), 20, 9999),
     reposts: clamp(Math.round((18 + Math.max(0, score * 4) + rng(5, 70)) * clamp(0.92 + heatMult * 0.2, 1, 1.45)), 5, 9999),
     comments: makeFallbackComments(text, tone === 'negative' ? 'negative' : (tone === 'positive' ? 'positive' : 'neutral'), 3)
   };
 }
+function buildCommercialBuzzPromptPayload(event = {}, avoidTexts = []) {
+  const evt = event || {};
+  return JSON.stringify({
+    player: String(evt.playerName || G.player?.name || '球员').trim(),
+    team: String(evt.teamName || G.team?.z || '').trim(),
+    type: String(evt.type || 'purchase').trim(),
+    brand: String(evt.brand || '').trim(),
+    product: String(evt.product || '').trim(),
+    category: String(evt.category || evt.tag || '').trim(),
+    label: String(evt.displayLabel || evt.label || '').trim(),
+    detail: String(evt.detail || '').trim(),
+    day: parseNum(evt.day, Math.max(0, G.dayNum - 1)),
+    season: parseNum(evt.season, G.season),
+    avoidPhrases: [
+      '完成了一笔签名鞋相关采购',
+      '品牌图',
+      '信息量不少',
+      ...avoidTexts.map(item => cleanSocialText(item || '').slice(0, 80)).filter(Boolean).slice(0, 4)
+    ]
+  });
+}
+async function generateCommercialBuzzDraftByLLM(event = {}, { avoidTexts = [] } = {}) {
+  ensureSocialState();
+  const llm = G.social?.llm || {};
+  if (!llm.enabled || !String(llm.apiKey || '').trim()) return null;
+  const baseUrl = normalizeLLMBaseUrl(llm.baseUrl);
+  const model = String(llm.model || 'gpt-4.1-mini').trim();
+  const allowedPersonaKeys = ['news', 'casual', 'data', 'neutral', 'fan', 'youtuber', 'hottake', 'tactical'];
+  const system = `你是篮球生涯游戏里的中文社媒写手。你要为“商业/代言/签名鞋”事件生成一条第三方账号发出的推文。
+要求：
+1. 文案要像真实中文社媒，不要模板腔，不要重复“完成了一笔签名鞋相关采购”这类机械句。
+2. 必须是旁观者口吻，不能写成球员本人第一人称。
+3. 如果同一品牌同一天有多个动作已经合并成一个事件，要写成“一条新的进展”，不要拆成重复官宣。
+4. 文字自然、有变化，允许有一点吃瓜、数据流、新闻快讯、战术观察的差异，但不要太浮夸。
+5. 只返回合法 JSON，不要解释。
+
+返回格式：
+{
+  "personaKey": "必须是 ${allowedPersonaKeys.join('/')} 之一",
+  "tone": "positive 或 neutral 或 negative",
+  "text": "20到72字的中文推文正文",
+  "comments": ["评论1","评论2","评论3"]
+}`;
+  const userPayload = buildCommercialBuzzPromptPayload(event, avoidTexts);
+  try {
+    let raw = '';
+    if (isGoogleGeminiEndpoint(baseUrl)) {
+      const modelName = normalizeModelNameForGemini(model);
+      const endpoint = `${baseUrl}/models/${encodeURIComponent(modelName)}:generateContent`;
+      const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint, { jsonBody: true });
+      const payload = {
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [{ text: userPayload }] }],
+        generationConfig: { temperature: 0.95, responseMimeType: 'application/json' }
+      };
+      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const data = await readJSONResponseSafe(res, '商业推文生成');
+      raw = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text).join('') || '';
+    } else {
+      const payload = {
+        model,
+        temperature: 0.95,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: userPayload }
+        ],
+        response_format: { type: 'json_object' }
+      };
+      const endpoint = `${baseUrl}/chat/completions`;
+      const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
+      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const data = await readJSONResponseSafe(res, '商业推文生成');
+      raw = data?.choices?.[0]?.message?.content || '';
+    }
+    let jsonStr = raw;
+    const match = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (match) jsonStr = match[1];
+    const parsed = tryParseJSONText(jsonStr.trim());
+    if (!parsed || typeof parsed !== 'object') return null;
+    const personaKey = allowedPersonaKeys.includes(String(parsed.personaKey || '').trim().toLowerCase())
+      ? String(parsed.personaKey || '').trim().toLowerCase()
+      : 'casual';
+    const tone = ['positive', 'neutral', 'negative'].includes(String(parsed.tone || '').trim().toLowerCase())
+      ? String(parsed.tone || '').trim().toLowerCase()
+      : 'neutral';
+    const text = cleanSocialText(String(parsed.text || '').trim()).slice(0, 84);
+    const comments = Array.isArray(parsed.comments) ? parsed.comments : [];
+    if (!text) return null;
+    return { personaKey, tone, text, comments };
+  } catch (e) {
+    return null;
+  }
+}
+async function enhanceCommercialBuzzTextAsync(eventRef, postRef = null, { force = false } = {}) {
+  ensureSocialState();
+  if (!eventRef || typeof eventRef !== 'object') return null;
+  const eventKey = String(eventRef.eventKey || buildCommercialEventGroupKey(eventRef)).trim();
+  const targetPost = postRef && typeof postRef === 'object'
+    ? postRef
+    : findCommercialBuzzPostByEventKey(eventKey, parseNum(eventRef.day, Math.max(0, G.dayNum - 1)), parseNum(eventRef.season, G.season));
+  if (!targetPost) return null;
+  if (!force && targetPost.llmTextReady) return targetPost;
+  const day = parseNum(eventRef.day, Math.max(0, G.dayNum - 1));
+  const season = parseNum(eventRef.season, G.season);
+  const avoidTexts = (G.social?.posts || [])
+    .filter(post =>
+      post !== targetPost &&
+      parseNum(post?.day, -999) === day &&
+      parseNum(post?.season, -999) === season &&
+      !post?.isPlayer
+    )
+    .map(post => String(post?.text || '').trim())
+    .filter(Boolean)
+    .slice(0, 5);
+  const draft = await generateCommercialBuzzDraftByLLM(eventRef, { avoidTexts });
+  if (!draft) return targetPost;
+  const updated = upsertCommercialBuzzPost(eventRef, draft);
+  if (updated) {
+    updated.llmTextReady = true;
+    updated.textSource = 'llm';
+    if (typeof renderPhone === 'function' && $('phonePage')?.classList.contains('active')) renderPhone();
+  }
+  return updated;
+}
+function queueCommercialBuzzTextEnhancement(eventRef, postRef = null, opts = {}) {
+  enhanceCommercialBuzzTextAsync(eventRef, postRef, opts).catch(() => null);
+}
 function getRecentCommercialEvents(limit = 5) {
   ensureSocialState();
   return [...(G.social.commercialEvents || [])].slice(0, Math.max(1, parseNum(limit, 5)));
 }
-function recordCommercialEvent(event) {
+function mergeCommercialEventRecord(target, incoming) {
+  const base = target && typeof target === 'object' ? target : {};
+  const next = incoming && typeof incoming === 'object' ? incoming : {};
+  const resolvedType = commercialEventTypeRank(next.type) >= commercialEventTypeRank(base.type) ? String(next.type || '').trim() : String(base.type || '').trim();
+  base.type = resolvedType || String(base.type || next.type || 'purchase').trim();
+  base.day = parseNum(next.day, base.day);
+  base.season = parseNum(next.season, base.season);
+  base.year = parseNum(next.year, base.year);
+  base.ts = Math.max(parseNum(base.ts, 0), parseNum(next.ts, 0), Date.now());
+  base.eventKey = String(base.eventKey || next.eventKey || buildCommercialEventGroupKey(next)).trim();
+  base.brand = String(next.brand || base.brand || '').trim();
+  base.product = String(next.product || base.product || '').trim();
+  base.categoryKey = String(next.categoryKey || base.categoryKey || '').trim();
+  base.category = String(next.category || base.category || next.tag || '').trim();
+  base.kind = String(next.kind || base.kind || '').trim();
+  base.tag = base.type === 'signature_shoe'
+    ? '签名鞋'
+    : String(next.tag || base.tag || base.category || '').trim();
+  base.fame = parseNum(base.fame, 0) + parseNum(next.fame, 0);
+  base.trust = parseNum(base.trust, 0) + parseNum(next.trust, 0);
+  base.detail = mergeCommercialDetailText(base.detail, next.detail);
+  base.playerName = String(next.playerName || base.playerName || G.player?.name || '球员').trim();
+  base.teamName = String(next.teamName || base.teamName || G.team?.z || '').trim();
+  base.teamAbbr = String(next.teamAbbr || base.teamAbbr || G.team?.a || '').trim();
+  base.logo = String(next.logo || base.logo || '').trim();
+  if (String(next.imageStatus || '').trim().toLowerCase() === 'llm' || !String(base.image || '').trim()) {
+    base.image = String(next.image || base.image || '').trim();
+    base.imageStatus = String(next.imageStatus || base.imageStatus || '').trim();
+  }
+  base.displayLabel = buildCommercialEventDisplayLabel({
+    ...base,
+    displayLabel: next.displayLabel || base.displayLabel || next.label || base.label
+  });
+  base.label = String(next.label || base.label || base.displayLabel).trim();
+  base.posted = !!(base.posted || next.posted);
+  return base;
+}
+function upsertCommercialEventRecord(event) {
   ensureSocialState();
   if (!event || typeof event !== 'object') return null;
-  G.social.commercialEvents.unshift(event);
-  if (G.social.commercialEvents.length > 30) G.social.commercialEvents.pop();
-  return event;
+  const normalized = normalizeCommercialEvent(event, event.tag || '商业', event);
+  normalized.displayLabel = buildCommercialEventDisplayLabel(normalized);
+  normalized.eventKey = String(normalized.eventKey || buildCommercialEventGroupKey(normalized)).trim();
+  const idx = (G.social.commercialEvents || []).findIndex(item => String(item?.eventKey || '').trim() === normalized.eventKey);
+  if (idx < 0) {
+    G.social.commercialEvents.unshift(normalized);
+    if (G.social.commercialEvents.length > 30) G.social.commercialEvents.pop();
+    return normalized;
+  }
+  const existing = G.social.commercialEvents[idx];
+  mergeCommercialEventRecord(existing, normalized);
+  G.social.commercialEvents.splice(idx, 1);
+  G.social.commercialEvents.unshift(existing);
+  return existing;
+}
+function findCommercialBuzzPostByEventKey(eventKey = '', day = Math.max(0, G.dayNum - 1), season = G.season) {
+  const key = String(eventKey || '').trim();
+  if (!key) return null;
+  return (G.social?.posts || []).find(post =>
+    String(post?.eventKey || '').trim() === key &&
+    parseNum(post?.day, -999) === parseNum(day, -1) &&
+    parseNum(post?.season, -999) === parseNum(season, -1)
+  ) || null;
+}
+function upsertCommercialBuzzPost(event, draft = null) {
+  ensureSocialState();
+  const evt = event && typeof event === 'object' ? event : null;
+  if (!evt) return null;
+  const eventKey = String(evt.eventKey || buildCommercialEventGroupKey(evt)).trim();
+  const base = createCommercialBuzzPost(evt, { day: evt.day, season: evt.season, year: evt.year });
+  const personaKey = String(draft?.personaKey || '').trim().toLowerCase();
+  const persona = SOCIAL_PERSONAS[personaKey] || null;
+  const tone = ['positive', 'neutral', 'negative'].includes(String(draft?.tone || '').trim().toLowerCase())
+    ? String(draft.tone).trim().toLowerCase()
+    : String(base.tone || 'neutral').trim().toLowerCase();
+  const comments = normalizeCommercialCommentList(draft?.comments, tone, eventKey, String(draft?.text || base.text || '').trim());
+  const payload = {
+    ...base,
+    author: persona ? personaHandle(personaKey, eventKey) : String(base.author || '@线上看球'),
+    persona: persona?.type || base.persona,
+    tone,
+    text: cleanSocialText(String(draft?.text || base.text || '').trim()) || base.text,
+    comments,
+    day: parseNum(evt.day, base.day),
+    season: parseNum(evt.season, base.season),
+    year: parseNum(evt.year, base.year),
+    ts: parseNum(evt.ts, Date.now()),
+    eventKey
+  };
+  const existing = findCommercialBuzzPostByEventKey(eventKey, payload.day, payload.season);
+  if (!existing) return appendSocialPost(payload);
+  const keepLlmImage = String(existing.imageStatus || '').trim().toLowerCase() === 'llm' && String(existing.image || '').trim();
+  Object.assign(existing, {
+    ...payload,
+    id: existing.id,
+    image: String(keepLlmImage ? existing.image : (payload.image || existing.image || '')).trim(),
+    imageStatus: String(keepLlmImage ? 'llm' : (payload.imageStatus || existing.imageStatus || '')).trim()
+  });
+  if (typeof updateHeader === 'function') updateHeader();
+  if (typeof renderPhone === 'function' && $('phonePage')?.classList.contains('active')) renderPhone();
+  return existing;
+}
+function recordCommercialEvent(event) {
+  return upsertCommercialEventRecord(event);
 }
 function appendSocialPost(post) {
   ensureSocialState();
@@ -4952,7 +5470,21 @@ function appendSocialPost(post) {
   return next;
 }
 function inferCommercialEventType(tag, fallback = 'purchase') {
-  const raw = String(tag || '').toLowerCase();
+  const raw = String(tag || '').toLowerCase().trim();
+  if (!raw) return fallback;
+  if ([
+    'purchase',
+    'endorsement_sign',
+    'endorsement_reject',
+    'signature_shoe',
+    'coach_upgrade',
+    'facility_upgrade',
+    'media_event',
+    'brand_interest',
+    'luxury_purchase'
+  ].includes(raw)) {
+    return raw;
+  }
   if (raw.includes('代言')) return 'endorsement_sign';
   if (raw.includes('签名鞋') || raw.includes('球鞋')) return 'signature_shoe';
   if (raw.includes('训练')) return 'coach_upgrade';
@@ -4964,6 +5496,67 @@ function inferCommercialEventType(tag, fallback = 'purchase') {
   }
   return fallback;
 }
+function normalizeCommercialKeyPart(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[·•\-_/\\:：,.，。!！?？'"]/g, '');
+}
+function buildCommercialEventGroupKey(event = {}) {
+  const evt = event || {};
+  const season = parseNum(evt.season, G.season);
+  const day = parseNum(evt.day, Math.max(0, G.dayNum - 1));
+  const type = String(evt.type || 'purchase').trim().toLowerCase();
+  const brandKey = normalizeCommercialKeyPart(evt.brand || evt.displayLabel || evt.label || '');
+  const labelKey = normalizeCommercialKeyPart(evt.displayLabel || evt.label || evt.product || type).slice(0, 30);
+  if (['endorsement_sign', 'endorsement_reject', 'signature_shoe'].includes(type) && brandKey) {
+    return `brand_${season}_${day}_${brandKey}`;
+  }
+  return `event_${season}_${day}_${type}_${brandKey || labelKey || 'buzz'}`;
+}
+function buildCommercialEventDisplayLabel(event = {}) {
+  const evt = event || {};
+  const type = String(evt.type || 'purchase').trim().toLowerCase();
+  const brand = String(evt.brand || '').trim();
+  const product = String(evt.product || '').trim();
+  if (type === 'signature_shoe' && brand) return `${brand} 签名鞋`;
+  if ((type === 'endorsement_sign' || type === 'endorsement_reject') && (brand || product)) {
+    return [brand, product].filter(Boolean).join(' ');
+  }
+  return String(evt.displayLabel || evt.label || [brand, product].filter(Boolean).join(' · ') || evt.tag || '商业动态').trim();
+}
+function commercialEventTypeRank(type = '') {
+  return {
+    signature_shoe: 5,
+    endorsement_sign: 4,
+    endorsement_reject: 3,
+    brand_interest: 2,
+    media_event: 2,
+    facility_upgrade: 1,
+    coach_upgrade: 1,
+    luxury_purchase: 1,
+    purchase: 0
+  }[String(type || '').trim().toLowerCase()] ?? 0;
+}
+function splitCommercialDetailParts(detail = '') {
+  return String(detail || '')
+    .split(/[；;。]/)
+    .map(part => cleanSocialText(part || '').trim())
+    .filter(Boolean);
+}
+function mergeCommercialDetailText(existingDetail = '', incomingDetail = '') {
+  const parts = [...splitCommercialDetailParts(existingDetail), ...splitCommercialDetailParts(incomingDetail)];
+  const seen = new Set();
+  const merged = [];
+  parts.forEach(part => {
+    const key = normalizeCommercialKeyPart(part);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    merged.push(part);
+  });
+  return merged.slice(0, 3).join('；');
+}
 function normalizeCommercialEvent(label, tag = '消费', meta = {}) {
   const src = label && typeof label === 'object'
     ? { ...label, ...meta }
@@ -4971,21 +5564,38 @@ function normalizeCommercialEvent(label, tag = '消费', meta = {}) {
   const eventType = inferCommercialEventType(src.type || src.tag || tag, 'purchase');
   const brand = String(src.brand || '').trim();
   const product = String(src.product || '').trim();
+  const categoryKey = String(src.categoryKey || '').trim();
   const displayLabel = String(src.displayLabel || src.label || [brand, product].filter(Boolean).join(' · ') || tag || '商业动态').trim();
   const detail = String(src.detail || '').trim();
+  const image = String(src.image || '').trim();
+  const imageStatus = String(src.imageStatus || (image ? 'fallback' : '')).trim();
+  const logo = buildCommercialEventLogo({
+    brand,
+    product,
+    categoryKey,
+    category: String(src.category || src.tag || tag || '').trim(),
+    kind: String(src.kind || '').trim(),
+    tag: String(src.tag || tag || '').trim(),
+    type: eventType,
+    label: displayLabel
+  });
   return {
     type: eventType,
     label: String(src.label || displayLabel).trim(),
     displayLabel,
+    eventKey: String(src.eventKey || '').trim() || buildCommercialEventGroupKey({ ...src, type: eventType, brand, product, displayLabel }),
     tag: String(src.tag || tag || '').trim(),
     category: String(src.category || src.tag || tag || '').trim(),
+    categoryKey,
     brand,
     product,
     detail,
     fame: parseNum(src.fame, 0),
     trust: parseNum(src.trust, 0),
     kind: String(src.kind || '').trim(),
-    image: String(src.image || '').trim(),
+    logo,
+    image,
+    imageStatus,
     playerName: String(src.playerName || G.player?.name || '球员').trim(),
     teamName: String(src.teamName || G.team?.z || '').trim(),
     teamAbbr: String(src.teamAbbr || G.team?.a || '').trim(),
@@ -4995,6 +5605,231 @@ function normalizeCommercialEvent(label, tag = '消费', meta = {}) {
     ts: parseNum(src.ts, Date.now()),
     posted: !!src.posted
   };
+}
+function extractLegacyCommercialBrand(text = '') {
+  const raw = cleanSocialText(String(text || '').trim());
+  const patterns = [
+    /已签下\s*([A-Za-z0-9\u4e00-\u9fa5·]+)/,
+    /拒绝(?:了)?\s*([A-Za-z0-9\u4e00-\u9fa5·]+)/,
+    /：\s*([A-Za-z0-9\u4e00-\u9fa5·]+)\s*(?:签名鞋|代言|联名|球鞋)/,
+    /([A-Za-z0-9\u4e00-\u9fa5·]+)\s*签名鞋/
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (match?.[1]) return String(match[1]).trim();
+  }
+  return '';
+}
+function extractLegacyCommercialDetail(text = '') {
+  const raw = cleanSocialText(String(text || '').trim());
+  if (!raw) return '';
+  const parts = raw.split(/[。.!！?？]/).map(part => cleanSocialText(part || '').trim()).filter(Boolean);
+  return parts.length > 1 ? parts.slice(1).join('；') : '';
+}
+function resolveCommercialBrandReference(brand = '') {
+  const brandKey = normalizeCommercialKeyPart(brand);
+  if (!brandKey) return null;
+  const activeState = typeof getEndorsementState === 'function' ? getEndorsementState() : null;
+  const activeRef = Array.isArray(activeState?.active)
+    ? activeState.active.find(item => normalizeCommercialKeyPart(item?.brand) === brandKey)
+    : null;
+  if (activeRef) return activeRef;
+  if (Array.isArray(typeof ENDORSEMENT_CATALOG !== 'undefined' ? ENDORSEMENT_CATALOG : null)) {
+    const catalogRef = ENDORSEMENT_CATALOG.find(item => normalizeCommercialKeyPart(item?.brand) === brandKey);
+    if (catalogRef) return catalogRef;
+  }
+  return null;
+}
+function inferLegacyCommercialEventType(src = {}) {
+  const direct = String(src.type || '').trim().toLowerCase();
+  const text = [
+    src.text,
+    src.detail,
+    src.label,
+    src.displayLabel,
+    src.tag
+  ].map(item => cleanSocialText(item || '').trim()).filter(Boolean).join(' ');
+  if (/拒绝/.test(text)) return 'endorsement_reject';
+  if (/已签下|代言签约|签约完成|合作落地|正式牵手/.test(text)) return 'endorsement_sign';
+  if (/已创建|配色|空气动力学|签名鞋|球鞋|生图|L\d/.test(text)) return 'signature_shoe';
+  if (direct && direct !== 'purchase') return inferCommercialEventType(direct, direct);
+  return inferCommercialEventType(src.tag || src.type || 'purchase', 'purchase');
+}
+function normalizeLegacyCommercialEventPayload(src = {}) {
+  const raw = src && typeof src === 'object' ? src : {};
+  const text = cleanSocialText(String(raw.text || '').trim());
+  const inferredBrand = String(raw.brand || '').trim() || extractLegacyCommercialBrand(text);
+  const ref = resolveCommercialBrandReference(inferredBrand);
+  const nextType = inferLegacyCommercialEventType({
+    ...raw,
+    brand: inferredBrand,
+    text
+  });
+  const detail = String(raw.detail || '').trim() || extractLegacyCommercialDetail(text);
+  const baseProduct = String(raw.product || '').trim();
+  const nextProduct = nextType === 'signature_shoe'
+    ? '签名鞋'
+    : (baseProduct && baseProduct !== '签名鞋' ? baseProduct : String(ref?.product || baseProduct || '').trim());
+  const nextCategoryKey = String(raw.categoryKey || ref?.categoryKey || '').trim();
+  const nextCategory = String(raw.category || ref?.category || raw.tag || '').trim();
+  const nextKind = String(raw.kind || ref?.kind || nextCategoryKey || '').trim();
+  return normalizeCommercialEvent({
+    ...raw,
+    type: nextType,
+    brand: inferredBrand,
+    product: nextProduct,
+    categoryKey: nextCategoryKey,
+    category: nextCategory,
+    kind: nextKind,
+    detail,
+    image: String(raw.image || '').trim(),
+    imageStatus: String(raw.imageStatus || (raw.image ? 'llm' : '')).trim()
+  }, raw.tag || nextCategory || '商业');
+}
+function buildLegacyCommercialEventFromPost(post = {}) {
+  if (!post || typeof post !== 'object') return null;
+  const text = cleanSocialText(String(post.text || '').trim());
+  if (!text) return null;
+  return normalizeLegacyCommercialEventPayload({
+    label: text,
+    text,
+    tag: post.tag || '商业',
+    detail: extractLegacyCommercialDetail(text),
+    brand: String(post.brand || '').trim() || extractLegacyCommercialBrand(text),
+    product: String(post.product || '').trim(),
+    image: String(post.image || '').trim(),
+    imageStatus: String(post.imageStatus || (post.image ? 'llm' : '')).trim(),
+    day: parseNum(post.day, Math.max(0, G.dayNum - 1)),
+    season: parseNum(post.season, G.season),
+    year: parseNum(post.year, G.year),
+    ts: parseNum(post.ts, Date.now()),
+    playerName: String(post.playerName || G.player?.name || '球员').trim(),
+    teamName: String(post.teamName || G.team?.z || '').trim(),
+    teamAbbr: String(post.teamAbbr || G.team?.a || '').trim(),
+    posted: true
+  });
+}
+function isLegacyCommercialBuzzPost(post = {}) {
+  if (!post || typeof post !== 'object') return false;
+  const sourceType = String(post.sourceType || '').trim().toLowerCase();
+  const text = cleanSocialText(String(post.text || '').trim());
+  if (sourceType === 'commercial' && (!String(post.eventKey || '').trim() || !String(post.eventType || '').trim())) return true;
+  return /完成了一笔签名鞋相关采购|品牌图/.test(text);
+}
+function isCommercialSocialPost(post = {}) {
+  if (!post || typeof post !== 'object') return false;
+  if (String(post.sourceType || '').trim().toLowerCase() === 'commercial') return true;
+  return isLegacyCommercialBuzzPost(post);
+}
+function migrateLegacyCommercialSocialState({ force = false } = {}) {
+  ensureSocialState();
+  const currentVersion = parseNum(G.social?.commercialSocialVersion, 0);
+  const posts = Array.isArray(G.social?.posts) ? G.social.posts : [];
+  const events = Array.isArray(G.social?.commercialEvents) ? G.social.commercialEvents : [];
+  const hasLegacyPosts = posts.some(post => isLegacyCommercialBuzzPost(post));
+  const hasLegacyEvents = events.some(evt => {
+    const type = String(evt?.type || '').trim().toLowerCase();
+    return !String(evt?.eventKey || '').trim()
+      || !String(evt?.logo || '').trim()
+      || type === 'purchase'
+      || (String(evt?.tag || '').includes('签名鞋') && type !== 'signature_shoe');
+  });
+  const hasBrokenCommercialPosts = posts.some(post =>
+    String(post?.sourceType || '').trim().toLowerCase() === 'commercial' &&
+    (!String(post?.eventKey || '').trim() || !String(post?.eventType || '').trim() || !String(post?.logo || '').trim())
+  );
+  if (!force && currentVersion >= 3 && !hasLegacyPosts && !hasLegacyEvents && !hasBrokenCommercialPosts) {
+    return { migrated: false, events: events.length, posts: posts.length };
+  }
+  const preservedPosts = posts.filter(post => !isCommercialSocialPost(post));
+  const legacyPostSources = posts.filter(post => isLegacyCommercialBuzzPost(post)).map(buildLegacyCommercialEventFromPost).filter(Boolean);
+  const normalizedSources = [...events, ...legacyPostSources]
+    .map(item => normalizeLegacyCommercialEventPayload(item))
+    .filter(Boolean)
+    .sort((a, b) => parseNum(a?.ts, 0) - parseNum(b?.ts, 0));
+  G.social.commercialEvents = [];
+  normalizedSources.forEach(item => { upsertCommercialEventRecord(item); });
+  const rebuiltEvents = [...(G.social.commercialEvents || [])].sort((a, b) => parseNum(a?.ts, 0) - parseNum(b?.ts, 0));
+  G.social.posts = preservedPosts;
+  rebuiltEvents.forEach(evt => {
+    const post = upsertCommercialBuzzPost(evt);
+    if (!post) return;
+    if (G.social?.llm?.enabled && String(G.social?.llm?.apiKey || '').trim()) {
+      queueCommercialBuzzTextEnhancement(evt, post, { force: true });
+    }
+    if (G.social?.tweetImagesEnabled) queueCommercialEventVisualEnhancement(evt, post);
+  });
+  const maxPostId = (G.social.posts || []).reduce((best, post) => Math.max(best, parseNum(post?.id, 0)), 0);
+  G.social.nextPostId = Math.max(1, maxPostId + 1);
+  G.social.commercialSocialVersion = 3;
+  return {
+    migrated: true,
+    events: (G.social.commercialEvents || []).length,
+    posts: (G.social.posts || []).length,
+    rebuiltCommercialPosts: rebuiltEvents.length
+  };
+}
+function buildCommercialEventImagePrompt(event = {}) {
+  const evt = event || {};
+  const playerName = String(evt.playerName || G.player?.name || '球员').trim();
+  const label = String(evt.displayLabel || evt.label || evt.brand || '商业动态').trim();
+  const detail = String(evt.detail || '').trim();
+  const category = String(evt.category || evt.tag || '').trim();
+  let focus = '真实商业新闻配图';
+  if (evt.type === 'signature_shoe') focus = '签名鞋主体完整可见，鞋型和细节清晰';
+  else if (evt.type === 'endorsement_sign') focus = '品牌签约官宣氛围，球员与品牌合作感强';
+  else if (evt.type === 'brand_interest') focus = '高端品牌接触的预热视觉，氛围高级';
+  else if (evt.type === 'luxury_purchase') focus = '球星生活方式实拍感，主体物件完整';
+  else if (evt.type === 'facility_upgrade' || evt.type === 'coach_upgrade') focus = '训练基地或恢复设施的纪实图，专业感明显';
+  else if (evt.type === 'media_event') focus = '媒体活动现场图，新闻摄影感强';
+  return `为一条中文篮球商业社媒动态生成 1:1 方形配图。
+要求：
+- 必须是正方形构图，主体完整，不要裁掉鞋、人物或产品
+- 像真实社交媒体会配的摄影图，不要海报排版、不要大片文字、不要水印
+- 适合手机信息流展示，留白自然，重点明确
+
+事件主角：${playerName}
+事件名称：${label}
+事件分类：${category || '商业动态'}
+细节补充：${detail || '根据该商业动态做真实新闻摄影风配图'}
+画面重点：${focus}`;
+}
+async function enhanceCommercialEventVisualAsync(eventRef, postRef = null) {
+  ensureSocialState();
+  if (!eventRef || typeof eventRef !== 'object') return null;
+  if (!G.social?.tweetImagesEnabled) return null;
+  if (typeof generateSignatureShoeImageByLLM !== 'function') return null;
+  const llm = G.social?.llm || {};
+  if (!llm.enabled || !String(llm.apiKey || '').trim()) return null;
+  const currentStatus = String(postRef?.imageStatus || eventRef.imageStatus || '').trim().toLowerCase();
+  if (currentStatus === 'llm') return null;
+  const baseUrl = normalizeLLMBaseUrl(llm.baseUrl);
+  const defaultModel = isGoogleGeminiEndpoint(baseUrl) ? 'gemini-3.1-flash-image-preview' : 'gpt-image-1';
+  const imageModel = String(llm.imageModel || '').trim() || defaultModel;
+  const prompt = buildCommercialEventImagePrompt(eventRef);
+  try {
+    const res = await generateSignatureShoeImageByLLM(prompt, { model: imageModel, size: '1024x1024' });
+    if (!res?.ok || !res.image) return null;
+    const nextImage = String(res.image || '').trim();
+    eventRef.image = nextImage;
+    eventRef.imagePrompt = prompt;
+    eventRef.imageModel = String(res.model || imageModel).trim();
+    eventRef.imageStatus = 'llm';
+    if (postRef && typeof postRef === 'object') {
+      postRef.image = nextImage;
+      postRef.imagePrompt = prompt;
+      postRef.imageModel = String(res.model || imageModel).trim();
+      postRef.imageStatus = 'llm';
+    }
+    if (typeof renderPhone === 'function' && $('phonePage')?.classList.contains('active')) renderPhone();
+    if (typeof renderCommerce === 'function' && $('commercePage')?.classList.contains('active')) renderCommerce();
+    return nextImage;
+  } catch (e) {
+    return null;
+  }
+}
+function queueCommercialEventVisualEnhancement(eventRef, postRef = null) {
+  enhanceCommercialEventVisualAsync(eventRef, postRef).catch(() => null);
 }
 const ENDORSEMENT_SINGLE_SLOT_CATEGORIES = new Set(['food', 'auto']);
 const SOCIAL_PERSONAS = {
@@ -5055,7 +5890,10 @@ function personaHandle(personaKey) {
   const key = String(personaKey || 'neutral').toLowerCase();
   const persona = SOCIAL_PERSONAS[key] || SOCIAL_PERSONAS.neutral || { handles: ['@线上看球'] };
   const handles = Array.isArray(persona.handles) ? persona.handles.filter(Boolean) : [];
-  return handles.length ? handles[0] : '@线上看球';
+  if (!handles.length) return '@线上看球';
+  const seed = arguments.length > 1 ? String(arguments[1] || '').trim() : '';
+  if (!seed) return handles[0];
+  return pickSeedItem(handles, `${key}_${seed}`) || handles[0];
 }
 const SOCIAL_COMMENTERS = [
   '@篮圈路人', '@冷静分析', '@主队铁粉', '@客队球迷', '@数字派',
@@ -5087,6 +5925,24 @@ function makeFallbackComments(text, tone = 'neutral', count = 3) {
     });
   }
   return comments;
+}
+function normalizeCommercialCommentList(rawComments, tone = 'neutral', seed = '', fallbackText = '') {
+  const items = Array.isArray(rawComments) ? rawComments : [];
+  const normalized = items
+    .map(item => typeof item === 'string' ? { text: item } : item)
+    .map((item, idx) => {
+      const text = cleanSocialText(String(item?.text || item?.comment || '').trim()).slice(0, 26);
+      if (!text) return null;
+      const author = String(item?.author || '').trim() || SOCIAL_COMMENTERS[(hashStringToInt(`${seed}_${idx}`) + idx) % SOCIAL_COMMENTERS.length] || `@评论${idx + 1}`;
+      return {
+        author,
+        text,
+        likes: clamp(parseNum(item?.likes, rng(1, tone === 'positive' ? 88 : 48)), 1, 9999)
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+  return normalized.length ? normalized : makeFallbackComments(fallbackText || seed, tone, 3);
 }
 
 const SOCIAL_LINK_STATUS = {
@@ -5646,6 +6502,7 @@ function ensureSocialState() {
   if (!G.social.playerLinks || typeof G.social.playerLinks !== 'object') G.social.playerLinks = {};
   if (!G.social.starProfiles || typeof G.social.starProfiles !== 'object') G.social.starProfiles = {};
   if (!Array.isArray(G.social.commercialEvents)) G.social.commercialEvents = [];
+  if (!Number.isFinite(parseNum(G.social.commercialSocialVersion, NaN))) G.social.commercialSocialVersion = 0;
   if (!Array.isArray(G.social.llmModels)) G.social.llmModels = [];
   if (!Number.isFinite(parseNum(G.social.llmModelsFetchedAt, NaN))) G.social.llmModelsFetchedAt = 0;
   if (!G.social.lastLLMTest || typeof G.social.lastLLMTest !== 'object') G.social.lastLLMTest = { ok: false, message: '', at: 0 };
@@ -5742,6 +6599,7 @@ function buildLLMPromptPresetSection({ context = null, scope = 'social' } = {}) 
   if (presets.emotionControl) lines.push('情绪描写克制，不要过度煽情或使用过多感叹号，让读者自己感受。');
   if (presets.roleHope) lines.push('允许角色保有希望和正面动机，不要所有情节都走向绝望和负面。');
   if (presets.gameInteraction && scope === 'story') lines.push('如果当天有比赛，必须紧扣比赛数据和结果来推进剧情，不要脱离比赛数据编故事。');
+  if (scope === 'story') lines.push('沉浸式写作：禁止出现玩家、系统、天数编号、休赛日、OVR、POT、评分、能力值、潜力值、属性、面板、任务等游戏化表述。');
   if (presets.dataFirst) lines.push('数据优先：提及球员表现时必须引用 context 中提供的具体数字，禁止编造不存在的数据。');
   return lines.length ? lines.join('\n') : '';
 }
@@ -6151,15 +7009,14 @@ function socialGeneratedKey(day, season = G.season) {
 function getGeneratedSocialCount(day, season = G.season) {
   ensureSocialState();
   const key = socialGeneratedKey(day, season);
-  const recorded = parseNum(G.social.generatedDayCounts?.[key], -1);
-  if (recorded >= 0) return recorded;
   const posts = (G.social.posts || []).filter(p =>
     parseNum(p?.season, 0) === parseNum(season, 0) &&
     parseNum(p?.day, -999) === parseNum(day, -999) &&
-    !p?.isPlayer
+    !p?.isPlayer &&
+    String(p?.sourceType || '').trim().toLowerCase() !== 'commercial'
   );
   const count = posts.length;
-  if (count >= 5) G.social.generatedDayCounts[key] = count;
+  G.social.generatedDayCounts[key] = count;
   return count;
 }
 function hasGeneratedSocialForDay(day, season = G.season) {
@@ -6269,10 +7126,10 @@ function buildSocialTweetImagePrompt(post, context = {}) {
     src.persona || '',
     context?.commercialEvents?.length ? 'commercial sports buzz' : ''
   ].filter(Boolean).join(', ');
-  return `为一条中文篮球社媒动态生成配图。画面要像真实社交媒体会配的体育图，不要出现水印、文字墙或海报排版。
+  return `为一条中文篮球社媒动态生成 1:1 方形配图。画面要像真实社交媒体会配的体育图，不要出现水印、文字墙或海报排版。
 主题标签：${tags}
 动态内容：${text || '联盟日常讨论'}
-要求：横向画面、强体育新闻感、人物与场馆氛围清晰、适合手机推文流展示。`;
+要求：正方形构图、主体完整不要被裁切、强体育新闻感、人物与场馆氛围清晰、适合手机推文流展示。`;
 }
 async function attachGeneratedImagesToSocialPosts(posts = [], dayResult = {}, context = null) {
   ensureSocialState();
@@ -6291,7 +7148,7 @@ async function attachGeneratedImagesToSocialPosts(posts = [], dayResult = {}, co
   for (const post of candidates) {
     const prompt = buildSocialTweetImagePrompt(post, ctx);
     try {
-      const res = await generateSignatureShoeImageByLLM(prompt, { model: imageModel, size: '1536x1024' });
+      const res = await generateSignatureShoeImageByLLM(prompt, { model: imageModel, size: '1024x1024' });
       if (res?.ok && res.image) {
         post.image = String(res.image || '').trim();
         post.imagePrompt = prompt;
@@ -6605,6 +7462,36 @@ function replyToSocialPost(postId, text = '') {
     }
   };
 }
+async function regenerateCommercialBuzzPostsForDay(day, season, { enhanceText = true } = {}) {
+  ensureSocialState();
+  const sourceEvents = [...(G.social.commercialEvents || [])]
+    .filter(evt => parseNum(evt?.day, -999) === parseNum(day, -1) && parseNum(evt?.season, -999) === parseNum(season, -1))
+    .sort((a, b) => parseNum(a?.ts, 0) - parseNum(b?.ts, 0));
+  if (!sourceEvents.length) return [];
+  const grouped = new Map();
+  sourceEvents.forEach(raw => {
+    const normalized = normalizeCommercialEvent(raw, raw?.tag || '商业', raw);
+    const key = String(normalized.eventKey || buildCommercialEventGroupKey(normalized)).trim();
+    if (!grouped.has(key)) {
+      grouped.set(key, { ...normalized, eventKey: key });
+      return;
+    }
+    const existing = grouped.get(key);
+    mergeCommercialEventRecord(existing, normalized);
+    grouped.set(key, existing);
+  });
+  const groupedEvents = [...grouped.values()].sort((a, b) => parseNum(b?.ts, 0) - parseNum(a?.ts, 0));
+  const results = [];
+  for (const evt of groupedEvents) {
+    const post = upsertCommercialBuzzPost(evt);
+    if (!post) continue;
+    if (enhanceText) await enhanceCommercialBuzzTextAsync(evt, post, { force: true });
+    else queueCommercialBuzzTextEnhancement(evt, post, { force: true });
+    queueCommercialEventVisualEnhancement(evt, post);
+    results.push(post);
+  }
+  return results;
+}
 async function regenerateTodaySocialTweets() {
   ensureSocialState();
   const fallbackDay = Math.max(0, parseNum(G.dayNum, 0) - 1);
@@ -6619,7 +7506,9 @@ async function regenerateTodaySocialTweets() {
   const season = parseNum(G.season, 1);
   G.social.posts = (G.social.posts || []).filter(post => !(parseNum(post?.day, -999) === day && parseNum(post?.season, 0) === season && !post?.isPlayer));
   delete G.social.generatedDayCounts[socialGeneratedKey(day, season)];
-  return generateDailySocialTweetsSmart(dayResult, { force: true });
+  const generated = await generateDailySocialTweetsSmart(dayResult, { force: true });
+  const commercial = await regenerateCommercialBuzzPostsForDay(day, season, { enhanceText: true });
+  return [...generated, ...commercial];
 }
 function applyReputationDelta({ fame = 0, trust = 0, source = '' } = {}) {
   const ecoFx = getEconomyEffects();
@@ -6650,18 +7539,42 @@ function ownedLuxurySet() {
   return new Set((G.economy.ownedItems || []).map(x => String(x)));
 }
 function buildEconomyEffectSummary(item = {}) {
+  const has = key => Object.prototype.hasOwnProperty.call(item, key);
   const parts = [];
+  let overview = '';
+  if (has('restBonus') && has('gameBonus') && has('injuryMult') && has('injuryDaysMult')) {
+    overview = '提升休息恢复、赛后恢复并缩短伤停时间';
+  } else if (has('restBonus') && has('gameBonus') && has('injuryMult')) {
+    overview = '提升休息恢复、赛后恢复并降低伤病风险';
+  } else if (has('xpMult') && !has('prepBonus') && !has('fatigueRelief')) {
+    overview = '提升训练成长效率与属性开发';
+  } else if (has('posRepMult') || has('negRepMult') || has('socialHeatMult') || has('eventBonus')) {
+    overview = '放大正面舆论、缓冲负面风波并提高商业曝光';
+  } else if (has('offerMult') || has('incomeMult') || has('activeCapBonus')) {
+    overview = '提高代言谈判能力、商业收入和并行合作上限';
+  } else if (has('prepBonus') || has('fatigueRelief')) {
+    overview = '提升赛前准备、训练分析和疲劳管理';
+  } else if (has('fame') || has('trust')) {
+    overview = '提升声望与公众形象';
+  }
   if (parseNum(item.fame, 0)) parts.push(`声望 ${parseNum(item.fame, 0) > 0 ? '+' : ''}${parseNum(item.fame, 0)}`);
   if (parseNum(item.trust, 0)) parts.push(`信任 ${parseNum(item.trust, 0) > 0 ? '+' : ''}${parseNum(item.trust, 0)}`);
   if (parseNum(item.restBonus, 0)) parts.push(`休息恢复 +${parseNum(item.restBonus, 0)}`);
   if (parseNum(item.gameBonus, 0)) parts.push(`赛后恢复 +${parseNum(item.gameBonus, 0)}`);
   if (parseNum(item.xpMult, 1) > 1) parts.push(`训练 XP ×${parseNum(item.xpMult, 1).toFixed(2)}`);
   if (parseNum(item.injuryMult, 1) < 1) parts.push(`伤病风险 ×${parseNum(item.injuryMult, 1).toFixed(2)}`);
+  if (parseNum(item.injuryDaysMult, 1) < 1) parts.push(`伤停时间 ×${parseNum(item.injuryDaysMult, 1).toFixed(2)}`);
   if (parseNum(item.posRepMult, 1) > 1) parts.push(`正面舆论 ×${parseNum(item.posRepMult, 1).toFixed(2)}`);
+  if (parseNum(item.negRepMult, 1) < 1) parts.push(`负面舆论 ×${parseNum(item.negRepMult, 1).toFixed(2)}`);
   if (parseNum(item.socialHeatMult, 1) > 1) parts.push(`热度 ×${parseNum(item.socialHeatMult, 1).toFixed(2)}`);
+  if (parseNum(item.eventBonus, 0) > 0) parts.push(`商业机会 +${(parseNum(item.eventBonus, 0) * 100).toFixed(1)}%`);
   if (parseNum(item.marketScoreBonus, 0) > 0) parts.push(`市场分 +${parseNum(item.marketScoreBonus, 0)}`);
+  if (parseNum(item.offerMult, 1) > 1) parts.push(`代言报价 ×${parseNum(item.offerMult, 1).toFixed(2)}`);
+  if (parseNum(item.incomeMult, 1) > 1) parts.push(`商业分成 ×${parseNum(item.incomeMult, 1).toFixed(2)}`);
+  if (parseNum(item.activeCapBonus, 0) > 0) parts.push(`并行代言上限 +${parseNum(item.activeCapBonus, 0)}`);
   if (parseNum(item.prepBonus, 0) > 0) parts.push(`赛前准备 +${parseNum(item.prepBonus, 0)}`);
-  return parts.join(' | ') || '提升商业曝光与生涯体验';
+  if (parseNum(item.fatigueRelief, 0) > 0) parts.push(`疲劳管理 +${(parseNum(item.fatigueRelief, 0) * 100).toFixed(1)}%`);
+  return [overview, ...parts].filter(Boolean).join(' | ') || '提升商业曝光与生涯体验';
 }
 function addCommercialMomentum({ label = '', cost = 0, extra = 0, source = '商业运作', quiet = false } = {}) {
   ensureEconomyState();
@@ -6819,17 +7732,12 @@ function emitPurchaseSocialBuzz(label, tag = '消费', meta = {}) {
   const event = normalizeCommercialEvent(label, tag, meta);
   const stored = recordCommercialEvent({ ...event, posted: true });
   if (!stored) return [];
-  const post = createCommercialBuzzPost(stored, { day: stored.day, season: stored.season, year: stored.year });
-  if (post) {
-    appendSocialPost({
-      ...post,
-      day: parseNum(stored.day, Math.max(0, G.dayNum - 1)),
-      season: parseNum(stored.season, G.season),
-      year: parseNum(stored.year, G.year),
-      ts: parseNum(stored.ts, Date.now())
-    });
+  const appended = upsertCommercialBuzzPost(stored);
+  if (stored && appended) {
+    queueCommercialBuzzTextEnhancement(stored, appended, { force: true });
+    queueCommercialEventVisualEnhancement(stored, appended);
   }
-  return post ? [post] : [];
+  return appended ? [appended] : [];
 }
 function buyLevelUpgrade({ levelKey = '', market = [], maxMessage = '已满级', message = '', fame = 1, trust = 1, phoneFrom = '团队', buzzTag = '团队升级', eventType = 'coach_upgrade' } = {}) {
   ensureEconomyState();
@@ -7107,6 +8015,7 @@ function makeEndorsementTemplate(categoryKey, categoryName, raw, index) {
     shoeStyle: String(raw.shoeStyle || 'allaround'),
     note: String(raw.note || '')
   };
+  template.logo = buildCommercialBrandLogo(template);
   template.exclusiveSlot = ENDORSEMENT_SINGLE_SLOT_CATEGORIES.has(String(categoryKey || '').toLowerCase()) ? categoryKey : '';
   template.image = buildEndorsementImage(template);
   return template;
@@ -7367,6 +8276,13 @@ function buildEndorsementOffersView() {
   });
   const activeDeals = (state.active || []).map(deal => ({
     ...deal,
+    logo: buildCommercialBrandLogo({
+      brand: deal?.brand,
+      product: deal?.product,
+      categoryKey: deal?.categoryKey,
+      category: deal?.category,
+      kind: deal?.kind
+    }),
     totalIncome: +((parseNum(deal.baseDailyIncome, 0) + parseNum(deal.baseGameIncome, 0) + parseNum(deal.shoe?.dailyIncome, 0) + parseNum(deal.shoe?.gameIncome, 0)) * liveIncomeMult).toFixed(3),
     remainingDays: parseNum(deal.remainingDays, 0)
   }));
