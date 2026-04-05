@@ -1,6 +1,15 @@
 // ui.js
 // ============ CREATE PAGE UI ============
 let createStep = 0;
+const TEST_ATTR_PANEL_STATE = {
+  draft: false,
+  upgrade: false,
+  message: {
+    draft: '',
+    upgrade: ''
+  }
+};
+
 function getCreateStepItems() {
   return [
     { id: 0, label: '建档', sub: '身份录入' },
@@ -35,6 +44,148 @@ function renderCreateStageHeader(title, subtitle, kicker = '篮球生涯') {
       </div>
     </div>
   `;
+}
+
+function getTestAttrInputId(scope, attrKey) {
+  return `testAttr_${scope}_${attrKey}`;
+}
+
+function getTestAttrPanelMeta(scope) {
+  if (scope === 'draft') {
+    return {
+      title: '测试属性',
+      note: '直接覆盖当前新秀评测面板的属性，用来测试抽取阶段和后续开档表现。'
+    };
+  }
+  return {
+    title: '测试属性',
+    note: '直接覆盖当前球员属性，方便快速验证加点、比赛和表现逻辑。'
+  };
+}
+
+function buildTestAttrPanel(scope) {
+  const meta = getTestAttrPanelMeta(scope);
+  const open = !!TEST_ATTR_PANEL_STATE[scope];
+  const attrs = G.player?.attrs || {};
+  const potential = clamp(parseNum(G.player?.potential, 75), 50, 99);
+  const actionLabel = open ? '收起测试面板' : '展开测试面板';
+  const messageText = TEST_ATTR_PANEL_STATE.message?.[scope] || '';
+  const message = messageText
+    ? `<div class="t-cyan fs-xs" style="margin-top:10px">${messageText}</div>`
+    : '';
+  return `
+  <div class="card" style="margin-top:16px">
+    <div class="flex fb" style="gap:12px;align-items:center;flex-wrap:wrap">
+      <div>
+        <div class="card-title" style="margin-bottom:6px">🧪 ${meta.title}</div>
+        <div class="t-2 fs-xs">${meta.note}</div>
+      </div>
+      <button class="btn btn-sm btn-purple" onclick="toggleTestAttrPanel('${scope}')">${actionLabel}</button>
+    </div>
+    ${open ? `
+    <div class="grid g2" style="margin-top:16px">
+      <div class="form-group" style="margin-bottom:10px">
+        <label>潜力</label>
+        <input
+          id="${getTestAttrInputId(scope, 'potential')}"
+          class="form-control"
+          type="number"
+          min="50"
+          max="99"
+          step="1"
+          value="${potential}">
+      </div>
+      ${ATTRS.map(at => `
+      <div class="form-group" style="margin-bottom:10px">
+        <label>${at.n}</label>
+        <input
+          id="${getTestAttrInputId(scope, at.k)}"
+          class="form-control"
+          type="number"
+          min="25"
+          max="99"
+          step="1"
+          value="${clamp(parseNum(attrs[at.k], 55), 25, 99)}">
+      </div>`).join('')}
+    </div>
+    <div class="flex" style="gap:10px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn btn-gold" onclick="applyTestAttrs('${scope}')">应用测试属性</button>
+      <button class="btn btn-sm" onclick="fillTestAttrs('${scope}', 99)">全 99</button>
+      <button class="btn btn-sm" onclick="fillTestAttrs('${scope}', 60)">全 60</button>
+      <button class="btn btn-sm" onclick="syncTestAttrsFromPlayer('${scope}')">读取当前属性</button>
+    </div>
+    ${message}
+    ` : ''}
+  </div>`;
+}
+
+function rerenderTestAttrScope(scope) {
+  if (scope === 'draft') {
+    if (createStep === 3) {
+      renderAttrRoll();
+      return;
+    }
+    if (createStep === 5) {
+      renderDraftResult();
+      return;
+    }
+    renderCreate();
+    return;
+  }
+  renderUpgrade();
+}
+
+function toggleTestAttrPanel(scope) {
+  TEST_ATTR_PANEL_STATE[scope] = !TEST_ATTR_PANEL_STATE[scope];
+  TEST_ATTR_PANEL_STATE.message[scope] = '';
+  rerenderTestAttrScope(scope);
+}
+
+function syncTestAttrsFromPlayer(scope) {
+  const potentialInput = $(getTestAttrInputId(scope, 'potential'));
+  if (potentialInput) {
+    potentialInput.value = clamp(parseNum(G.player?.potential, 75), 50, 99);
+  }
+  ATTRS.forEach(at => {
+    const input = $(getTestAttrInputId(scope, at.k));
+    if (!input) return;
+    input.value = clamp(parseNum(G.player?.attrs?.[at.k], 55), 25, 99);
+  });
+  TEST_ATTR_PANEL_STATE.message[scope] = '已同步为当前属性。';
+  rerenderTestAttrScope(scope);
+}
+
+function fillTestAttrs(scope, value) {
+  const potentialInput = $(getTestAttrInputId(scope, 'potential'));
+  if (potentialInput) {
+    potentialInput.value = clamp(parseNum(value, 75), 50, 99);
+  }
+  ATTRS.forEach(at => {
+    const input = $(getTestAttrInputId(scope, at.k));
+    if (!input) return;
+    input.value = clamp(parseNum(value, 60), 25, 99);
+  });
+}
+
+function applyTestAttrs(scope) {
+  if (!G.player) return;
+  const potentialInput = $(getTestAttrInputId(scope, 'potential'));
+  const nextAttrs = {};
+  ATTRS.forEach(at => {
+    const input = $(getTestAttrInputId(scope, at.k));
+    const fallback = parseNum(G.player?.attrs?.[at.k], 55);
+    nextAttrs[at.k] = clamp(parseNum(input?.value, fallback), 25, 99);
+  });
+  G.player.attrs = nextAttrs;
+  G.player.potential = clamp(parseNum(potentialInput?.value, G.player?.potential || 75), 50, 99);
+  G.player.rating = ovr(nextAttrs);
+  G.player.att = typeof calcPlayerAtt === 'function' ? calcPlayerAtt(nextAttrs) : G.player.rating;
+  G.player.def = typeof calcPlayerDef === 'function' ? calcPlayerDef(nextAttrs) : G.player.rating;
+  if (typeof recalcPlayerBadges === 'function') recalcPlayerBadges(G.player);
+  if (typeof recalcPlayerTradeValue === 'function') recalcPlayerTradeValue();
+  TEST_ATTR_PANEL_STATE.message[scope] = `已应用测试属性，当前 OVR ${G.player.rating} / POT ${G.player.potential}。`;
+  updateHeader();
+  rerenderTestAttrScope(scope);
 }
 
 function renderCreate() {
@@ -335,6 +486,7 @@ function renderAttrRoll() {
           </div>`).join('')}
       </div>
     </div>
+    ${buildTestAttrPanel('draft')}
   </div>`;
 }
 
@@ -552,8 +704,9 @@ function renderHome() {
         <div class="t-2 mt-8">${item.teamAbbr || item.profile?.teamAbbr || '--'} | 关系 ${parseNum(item.affinity, 0)} | 尊重 ${parseNum(item.respect, 0)} | 火药味 ${parseNum(item.heat, 0)}</div>
       </div>`).join('')
     : '<div class="home-empty">还没有形成明确的球星关系。去推文流里主动互动，会更快出现朋友和宿敌。</div>';
-  const portraitHtml = p.avatar
-    ? `<img src="${p.avatar}" class="home-portrait" alt="${p.name}">`
+  const portraitSrc = String(p.avatar || p.photo || '').trim();
+  const portraitHtml = portraitSrc
+    ? `<img src="${portraitSrc}" class="home-portrait" alt="${p.name}" onerror="if(!this.dataset.fb){this.dataset.fb='1';this.src='${typeof getPlayerPhotoPath === 'function' ? getPlayerPhotoPath(0) : 'assets/images/Player/IMG0000.png'}';}else{this.style.opacity=.25}">`
     : `<div class="home-portrait-placeholder"><div class="home-portrait-icon">🏀</div><div class="home-portrait-text">PLAYER FILE</div></div>`;
   const nextGameTitle = nextGame
     ? `${G.team?.a || '--'} vs ${nextOpp.a || '--'}`
@@ -2306,6 +2459,7 @@ function renderUpgrade() {
   const playerBadges = (p.badges && typeof p.badges === 'object') ? p.badges : {};
   const badgeBonuses = typeof getBadgeAttrBonuses === 'function' ? getBadgeAttrBonuses(p) : {};
   $('upgradePage').innerHTML = `
+  ${buildTestAttrPanel('upgrade')}
   <div class="grid g2">
     <div class="card">
       <div class="card-title">💪 属性加点 (XP: <span class="t-gold">${p.xp}</span>)</div>
@@ -2810,6 +2964,17 @@ function getPostVisualBadge(post = {}) {
   if (String(post.logo || '').trim()) return { label: '品牌LOGO', cls: 'b-gold' };
   return null;
 }
+function renderSocialPostAvatar(post = {}) {
+  if (String(post.logo || '').trim()) {
+    return renderBrandLogoThumb(post.logo, post.brand || post.author, 'social-post-avatar social-post-avatar-logo');
+  }
+  const photo = String(post.avatar || post.photo || '').trim();
+  if (photo) {
+    const fallback = typeof getPlayerPhotoPath === 'function' ? getPlayerPhotoPath(0) : 'assets/images/Player/IMG0000.png';
+    return `<img src="${photo}" class="social-post-avatar social-post-avatar-photo" alt="${post.playerName || post.author || '球员头像'}" onerror="if(!this.dataset.fb){this.dataset.fb='1';this.src='${fallback}';}else{this.style.opacity=.25}">`;
+  }
+  return `<span class="social-post-avatar social-post-avatar-text" style="${getSocialAvatarTone(post.author || post.persona || post.text)}">${getSocialAvatarInitial(post.author || post.persona || post.text)}</span>`;
+}
 function renderSocialPostVisual(post = {}) {
   const image = String(post.image || '').trim();
   const logo = String(post.logo || '').trim();
@@ -2882,12 +3047,10 @@ function renderPhoneFeedTab() {
   }
   return feedTools + relationCard + timeline.map(post => {
     const replied = !!(G.social?.playerRepliedPostIds?.[String(post.id)]);
-    const comments = Array.isArray(post.comments) ? post.comments.slice(0, 4) : [];
+    const comments = Array.isArray(post.comments) ? post.comments.slice(0, 6) : [];
     const relationBadge = typeof getSocialRelationshipBadgeForPost === 'function' ? getSocialRelationshipBadgeForPost(post) : null;
     const visualBadge = getPostVisualBadge(post);
-    const avatar = String(post.logo || '').trim()
-      ? renderBrandLogoThumb(post.logo, post.brand || post.author, 'social-post-avatar social-post-avatar-logo')
-      : `<span class="social-post-avatar social-post-avatar-text" style="${getSocialAvatarTone(post.author || post.persona || post.text)}">${getSocialAvatarInitial(post.author || post.persona || post.text)}</span>`;
+    const avatar = renderSocialPostAvatar(post);
     return `
     <div class="card social-post-card" style="margin-bottom:10px">
       <div class="social-post-head">
@@ -3175,9 +3338,23 @@ async function doPhonePostTweet() {
   if (res.ok) updateHeader();
   renderPhone();
 }
-function doPhoneReply(postId) {
+async function doPhoneReply(postId) {
   const box = $(`phoneReply_${postId}`);
   const text = box ? box.value : '';
+  if (typeof replyToSocialPostAsync === 'function') {
+    G._phoneComposeResult = { ok: false, message: '正在回复并等待AI评估...' };
+    renderPhone();
+    try {
+      const res = await replyToSocialPostAsync(postId, text);
+      const src = res.llmUsed ? '(AI评估)' : '(本地评估)';
+      G._phoneComposeResult = { ok: !!res.ok, message: res.ok ? `回复成功${src}：${res.impact?.label || '已生效'}` : (res.message || '回复失败') };
+      if (res.ok) updateHeader();
+    } catch (e) {
+      G._phoneComposeResult = { ok: false, message: `回复失败: ${e?.message || e}` };
+    }
+    renderPhone();
+    return;
+  }
   if (typeof replyToSocialPost !== 'function') return;
   const res = replyToSocialPost(postId, text);
   G._phoneComposeResult = { ok: !!res.ok, message: res.ok ? `回复成功：${res.impact?.label || '已生效'}` : (res.message || '回复失败') };

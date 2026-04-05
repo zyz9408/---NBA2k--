@@ -1602,6 +1602,21 @@ function rollPreGameEvent() {
   return ev;
 }
 
+function getPlayerLiveAttrBoosts(player = G.player) {
+  const isUser = player === G.player || !!player?.isSelf || String(player?.id || '') === 'USER_SELF';
+  if (!isUser || typeof getEndorsementState !== 'function') return {};
+  const state = getEndorsementState();
+  if (!state || typeof state !== 'object') return {};
+  const activeContract = state.signatureShoe
+    || ((state.active || []).find(deal => deal && deal.shoe && deal.shoeEligible) || null);
+  if (!activeContract) return {};
+  const shoe = typeof getSignatureShoeCurrentState === 'function'
+    ? getSignatureShoeCurrentState(activeContract)
+    : (activeContract.shoe || null);
+  const boosts = shoe?.boosts;
+  return boosts && typeof boosts === 'object' ? boosts : {};
+}
+
 // 获取徽章加成效果汇总
 function getBadgeEffects(player) {
   const fx = {
@@ -1680,6 +1695,10 @@ function getBadgeEffects(player) {
         }
       });
     }
+  }
+  const liveAttrBoosts = getPlayerLiveAttrBoosts(player);
+  if (liveAttrBoosts && typeof liveAttrBoosts === 'object') {
+    mergeEffects(fx, { attrBoost: liveAttrBoosts });
   }
   return fx;
 }
@@ -1776,7 +1795,22 @@ function getEffectiveAttr(key) {
     v *= (1 + fx.clutchBoost);
   }
 
-  return clamp(Math.round(v), 20, 99);
+  return typeof clampMatchEffectiveAttr === 'function'
+    ? clampMatchEffectiveAttr(v)
+    : clamp(Math.round(v), 20, 125);
+}
+
+function getUserShotPctCap(type, player = G.player) {
+  const baseAttrs = (player?.attrs && typeof player.attrs === 'object') ? player.attrs : {};
+  const baseShotInt = clamp(parseNum(baseAttrs.shotInt, 55), 20, 99);
+  const baseShotExt = clamp(parseNum(baseAttrs.shotExt, 55), 20, 99);
+  const baseShotFree = clamp(parseNum(baseAttrs.shotFree, 55), 20, 99);
+  const baseShotMid = Math.round((baseShotInt + baseShotExt) / 2);
+  if (type === 'in') return baseShotInt >= 99 ? 90 : 80;
+  if (type === 'do') return baseShotMid >= 99 ? 70 : 60;
+  if (type === 'ex') return baseShotExt >= 99 ? 55 : 48;
+  if (type === 'fr') return baseShotFree >= 99 ? 95 : 95;
+  return 99;
 }
 
 function simGameStats(oppRating) {
@@ -1785,22 +1819,36 @@ function simGameStats(oppRating) {
   const attrs = { ...G.player.attrs };
   if (fx.attrBoost) {
     Object.entries(fx.attrBoost).forEach(([k, v]) => {
-      attrs[k] = clamp(parseNum(attrs[k], 55) + parseNum(v, 0), 20, 99);
+      attrs[k] = typeof clampMatchEffectiveAttr === 'function'
+        ? clampMatchEffectiveAttr(parseNum(attrs[k], 55) + parseNum(v, 0))
+        : clamp(Math.round(parseNum(attrs[k], 55) + parseNum(v, 0)), 20, 125);
     });
   }
   // === 赛前事件修正 (在模拟前注入参数) ===
   const evMod = (G._gameEventResult?.result?.mod) || {};
   if (evMod.attrPctBoost) {
     const boost = parseNum(evMod.attrPctBoost, 0);
-    Object.keys(attrs).forEach(k => { attrs[k] = clamp(Math.round(attrs[k] * (1 + boost)), 20, 99); });
+    Object.keys(attrs).forEach(k => {
+      attrs[k] = typeof clampMatchEffectiveAttr === 'function'
+        ? clampMatchEffectiveAttr(attrs[k] * (1 + boost))
+        : clamp(Math.round(attrs[k] * (1 + boost)), 20, 125);
+    });
   }
   // X天赋: 全属性百分比加成（双向统治）
   if (fx.attrPct) {
-    Object.keys(attrs).forEach(k => { attrs[k] = clamp(Math.round(attrs[k] * (1 + fx.attrPct)), 20, 99); });
+    Object.keys(attrs).forEach(k => {
+      attrs[k] = typeof clampMatchEffectiveAttr === 'function'
+        ? clampMatchEffectiveAttr(attrs[k] * (1 + fx.attrPct))
+        : clamp(Math.round(attrs[k] * (1 + fx.attrPct)), 20, 125);
+    });
   }
-  // X天赋: 逆境之王 — 落后时属性加成
+  // X天赋: 逆境之王 - 落后时属性加成
   if (fx.underdogBoost && G.seasonStats.losses > G.seasonStats.wins) {
-    Object.keys(attrs).forEach(k => { attrs[k] = clamp(Math.round(attrs[k] * (1 + fx.underdogBoost)), 20, 99); });
+    Object.keys(attrs).forEach(k => {
+      attrs[k] = typeof clampMatchEffectiveAttr === 'function'
+        ? clampMatchEffectiveAttr(attrs[k] * (1 + fx.underdogBoost))
+        : clamp(Math.round(attrs[k] * (1 + fx.underdogBoost)), 20, 125);
+    });
   }
 
   const ovrVal = ovr(attrs);
@@ -1842,10 +1890,10 @@ function simGameStats(oppRating) {
   const contestBonus = parseNum(fx.contestResist, 0) * 100; // 抗干扰命中率加成
   // 关键时刻加成：赛季末段或季后赛时命中率提升
   const clutchPct = (fx.clutchBoost > 0 && (G.gameNum > 75 || G.phase === 'playoffs')) ? fx.clutchBoost * 100 : 0;
-  const inPct = clamp(Math.round(shotPctByType('in', attrs, ovrVal, oppRating) + insidePctBonus * 100 + evFgBoost + contestBonus + clutchPct), 40, 80);
-  const doPct = clamp(Math.round(shotPctByType('do', attrs, ovrVal, oppRating) + insidePctBonus * 80 + evFgBoost + contestBonus + clutchPct), 32, 60);
-  const exPct = clamp(Math.round(shotPctByType('ex', attrs, ovrVal, oppRating) + parseNum(fx.tpPctBonus, 0) * 100 + evFgBoost + contestBonus * 0.5 + clutchPct), 22, 48);
-  const frPct = clamp(Math.round(shotPctByType('fr', attrs, ovrVal, oppRating) + parseNum(fx.ftPctBonus, 0) * 100), 40, 95);
+  const inPct = clamp(Math.round(shotPctByType('in', attrs, ovrVal, oppRating) + insidePctBonus * 100 + evFgBoost + contestBonus + clutchPct), 40, getUserShotPctCap('in'));
+  const doPct = clamp(Math.round(shotPctByType('do', attrs, ovrVal, oppRating) + insidePctBonus * 80 + evFgBoost + contestBonus + clutchPct), 32, getUserShotPctCap('do'));
+  const exPct = clamp(Math.round(shotPctByType('ex', attrs, ovrVal, oppRating) + parseNum(fx.tpPctBonus, 0) * 100 + evFgBoost + contestBonus * 0.5 + clutchPct), 22, getUserShotPctCap('ex'));
+  const frPct = clamp(Math.round(shotPctByType('fr', attrs, ovrVal, oppRating) + parseNum(fx.ftPctBonus, 0) * 100), 40, getUserShotPctCap('fr'));
 
   // === 投篮结果 ===
   const inOk = shotInResult(inPct, shotsIn);
@@ -5452,11 +5500,164 @@ function upsertCommercialBuzzPost(event, draft = null) {
 function recordCommercialEvent(event) {
   return upsertCommercialEventRecord(event);
 }
+function parseSocialMetricValue(rawValue, fallback = 0) {
+  const fallbackNum = Math.max(0, Math.round(parseNum(fallback, 0)));
+  if (rawValue === null || rawValue === undefined || rawValue === '') return fallbackNum;
+  if (typeof rawValue === 'number' && Number.isFinite(rawValue)) return Math.max(0, Math.round(rawValue));
+  const text = String(rawValue || '')
+    .trim()
+    .toLowerCase()
+    .replace(/,/g, '')
+    .replace(/\s+/g, '');
+  if (!text) return fallbackNum;
+  const match = text.match(/(-?\d+(?:\.\d+)?)(w|k|m|万|千|亿)?/i);
+  if (!match) return fallbackNum;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return fallbackNum;
+  const unit = String(match[2] || '').toLowerCase();
+  const multiplier = unit === 'w' || unit === '万'
+    ? 10000
+    : unit === 'k' || unit === '千'
+      ? 1000
+      : unit === 'm'
+        ? 1000000
+        : unit === '亿'
+          ? 100000000
+          : 1;
+  return Math.max(0, Math.round(value * multiplier));
+}
+function clampSocialMetricToRange(rawValue, range = [0, 9999999], fallback = 0) {
+  const min = Math.max(0, Math.round(parseNum(range?.[0], 0)));
+  const max = Math.max(min, Math.round(parseNum(range?.[1], min)));
+  const parsed = parseSocialMetricValue(rawValue, fallback);
+  return clamp(parsed, min, max);
+}
+const SOCIAL_COMMENT_COUNT_RANGE = Object.freeze([3, 6]);
+const SOCIAL_MIN_GENERATED_POSTS = 5;
+function getSocialCommentCountRange(profile = null) {
+  const min = Math.max(SOCIAL_COMMENT_COUNT_RANGE[0], parseNum(profile?.comments?.[0], SOCIAL_COMMENT_COUNT_RANGE[0]));
+  const max = Math.max(min, parseNum(profile?.comments?.[1], SOCIAL_COMMENT_COUNT_RANGE[1]));
+  return [min, max];
+}
+function getRandomSocialCommentCount(profile = null) {
+  const [min, max] = getSocialCommentCountRange(profile);
+  return rng(min, max);
+}
+function getTargetSocialCommentCount(profile = null, providedCount = 0) {
+  const [min, max] = getSocialCommentCountRange(profile);
+  if (parseNum(providedCount, 0) > 0) return clamp(parseNum(providedCount, 0), min, max);
+  return rng(min, max);
+}
+function getSocialPostHeatProfile(post = {}) {
+  const source = `${post.persona || ''} ${post.author || ''} ${post.authorType || ''} ${post.sourceType || ''}`.toLowerCase();
+  const text = String(post.text || '').trim();
+  const tone = String(post.tone || '').trim().toLowerCase();
+  const fame = clamp(parseNum(G.player?.fame, 10), 0, 100);
+  const visibility = clamp(parseNum(G.economy?.visibilityMomentum, 0), 0, 120);
+  let tier = 'casual';
+  if (post.authorType === 'star') tier = 'star';
+  else if (post.isPlayer) tier = 'player';
+  else if (post.sourceType === 'commercial') tier = 'commercial';
+  else if (/记者|新闻|快报|媒体|观察|战术|数据|分析/.test(source)) tier = 'media';
+  else if (/球迷|吃瓜|路人|老球迷|装备党|悲观球迷/.test(source)) tier = 'fan';
+  const presets = {
+    star: { likes: [6000, 38000], reposts: [360, 4200], commentLikes: [18, 420], comments: [3, 6] },
+    player: { likes: [1200, 9800], reposts: [90, 1100], commentLikes: [10, 220], comments: [3, 6] },
+    media: { likes: [900, 8600], reposts: [60, 780], commentLikes: [6, 140], comments: [3, 6] },
+    commercial: { likes: [1800, 14000], reposts: [120, 1300], commentLikes: [8, 180], comments: [3, 6] },
+    fan: { likes: [180, 2600], reposts: [14, 220], commentLikes: [3, 70], comments: [3, 6] },
+    casual: { likes: [60, 1600], reposts: [6, 140], commentLikes: [2, 48], comments: [3, 6] }
+  };
+  const base = presets[tier] || presets.casual;
+  let heatMult = 1 + fame / 240 + visibility / 420;
+  if (post.mentionsPlayer) heatMult += 0.12;
+  if (/签名鞋|代言|商业|合同|揭幕战|绝杀|训练|加练|流言/.test(text)) heatMult += 0.08;
+  if (tone === 'negative' || tone === 'competitive') heatMult += 0.05;
+  if (tier === 'star') heatMult += 0.18;
+  if (tier === 'casual' && !post.mentionsPlayer) heatMult -= 0.08;
+  heatMult = clamp(heatMult, 0.92, 1.9);
+  const scaleRange = (pair = []) => {
+    const low = Math.max(1, Math.round(parseNum(pair[0], 1) * heatMult));
+    const high = Math.max(low, Math.round(parseNum(pair[1], low) * heatMult));
+    return [low, high];
+  };
+  return {
+    tier,
+    heatMult,
+    likes: scaleRange(base.likes),
+    reposts: scaleRange(base.reposts),
+    commentLikes: scaleRange(base.commentLikes),
+    comments: base.comments
+  };
+}
+function getSocialInteractionRanges(post = {}) {
+  const profile = getSocialPostHeatProfile(post);
+  return {
+    playerReplyLikes: [
+      Math.max(6, Math.round(profile.commentLikes[0] * 1.15)),
+      Math.max(18, Math.round(profile.commentLikes[1] * 1.55))
+    ],
+    starReplyLikes: [
+      Math.max(18, Math.round(profile.commentLikes[0] * 1.8)),
+      Math.max(40, Math.round(profile.commentLikes[1] * 2.2))
+    ],
+    replyLikeBump: [
+      Math.max(12, Math.round(profile.likes[0] * 0.06)),
+      Math.max(50, Math.round(profile.likes[1] * 0.14))
+    ],
+    replyRepostBump: [
+      Math.max(2, Math.round(profile.reposts[0] * 0.06)),
+      Math.max(10, Math.round(profile.reposts[1] * 0.16))
+    ]
+  };
+}
+function normalizeSocialComments(rawComments, tone = 'neutral', seed = '', postMeta = null, profile = null) {
+  const profileInfo = profile || getSocialPostHeatProfile(postMeta || { text: seed, tone });
+  const providedCount = Array.isArray(rawComments) ? rawComments.length : 0;
+  const targetCount = getTargetSocialCommentCount(profileInfo, providedCount);
+  const [, maxCount] = getSocialCommentCountRange(profileInfo);
+  const normalized = [];
+  const used = new Set();
+  const seedBase = `${seed || postMeta?.text || ''}_${postMeta?.author || ''}_${postMeta?.persona || ''}_${tone}`;
+  const pushComment = (item, idx) => {
+    const text = cleanSocialText(String(item?.text || item?.comment || '').trim()).slice(0, 32);
+    if (!text) return;
+    const key = text.replace(/\s+/g, '').toLowerCase();
+    if (!key || used.has(key)) return;
+    used.add(key);
+    const author = String(item?.author || '').trim()
+      || SOCIAL_COMMENTERS[(hashStringToInt(`${seedBase}_${idx}`) + idx) % SOCIAL_COMMENTERS.length]
+      || `@评论${normalized.length + 1}`;
+    normalized.push({
+      author,
+      text,
+      likes: clampSocialMetricToRange(item?.likes, profileInfo.commentLikes, rng(profileInfo.commentLikes[0], profileInfo.commentLikes[1]))
+    });
+  };
+  (Array.isArray(rawComments) ? rawComments : []).forEach((item, idx) => {
+    pushComment(typeof item === 'string' ? { text: item } : item, idx);
+  });
+  if (normalized.length < targetCount) {
+    const fallbackComments = makeFallbackComments(seed || postMeta?.text || '', tone, targetCount, postMeta);
+    fallbackComments.forEach((item, idx) => pushComment(item, idx + normalized.length));
+  }
+  return normalized.slice(0, Math.min(targetCount, maxCount));
+}
+function normalizeSocialPostPayload(post = {}) {
+  const profile = getSocialPostHeatProfile(post);
+  return {
+    ...post,
+    likes: clampSocialMetricToRange(post.likes, profile.likes, rng(profile.likes[0], profile.likes[1])),
+    reposts: clampSocialMetricToRange(post.reposts, profile.reposts, rng(profile.reposts[0], profile.reposts[1])),
+    comments: normalizeSocialComments(post.comments, String(post.tone || 'neutral').trim().toLowerCase(), String(post.text || '').trim(), post, profile)
+  };
+}
 function appendSocialPost(post) {
   ensureSocialState();
   if (!post || typeof post !== 'object') return null;
+  const normalized = normalizeSocialPostPayload(post);
   const next = {
-    ...post,
+    ...normalized,
     id: Number.isFinite(parseNum(post.id, NaN)) ? parseNum(post.id, 0) : G.social.nextPostId++,
     ts: parseNum(post.ts, Date.now()),
     day: parseNum(post.day, Math.max(0, G.dayNum - 1)),
@@ -5906,28 +6107,88 @@ const SOCIAL_COMMENTERS = [
   '@赛后复盘师', '@更衣室消息灵通人士', '@技术统计狂魔'
 ];
 
-function makeFallbackComments(text, tone = 'neutral', count = 3) {
+function detectSocialCommentTopic(text = '', postMeta = null) {
+  const sample = [text, postMeta?.author, postMeta?.persona, postMeta?.sourceType].filter(Boolean).join(' ');
+  if (/签名鞋|球鞋|代言|品牌|护肤|矿泉水|合同|印钞机|商业/.test(sample)) return 'commercial';
+  if (/训练|加练|球馆|脚步|助教|折返跑|清晨|早上|七点半/.test(sample)) return 'training';
+  if (/实力榜|前五|垫底|西部|东部|附加赛|季后赛|摆烂|战绩|化学反应/.test(sample)) return 'ranking';
+  if (/handcheck|防守|犯规|吹罚|挡拆|突破|对抗/.test(sample.toLowerCase())) return 'rules';
+  if (/比较|同位置|对位|样本|窜得很快|逼着进步|联盟里最近/.test(sample)) return 'comparison';
+  if (/\d+\s*[-:：]\s*\d+|本场|今晚|揭幕战|末节|绝杀|输球|赢球|战报/.test(sample)) return 'game';
+  return 'general';
+}
+function getSocialCommentTextPool(topic = 'general', tone = 'neutral') {
+  const bank = {
+    general: {
+      positive: ['这句不是场面话，能听出来在认真看球', '有内容，至少比空吹强多了', '能说到这个层面，说明确实关注过细节', '这种发言会让人愿意继续追后续'],
+      neutral: ['这条信息量挺大，先留着回头再看', '评论区先别急，样本还得继续放', '这话题后面肯定还会发酵', '比空喊口号强，至少给了点内容'],
+      negative: ['现在下结论还是太早了', '热度可以有，定论先别下', '这种话最怕后面被打脸', '我先记着，过几场再回来看']
+    },
+    commercial: {
+      positive: ['这配色确实有记忆点，不是流水线款', '商业团队这波节奏拿捏住了', '只要场上兑现，销量应该不会差', '红金低帮这双是真有辨识度'],
+      neutral: ['鞋是挺帅，关键还是得看场上能不能接住', '商业价值走得快，后面表现压力也会更大', '品牌是真会挑故事线，这波话题度够了', '没打一场就出鞋，风险和热度都拉满了'],
+      negative: ['先把常规赛打明白，再聊签名鞋也不迟', '商业跑太快，翻车时声音也会更大', '我只关心别把球场表现冲淡了', '没成绩先吃代言，舆论肯定会挑刺']
+    },
+    training: {
+      positive: ['这种清晨训练馆的内容最能拉好感', '勤奋这事骗不了同行，迟早会有人注意到', '年轻人肯这么练，后面大概率要涨球', '比起空喊口号，我更愿意看这种日常'],
+      neutral: ['训练馆的故事永远比采访更说明问题', '先把这种强度坚持一个月再说', '绕掩护和脚步本来就是后卫必修课', '没有镜头的时候练成什么样，比赛里都会还回来'],
+      negative: ['训练照谁都会发，比赛里兑现才算数', '别最后又变成休赛期球王剧本', '加练当然好，但还是要看正式比赛', '别让镜头只停在训练馆里']
+    },
+    ranking: {
+      positive: ['这种排名一放出来，赛季味道就有了', '强弱分层是有的，但真打起来未必照表演', '我就爱看这种提前立靶子的榜单', '现在被看低，反而更容易憋出反弹'],
+      neutral: ['纸面推演每年都有，真正难的是连败后怎么止血', '西部这种环境，一周就能把叙事改写', '排名看看就好，化学反应要打了才知道', '媒体榜单最大的作用就是先点燃评论区'],
+      negative: ['这种榜单一半靠想象，另一半靠偏见', '真要按媒体排法打，赛季都不用开了', '现在唱衰容易，翻车的时候也快', '很多人只会看名字，不会看轮换']
+    },
+    rules: {
+      positive: ['如果真这么吹，外线持球手确实要起飞', '规则尺度一变，很多球队的战术优先级都得重排', '这种改动最先受益的一定是能持续压禁区的后卫', '挡拆和第一步爆发的价值会更直接'],
+      neutral: ['真正麻烦的是老派外线防守者要重新适应', '这类规则风向最考验教练组应变', '别只盯着突破手，内线协防压力也会一起抬高', '尺度统一比规则本身更重要'],
+      negative: ['现在联盟本来就够偏进攻了，再这么吹会更夸张', '怀旧党肯定又要开始怀念老时代了', '尺度要是忽紧忽松，那比不改还难受', '对抗感再削一点，很多老球迷会直接开喷']
+    },
+    comparison: {
+      positive: ['这种同位置互相点名的味道才对', '能被联盟老牌球星点到，本身就是信号', '比较不可怕，可怕的是没人把你放进讨论里', '有人拿来对标，说明已经打进视野了'],
+      neutral: ['先把样本打大，比较才更有意思', '同位置之间本来就会互相盯着', '这种话看着平静，其实已经把竞争味道带出来了', '尊重和压力往往是一起到的'],
+      negative: ['别急着吹成平起平坐，后面还有很多硬仗', '被点名不代表已经站稳了', '这种比较最怕后面状态一掉就被反噬', '热度先有了，真正难的是把它扛住']
+    },
+    game: {
+      positive: ['这不是刷到数据那么简单，比赛内容也出来了', '真正让人上头的是关键回合处理得够稳', '比分是一回事，场上的气质又是另一回事', '这场之后讨论度肯定会往上走'],
+      neutral: ['别只看终场比分，过程也挺有东西', '这种比赛最适合回头再看一遍回合拆解', '赢了输了都先别急，细节值得再抠一遍', '数据能说明一部分，比赛感觉也很重要'],
+      negative: ['好看是好看，别把一场球吹成长期结论', '这个夜晚可以记住，但后面还得继续交作业', '输了就是输了，内容再好也得先把胜场拿回来', '有些回合处理还是会被强队针对']
+    }
+  };
+  const safeTopic = bank[topic] ? topic : 'general';
+  const safeTone = bank[safeTopic]?.[tone] ? tone : 'neutral';
+  return bank[safeTopic]?.[safeTone] || bank.general.neutral;
+}
+function makeFallbackComments(text, tone = 'neutral', count = 3, postMeta = null) {
   const safeCount = Math.max(0, Math.floor(parseNum(count, 3)));
   const source = String(text || '').trim();
-  const seed = source.length + source.split(/\s+/).length * 7;
-  const positiveTexts = ['这波可以', '牌面拉满', '有点强', '这合同值了', '稳'];
-  const negativeTexts = ['这也太离谱', '先观望', '有点难评', '看看后续', '不太看好'];
-  const neutralTexts = ['关注一下', '信息量不少', '继续看', '这条挺关键', '等后续'];
-  const textPool = tone === 'positive' ? positiveTexts : (tone === 'negative' ? negativeTexts : neutralTexts);
+  const topic = detectSocialCommentTopic(source, postMeta);
+  const primaryPool = getSocialCommentTextPool(topic, tone);
+  const neutralPool = getSocialCommentTextPool(topic, 'neutral');
+  const generalPool = getSocialCommentTextPool('general', tone);
+  const profile = getSocialPostHeatProfile(postMeta || { text: source, tone });
+  const seedBase = `${source}_${topic}_${tone}_${postMeta?.author || ''}_${postMeta?.persona || ''}`;
+  const combinedPool = [...primaryPool, ...neutralPool, ...generalPool];
+  const used = new Set();
   const comments = [];
-  for (let i = 0; i < safeCount; i++) {
-    const author = SOCIAL_COMMENTERS[(seed + i) % SOCIAL_COMMENTERS.length] || `@评论${i + 1}`;
-    const textIndex = (seed * 3 + i) % textPool.length;
+  for (let i = 0; comments.length < safeCount && i < Math.max(8, safeCount * 10); i++) {
+    const author = SOCIAL_COMMENTERS[(hashStringToInt(`${seedBase}_author_${i}`) + i) % SOCIAL_COMMENTERS.length] || `@评论${comments.length + 1}`;
+    const candidate = cleanSocialText(String(pickSeedItem(combinedPool, `${seedBase}_text`, i) || '').trim()).slice(0, 32);
+    const key = candidate.replace(/\s+/g, '').toLowerCase();
+    if (!candidate || used.has(key)) continue;
+    used.add(key);
     comments.push({
       author,
-      text: textPool[textIndex],
-      likes: clamp(rng(1, tone === 'positive' ? 88 : 48), 1, 9999)
+      text: candidate,
+      likes: clampSocialMetricToRange('', profile.commentLikes, rng(profile.commentLikes[0], profile.commentLikes[1]))
     });
   }
   return comments;
 }
 function normalizeCommercialCommentList(rawComments, tone = 'neutral', seed = '', fallbackText = '') {
   const items = Array.isArray(rawComments) ? rawComments : [];
+  const profile = getSocialPostHeatProfile({ sourceType: 'commercial', tone, text: fallbackText || seed });
+  const targetCount = getTargetSocialCommentCount(profile, items.length);
   const normalized = items
     .map(item => typeof item === 'string' ? { text: item } : item)
     .map((item, idx) => {
@@ -5937,12 +6198,23 @@ function normalizeCommercialCommentList(rawComments, tone = 'neutral', seed = ''
       return {
         author,
         text,
-        likes: clamp(parseNum(item?.likes, rng(1, tone === 'positive' ? 88 : 48)), 1, 9999)
+        likes: parseSocialMetricValue(item?.likes, rng(1, tone === 'positive' ? 88 : 48))
       };
     })
     .filter(Boolean)
-    .slice(0, 3);
-  return normalized.length ? normalized : makeFallbackComments(fallbackText || seed, tone, 3);
+    .slice(0, SOCIAL_COMMENT_COUNT_RANGE[1]);
+  if (normalized.length < targetCount) {
+    const extras = makeFallbackComments(fallbackText || seed, tone, targetCount, { sourceType: 'commercial', text: fallbackText || seed, tone });
+    const used = new Set(normalized.map(item => String(item?.text || '').replace(/\s+/g, '').toLowerCase()).filter(Boolean));
+    extras.forEach(item => {
+      if (normalized.length >= targetCount) return;
+      const key = String(item?.text || '').replace(/\s+/g, '').toLowerCase();
+      if (!key || used.has(key)) return;
+      used.add(key);
+      normalized.push(item);
+    });
+  }
+  return normalized.length ? normalized.slice(0, targetCount) : makeFallbackComments(fallbackText || seed, tone, targetCount, { sourceType: 'commercial', text: fallbackText || seed, tone });
 }
 
 const SOCIAL_LINK_STATUS = {
@@ -5986,6 +6258,16 @@ function buildSocialStarArchetype(row = {}) {
   return '内线球星';
 }
 function buildSocialLeaguePlayerPool() {
+  ensureSocialState();
+  const cacheKey = [
+    parseNum(G.season, 0),
+    parseNum(G.dayNum, 0),
+    String(G.player?.id || '').trim(),
+    Object.keys(LEAGUE?.teams || {}).length,
+    Object.keys(G.leagueSeason?.playerStats || {}).length
+  ].join('_');
+  const cached = G.social?._leaguePlayerPoolCache;
+  if (cached?.key === cacheKey && Array.isArray(cached.pool)) return cached.pool.slice();
   const pool = [];
   const leagueTeams = LEAGUE?.teams || {};
   Object.values(leagueTeams).forEach(teamObj => {
@@ -6002,6 +6284,9 @@ function buildSocialLeaguePlayerPool() {
         playerId: player.id,
         name: String(player.name || ps.name || '球员').trim(),
         nameEn: String(player.nameEn || player.altName || '').trim(),
+        avatar: String(player.avatar || '').trim(),
+        photo: String(player.photo || '').trim(),
+        imageId: parseNum(player.image, parseNum(ps.image, 0)),
         pos: parseNum(player.pos, parseNum(ps.pos, 3)),
         rating,
         gp,
@@ -6014,7 +6299,8 @@ function buildSocialLeaguePlayerPool() {
       });
     });
   });
-  return pool;
+  G.social._leaguePlayerPoolCache = { key: cacheKey, pool };
+  return pool.slice();
 }
 function scoreSocialStarRow(row = {}) {
   const teamRecord = G.leagueSeason?.teamRecords?.[parseNum(row.teamId, 0)] || {};
@@ -6050,6 +6336,17 @@ function ensureSocialStarProfile(row = {}) {
   profile.teamName = String(team.z || team.n || profile.teamName || '').trim();
   profile.handle = String(profile.handle || buildStarHandleFromName(profile.nameEn || profile.name, profile.teamAbbr)).trim();
   profile.archetype = String(profile.archetype || buildSocialStarArchetype(row)).trim();
+  profile.avatar = String(row.avatar || profile.avatar || '').trim();
+  profile.imageId = parseNum(row.imageId, profile.imageId ?? 0);
+  if (typeof getPlayerPhotoSrc === 'function') {
+    profile.photo = String(getPlayerPhotoSrc({
+      avatar: profile.avatar,
+      photo: String(row.photo || profile.photo || '').trim(),
+      image: profile.imageId
+    }) || profile.photo || '').trim();
+  } else if (row.photo !== undefined) {
+    profile.photo = String(row.photo || profile.photo || '').trim();
+  }
   return profile;
 }
 function getSocialStarProfileByRef(ref = {}) {
@@ -6299,6 +6596,8 @@ function buildStarTweetPayload(profile, relationInfo, dayResult = {}, topic = 'l
   const userPts = parseNum(gr?.st?.pts, 0);
   const userStrong = userPts >= 24 || ['S+', 'S', 'A'].includes(String(gr?.grade || '').trim());
   const samePos = parseNum(profile?.pos, -1) === parseNum(G.player?.pos, -2);
+  const seed = `${profile?.key || profile?.name || 'star'}_${parseNum(dayResult?.day, G.dayNum)}_${topic}_${relationInfo?.id || 'neutral'}_${userStrong ? 1 : 0}`;
+  const pickCopy = (list = [], shift = 0) => pickSeedItem(list, seed, shift) || list[0] || '';
   let text = '';
   let tone = 'neutral';
   let affinityDelta = 0;
@@ -6306,77 +6605,303 @@ function buildStarTweetPayload(profile, relationInfo, dayResult = {}, topic = 'l
   let heatDelta = 0;
   if (dayResult?.isGame) {
     if (topic === 'rival' || relationInfo.id === 'rival') {
-      text = userStrong
-        ? `${playerName}今晚打得像样，但别急着上头。下次对位我会把这笔账收回来。`
-        : `${playerName}这场还没到能跟我对线的级别，下一次碰面我会继续给压力。`;
+      text = pickCopy(userStrong ? [
+        `${playerName}今晚打得像样，但别急着上头。下次对位我会把这笔账收回来。`,
+        `这场算你把声音打出来了，但真正难的是连着这么打。下一次碰上，我不会让你这么舒服。`,
+        `${playerName}今天这口气是提起来了。记住这种强度，下次见面我会照着这个标准来。`
+      ] : [
+        `${playerName}这场还没到能跟我对线的级别，下一次碰面我会继续给压力。`,
+        `热度先别冲太快，真正麻烦的是下次碰面时我会从第一回合就盯着你。`,
+        `这场不算什么，联盟里没人会因为一晚顺手就放松防你。`
+      ]);
       tone = 'negative';
       affinityDelta = -2;
       respectDelta = userStrong ? 1 : 0;
       heatDelta = 4;
     } else if (topic === 'friend' || relationInfo.id === 'friend') {
-      text = userStrong
-        ? `${playerName}今晚这场真够硬，细节都在线。继续打，联盟很快会把他放进更高一档的讨论。`
-        : `${playerName}今晚手感一般，但比赛感觉没问题。年轻人都会经历这种夜晚，继续干。`;
+      text = pickCopy(userStrong ? [
+        `${playerName}今晚这场真够硬，细节都在线。继续打，联盟很快会把他放进更高一档的讨论。`,
+        `这场球的内容比数据还好看。${playerName}如果把这股劲延续下去，话题自然会越来越大。`,
+        `手感起伏不重要，关键是节奏和选择都对了。${playerName}今晚这场，懂球的人看得出来。`
+      ] : [
+        `${playerName}今晚手感一般，但比赛感觉没问题。年轻人都会经历这种夜晚，继续干。`,
+        `数据没炸开不代表没内容，${playerName}今晚有些处理已经比前阵子成熟了。`,
+        `这种夜晚先别急着下定义，能从低手感里把比赛打完整，本身就是进步。`
+      ], 1);
       tone = 'positive';
       affinityDelta = 2;
       respectDelta = 2;
     } else if (topic === 'opponent' || samePos) {
-      text = userStrong
-        ? `最近总有人拿我和${playerName}做比较。挺好，联盟就该有这种对位。下次见会更热闹。`
-        : `${playerName}今晚的节奏不错，但联盟会一直逼你补细节。下次见再聊。`;
+      text = pickCopy(userStrong ? [
+        `最近总有人拿我和${playerName}做比较。挺好，联盟就该有这种对位。下次见会更热闹。`,
+        `${playerName}这场有点味道了。同位置之间就该这么互相抬高门槛。`,
+        `最近总有人拿我和${playerName}放一起聊。今晚这场以后，这种讨论只会更多。`
+      ] : [
+        `${playerName}今晚的节奏不错，但联盟会一直逼你补细节。下次见再聊。`,
+        `同位置的人最懂这种夜晚，感觉是有了，但后面还有很多作业要交。`,
+        `比赛内容可以，真正难的是把这种处理连续做半个月。`
+      ], 2);
       tone = userStrong ? 'competitive' : 'neutral';
       affinityDelta = userStrong ? -1 : 0;
       respectDelta = 1;
       heatDelta = userStrong ? 2 : 1;
     } else {
-      text = `${playerName}今天的侵略性不错。能把这种强度稳定一个月，再往更高的位置冲。`;
+      text = pickCopy([
+        `${playerName}今天的侵略性不错。能把这种强度稳定一个月，再往更高的位置冲。`,
+        `今晚看了${playerName}这场，处理球比我想象里成熟。接下来就看稳定性了。`,
+        `${playerName}这场把自己打进讨论区了。后面如果还能连着交作业，舆论会变得很有意思。`
+      ], 3);
       tone = 'positive';
       affinityDelta = 1;
       respectDelta = 1;
     }
   } else {
     if (topic === 'rival' || relationInfo.id === 'rival') {
-      text = `${playerName}最近热度挺高。没关系，等真正对位的时候我会把话题拉回球场。`;
+      text = pickCopy([
+        `${playerName}最近热度挺高。没关系，等真正对位的时候我会把话题拉回球场。`,
+        `休赛日大家聊得热闹，真到对位那天才算数。${playerName}，到时候别躲。`,
+        `${playerName}最近名字出现得挺勤。挺好，场上碰见再把这账算清楚。`
+      ]);
       tone = 'competitive';
       affinityDelta = -2;
       respectDelta = 1;
       heatDelta = 3;
     } else if (topic === 'friend' || relationInfo.id === 'friend') {
-      text = `训练馆又碰到${playerName}加练了。别只看比赛，真下功夫的人联盟里都知道。`;
+      text = pickCopy([
+        `训练馆又碰到${playerName}加练了。别只看比赛，真下功夫的人联盟里都知道。`,
+        `很多人只看集锦，不看训练馆。${playerName}最近把细节抠得挺狠，这个我记一票。`,
+        `年轻人肯早点到馆、晚点离馆，队友和对手都会注意到。${playerName}最近就是这个状态。`
+      ], 1);
       tone = 'positive';
       affinityDelta = 2;
       respectDelta = 2;
     } else if (samePos) {
-      text = `最近总有人拿我和${playerName}比较。挺好，同位置之间本来就该互相逼着进步。`;
+      text = pickCopy([
+        `最近总有人拿我和${playerName}比较。挺好，同位置之间本来就该互相逼着进步。`,
+        `同位置的讨论从来不会停。${playerName}最近这股势头，确实值得被拿出来聊。`,
+        `比较可以，前提是继续把样本打大。${playerName}最近的节奏，已经让不少后卫开始留意了。`
+      ], 2);
       tone = 'competitive';
       affinityDelta = -1;
       respectDelta = 2;
       heatDelta = 2;
     } else {
-      text = `联盟里最近有几个年轻人窜得很快，${playerName}算一个。先把样本继续打大吧。`;
+      text = pickCopy([
+        `联盟里最近有几个年轻人窜得很快，${playerName}算一个。先把样本继续打大吧。`,
+        `最近聊年轻人的名单里，${playerName}这个名字出现得越来越频繁了。后面就看他能不能把热度变成稳定输出。`,
+        `有些新人的进步是一周一小步，${playerName}最近像是两三周直接跨了一档。`
+      ], 3);
       tone = 'positive';
       affinityDelta = 1;
       respectDelta = 1;
     }
   }
-  return {
-    author: String(profile.handle || buildStarHandleFromName(profile.name, profile.teamAbbr)).trim(),
-    persona: `${profile.archetype || '联盟球星'} · ${profile.teamAbbr || '--'}`,
+  const persona = `${profile.archetype || '联盟球星'} · ${profile.teamAbbr || '--'}`;
+  const postMeta = {
+    authorType: 'star',
+    persona,
+    author: profile.handle,
     text,
     tone,
-    likes: rng(120, 2200),
-    reposts: rng(20, 260),
-    comments: makeFallbackComments(text, tone, 2),
+    mentionsPlayer: true
+  };
+  return {
+    author: String(profile.handle || buildStarHandleFromName(profile.name, profile.teamAbbr)).trim(),
+    persona,
+    text,
+    tone,
+    likes: rng(6500, 26000),
+    reposts: rng(360, 2600),
+    comments: makeFallbackComments(text, tone, getRandomSocialCommentCount(getSocialPostHeatProfile(postMeta)), postMeta),
     authorType: 'star',
     mentionsPlayer: true,
     playerRefKey: profile.key,
     playerId: profile.playerId,
     teamId: profile.teamId,
     playerName: profile.name,
+    avatar: String(profile.avatar || '').trim(),
+    photo: String(profile.photo || '').trim(),
     affinityDelta,
     respectDelta,
     heatDelta
   };
+}
+function buildStarPostBatchPromptPayload(candidates = [], dayResult = {}, avoidTexts = []) {
+  const playerName = String(G.player?.name || '球员').trim();
+  const game = dayResult?.gameResult || {};
+  const opp = getTeam(game?.opp) || {};
+  return JSON.stringify({
+    player: {
+      name: playerName,
+      team: String(G.team?.z || G.team?.a || '').trim(),
+      pos: parseNum(G.player?.pos, 3)
+    },
+    dayContext: {
+      day: parseNum(dayResult?.day, Math.max(0, G.dayNum - 1)),
+      date: typeof getDayDateString === 'function' ? getDayDateString(parseNum(dayResult?.day, Math.max(0, G.dayNum - 1))) : '',
+      isGame: !!dayResult?.isGame,
+      opponent: String(opp.z || opp.a || '').trim(),
+      result: dayResult?.isGame ? {
+        win: !!game?.win,
+        teamPts: parseNum(game?.teamPts, 0),
+        oppPts: parseNum(game?.oppPts, 0),
+        grade: String(game?.grade || '').trim(),
+        stats: {
+          pts: parseNum(game?.st?.pts, 0),
+          reb: parseNum(game?.st?.reb, 0),
+          ast: parseNum(game?.st?.ast, 0),
+          stl: parseNum(game?.st?.stl, 0),
+          blk: parseNum(game?.st?.blk, 0)
+        }
+      } : null
+    },
+    stars: candidates.map((item, idx) => ({
+      slot: idx,
+      topic: String(item?.topic || 'league').trim(),
+      star: {
+        name: String(item?.profile?.name || '球星').trim(),
+        handle: String(item?.profile?.handle || '').trim(),
+        team: String(item?.profile?.teamName || item?.profile?.teamAbbr || '').trim(),
+        teamAbbr: String(item?.profile?.teamAbbr || '').trim(),
+        archetype: String(item?.profile?.archetype || '').trim(),
+        pos: parseNum(item?.profile?.pos, 3),
+        rating: parseNum(item?.profile?.rating, 75)
+      },
+      relation: {
+        status: String(item?.relationInfo?.id || 'neutral').trim(),
+        label: String(item?.relationInfo?.label || '普通').trim()
+      },
+      samePosition: parseNum(item?.profile?.pos, -1) === parseNum(G.player?.pos, -2)
+    })),
+    avoidPhrases: [
+      '这条信息量挺大',
+      '先留着回头再看',
+      '样本还得继续放',
+      '样本打大',
+      '互相逼着进步',
+      '最近总有人拿我和',
+      ...avoidTexts.map(item => cleanSocialText(item || '').slice(0, 80)).filter(Boolean).slice(0, 8)
+    ]
+  });
+}
+async function generateStarPostBatchByLLM(candidates = [], dayResult = {}, { avoidTexts = [] } = {}) {
+  ensureSocialState();
+  const llm = G.social?.llm || {};
+  if (!llm.enabled || !String(llm.apiKey || '').trim() || !Array.isArray(candidates) || !candidates.length) return [];
+  const baseUrl = normalizeLLMBaseUrl(llm.baseUrl);
+  const model = String(llm.model || 'gpt-4.1-mini').trim();
+  const system = `你是篮球生涯游戏里的中文社媒写手，现在要代写“NBA球星本人账号”的发言。
+要求：
+1. 必须写成球员本人第一人称短帖，不要新闻报道、球迷、解说、数据号口吻。
+2. 同一批次会给你多名球星；每个人的语气、关注点、锋芒必须拉开，不能像同一个人在换名字。
+3. 必须结合球星 archetype、关系状态、比赛/休赛日语境。后卫、组织者、防守尖兵、锋线核心的表达重点要不同。
+4. 每条正文 18-72 字，评论 3-6 条，每条 8-24 字。评论要像真实中文评论区，不要“信息量”“样本打大”这种模板空话。
+5. tone 只能是 positive / neutral / competitive / negative。
+6. 只返回合法 JSON，不要解释，不要 Markdown。
+返回格式：
+{
+  "posts": [
+    { "slot": 0, "text": "正文", "tone": "competitive", "comments": ["评论1", "评论2", "评论3"] }
+  ]
+}`;
+  const userPayload = buildStarPostBatchPromptPayload(candidates, dayResult, avoidTexts);
+  try {
+    let raw = '';
+    if (isGoogleGeminiEndpoint(baseUrl)) {
+      const modelName = normalizeModelNameForGemini(model);
+      const endpoint = `${baseUrl}/models/${encodeURIComponent(modelName)}:generateContent`;
+      const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint, { jsonBody: true });
+      const payload = {
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [{ text: userPayload }] }],
+        generationConfig: { temperature: 0.95, responseMimeType: 'application/json' }
+      };
+      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const data = await readJSONResponseSafe(res, '球星推文生成');
+      raw = (data?.candidates?.[0]?.content?.parts || []).map(part => part.text).join('') || '';
+    } else {
+      const payload = {
+        model,
+        temperature: 0.95,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: userPayload }
+        ],
+        response_format: { type: 'json_object' }
+      };
+      const endpoint = `${baseUrl}/chat/completions`;
+      const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
+      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const data = await readJSONResponseSafe(res, '球星推文生成');
+      raw = data?.choices?.[0]?.message?.content || '';
+    }
+    let jsonStr = raw;
+    const match = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (match) jsonStr = match[1];
+    const parsed = tryParseJSONText(jsonStr.trim());
+    if (!parsed || !Array.isArray(parsed.posts)) return [];
+    const allowedTones = new Set(['positive', 'neutral', 'competitive', 'negative']);
+    return parsed.posts
+      .map(item => ({
+        slot: Math.max(0, Math.floor(parseNum(item?.slot, -1))),
+        text: cleanSocialText(String(item?.text || '').trim()).slice(0, 84),
+        tone: allowedTones.has(String(item?.tone || '').trim().toLowerCase())
+          ? String(item?.tone || '').trim().toLowerCase()
+          : 'neutral',
+        comments: Array.isArray(item?.comments)
+          ? item.comments.map(comment => typeof comment === 'string' ? { text: comment } : comment).slice(0, SOCIAL_COMMENT_COUNT_RANGE[1])
+          : []
+      }))
+      .filter(item => item.text);
+  } catch (e) {
+    return [];
+  }
+}
+async function generateStarPlayerSocialPostsByLLM(dayResult, day, season, count = 2) {
+  const candidates = buildStarTweetCandidates(dayResult, count).map(item => {
+    const relationLink = G.social?.playerLinks?.[String(item?.profile?.key || '').trim()] || null;
+    return {
+      ...item,
+      relationLink,
+      relationInfo: resolveSocialLinkStatus(relationLink)
+    };
+  });
+  if (!candidates.length) return [];
+  const avoidTexts = (G.social?.posts || [])
+    .filter(post =>
+      parseNum(post?.day, -999) === parseNum(day, -1) &&
+      parseNum(post?.season, -999) === parseNum(season, -1) &&
+      !post?.isPlayer
+    )
+    .map(post => String(post?.text || '').trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  const drafts = await generateStarPostBatchByLLM(candidates, dayResult, { avoidTexts });
+  const draftMap = new Map(drafts.map(item => [parseNum(item?.slot, -1), item]));
+  const added = [];
+  candidates.forEach((item, idx) => {
+    const payload = buildStarTweetPayload(item.profile, item.relationInfo, dayResult, item.topic);
+    const draft = draftMap.get(idx);
+    const post = appendSocialPost({
+      ...payload,
+      text: cleanSocialText(String(draft?.text || payload.text).trim()) || payload.text,
+      tone: String(draft?.tone || payload.tone || 'neutral').trim().toLowerCase(),
+      comments: Array.isArray(draft?.comments) && draft.comments.length ? draft.comments : payload.comments,
+      day,
+      season,
+      year: G.year
+    });
+    if (post) {
+      added.push(post);
+      applySocialPlayerLinkDelta(item.profile, {
+        affinityDelta: parseNum(payload.affinityDelta, 0),
+        respectDelta: parseNum(payload.respectDelta, 0),
+        heatDelta: parseNum(payload.heatDelta, 0),
+        source: '球星社媒发声'
+      });
+    }
+  });
+  return added;
 }
 function generateStarPlayerSocialPosts(dayResult, day, season, count = 2) {
   const candidates = buildStarTweetCandidates(dayResult, count);
@@ -6404,50 +6929,210 @@ function generateStarPlayerSocialPosts(dayResult, day, season, count = 2) {
 }
 function buildStarReplyComment(profile, relationInfo, impact, targetPost = null) {
   const playerName = G.player?.name || '你';
-  if (impact.tone === 'negative') return `${playerName}，这话我记住了。到场上见。`;
+  const seed = `${profile?.key || profile?.name || 'star'}_${relationInfo?.id || 'neutral'}_${impact?.tone || 'neutral'}_${targetPost?.id || targetPost?.text || ''}`;
+  const pickReply = (list = [], shift = 0) => pickSeedItem(list, seed, shift) || list[0] || '';
+  if (impact.tone === 'negative') {
+    return pickReply([
+      `${playerName}，这句我先记下。下次碰面别后退。`,
+      `既然点到这儿了，那就别删。赛场上见。`,
+      `行，这话我收到了。下一次对位我会回应。`
+    ]);
+  }
   if (impact.tone === 'competitive') {
     return relationInfo.id === 'rival'
-      ? `火药味可以，记得把这股劲带到下一次对位。`
-      : `这才像联盟该有的味道，下一次碰面别躲。`;
+      ? pickReply([
+        `火药味可以，记得把这股劲带到下一次对位。`,
+        `这种话别停，到场上继续。`,
+        `终于像点样子了，下次见面把强度再抬高。`
+      ], 1)
+      : pickReply([
+        `这才像联盟该有的味道，下一次碰面别躲。`,
+        `同位置就该这样互相逼强度，下次见真章。`,
+        `可以，留着这股劲，比赛里继续说话。`
+      ], 2);
   }
   if (impact.tone === 'positive') {
     return relationInfo.id === 'friend'
-      ? `收到，继续保持。比赛里见真章，场下不用整那些虚的。`
-      : `看到了，继续把比赛打硬。联盟会记住真正肯下功夫的人。`;
+      ? pickReply([
+        `收到。继续保持，比赛里见真章，场下不用整那些虚的。`,
+        `看到你这段时间的进步了，别松。`,
+        `可以，别让今天白练，后面继续打硬。`
+      ], 3)
+      : pickReply([
+        `看到了，继续把比赛打硬。联盟会记住真正肯下功夫的人。`,
+        `这话没毛病，后面用表现接上。`,
+        `先把样本继续打大，别让今天变成一阵风。`
+      ], 4);
   }
   return targetPost?.authorType === 'star'
-    ? `先把比赛打好，其他话题以后再聊。`
-    : `我看到了。先把表现稳定住。`;
+    ? pickReply([
+      `先把比赛打好，其他话题以后再聊。`,
+      `这条我看到了，后面拿球说话。`,
+      `别把节奏断了，下一次碰面再聊。`
+    ], 5)
+    : pickReply([
+      `我看到了。先把表现稳定住。`,
+      `听到了，继续打。`,
+      `一句话先放这儿，后面看比赛。`
+    ], 6);
 }
-function maybeCreateStarResponseForPlayerPost(post, text, impact) {
+function buildStarReplyPromptPayload(profile, relationInfo, impact, targetPost = null, playerText = '') {
+  return JSON.stringify({
+    star: {
+      name: String(profile?.name || '球星').trim(),
+      handle: String(profile?.handle || '').trim(),
+      team: String(profile?.teamName || profile?.teamAbbr || '').trim(),
+      archetype: String(profile?.archetype || '').trim()
+    },
+    relation: {
+      status: String(relationInfo?.id || 'neutral').trim(),
+      label: String(relationInfo?.label || '普通').trim()
+    },
+    interaction: {
+      impactTone: String(impact?.tone || 'neutral').trim(),
+      impactLabel: String(impact?.label || '').trim(),
+      playerText: cleanSocialText(String(playerText || '').trim()).slice(0, 90)
+    },
+    targetPost: targetPost ? {
+      author: String(targetPost?.author || '').trim(),
+      persona: String(targetPost?.persona || '').trim(),
+      text: cleanSocialText(String(targetPost?.text || '').trim()).slice(0, 120),
+      tone: String(targetPost?.tone || '').trim()
+    } : null,
+    avoidPhrases: ['赛场上见', '先把比赛打好', '继续打', '样本打大', '信息量大']
+  });
+}
+async function generateStarReplyByLLM(profile, relationInfo, impact, targetPost = null, playerText = '') {
+  ensureSocialState();
+  const llm = G.social?.llm || {};
+  if (!llm.enabled || !String(llm.apiKey || '').trim() || !profile) return null;
+  const baseUrl = normalizeLLMBaseUrl(llm.baseUrl);
+  const model = String(llm.model || 'gpt-4.1-mini').trim();
+  const system = `你是篮球生涯游戏里的中文社媒写手，现在要代写 NBA 球星本人对一条社媒互动的公开回话。
+要求：
+1. 只写球星本人一句回复，8-36 字，口气像真实球员，不要媒体、教练或旁观者口吻。
+2. 必须回应玩家刚说的话和当前关系气氛，可以冷、硬、尊重、挑衅，但不要模板化。
+3. 不要写成长段分析，不要写“赛场上见”“先把比赛打好”这类陈词滥调。
+4. 只返回合法 JSON：{"text":"回复内容"}。`;
+  const userPayload = buildStarReplyPromptPayload(profile, relationInfo, impact, targetPost, playerText);
+  try {
+    let raw = '';
+    if (isGoogleGeminiEndpoint(baseUrl)) {
+      const modelName = normalizeModelNameForGemini(model);
+      const endpoint = `${baseUrl}/models/${encodeURIComponent(modelName)}:generateContent`;
+      const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint, { jsonBody: true });
+      const payload = {
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [{ text: userPayload }] }],
+        generationConfig: { temperature: 0.92, responseMimeType: 'application/json' }
+      };
+      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const data = await readJSONResponseSafe(res, '球星回话生成');
+      raw = (data?.candidates?.[0]?.content?.parts || []).map(part => part.text).join('') || '';
+    } else {
+      const payload = {
+        model,
+        temperature: 0.92,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: userPayload }
+        ],
+        response_format: { type: 'json_object' }
+      };
+      const endpoint = `${baseUrl}/chat/completions`;
+      const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
+      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const data = await readJSONResponseSafe(res, '球星回话生成');
+      raw = data?.choices?.[0]?.message?.content || '';
+    }
+    let jsonStr = raw;
+    const match = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (match) jsonStr = match[1];
+    const parsed = tryParseJSONText(jsonStr.trim());
+    const text = cleanSocialText(String(parsed?.text || '').trim()).slice(0, 42);
+    return text || null;
+  } catch (e) {
+    return null;
+  }
+}
+async function enhanceStarReplyCommentByLLM(commentRef, profile, relationInfo, impact, targetPost = null, playerText = '') {
+  if (!commentRef || typeof commentRef !== 'object') return null;
+  const nextText = await generateStarReplyByLLM(profile, relationInfo, impact, targetPost, playerText);
+  if (!nextText) return commentRef;
+  commentRef.text = nextText;
+  if (typeof renderPhone === 'function' && $('phonePage')?.classList.contains('active')) renderPhone();
+  return commentRef;
+}
+function queueStarReplyCommentEnhancement(commentRef, profile, relationInfo, impact, targetPost = null, playerText = '') {
+  enhanceStarReplyCommentByLLM(commentRef, profile, relationInfo, impact, targetPost, playerText).catch(() => null);
+}
+function getStarResponseTargetsForPlayerText(text = '') {
   const mentioned = findMentionedSocialStars(text, 2);
   const fallback = buildStarTweetCandidates({ isGame: false }, 1).map(item => item.profile);
   const targets = (mentioned.length ? mentioned : fallback).filter(Boolean).slice(0, 2);
+  return { mentioned, targets };
+}
+function maybeCreateStarResponseForPlayerPost(post, text, impact) {
+  const { mentioned, targets } = getStarResponseTargetsForPlayerText(text);
   if (!targets.length) return [];
   const responses = [];
+  const bump = getSocialInteractionRanges(post);
   targets.forEach(profile => {
     if (!profile || Math.random() >= (mentioned.length ? 0.92 : 0.58)) return;
     const link = G.social?.playerLinks?.[String(profile.key || '').trim()] || null;
     const relationInfo = resolveSocialLinkStatus(link);
     const replyText = buildStarReplyComment(profile, relationInfo, impact, post);
     post.comments = Array.isArray(post.comments) ? post.comments : [];
-    post.comments.unshift({
+    const commentRef = {
       author: String(profile.handle || buildStarHandleFromName(profile.name, profile.teamAbbr)).trim(),
       text: replyText,
-      likes: rng(30, 420)
-    });
-    post.likes = parseNum(post.likes, 0) + rng(40, 260);
-    post.reposts = parseNum(post.reposts, 0) + rng(6, 40);
+      likes: rng(bump.starReplyLikes[0], bump.starReplyLikes[1])
+    };
+    post.comments.unshift(commentRef);
+    post.likes = parseNum(post.likes, 0) + rng(bump.replyLikeBump[0], bump.replyLikeBump[1]);
+    post.reposts = parseNum(post.reposts, 0) + rng(bump.replyRepostBump[0], bump.replyRepostBump[1]);
     responses.push(profile);
     addPhone('社媒提醒', `${profile.name} 回复了你的推文。`, 'info');
-    applySocialPlayerLinkDelta(profile, {
+    const relationUpdate = applySocialPlayerLinkDelta(profile, {
       affinityDelta: parseNum(impact.relationAffinity, 0),
       respectDelta: parseNum(impact.relationRespect, 0),
       heatDelta: parseNum(impact.relationHeat, 0),
       source: '公开社媒互动'
     });
+    queueStarReplyCommentEnhancement(commentRef, profile, resolveSocialLinkStatus(relationUpdate?.link), impact, post, text);
   });
   return responses;
+}
+async function maybeCreateStarResponseForPlayerPostAsync(post, text, impact) {
+  const { mentioned, targets } = getStarResponseTargetsForPlayerText(text);
+  if (!targets.length) return { responses: [], llmUsed: false };
+  const responses = [];
+  const bump = getSocialInteractionRanges(post);
+  let llmUsed = false;
+  post.comments = Array.isArray(post.comments) ? post.comments : [];
+  for (const profile of targets) {
+    if (!profile || Math.random() >= (mentioned.length ? 0.92 : 0.58)) continue;
+    const relationUpdate = applySocialPlayerLinkDelta(profile, {
+      affinityDelta: parseNum(impact.relationAffinity, 0),
+      respectDelta: parseNum(impact.relationRespect, 0),
+      heatDelta: parseNum(impact.relationHeat, 0),
+      source: '公开社媒互动'
+    });
+    const relationInfo = resolveSocialLinkStatus(relationUpdate?.link);
+    const llmText = await generateStarReplyByLLM(profile, relationInfo, impact, post, text);
+    const commentRef = {
+      author: String(profile.handle || buildStarHandleFromName(profile.name, profile.teamAbbr)).trim(),
+      text: llmText || buildStarReplyComment(profile, relationInfo, impact, post),
+      likes: rng(bump.starReplyLikes[0], bump.starReplyLikes[1])
+    };
+    post.comments.unshift(commentRef);
+    post.likes = parseNum(post.likes, 0) + rng(bump.replyLikeBump[0], bump.replyLikeBump[1]);
+    post.reposts = parseNum(post.reposts, 0) + rng(bump.replyRepostBump[0], bump.replyRepostBump[1]);
+    responses.push(profile);
+    llmUsed = llmUsed || !!llmText;
+    addPhone('社媒提醒', `${profile.name} 回复了你的推文。`, 'info');
+  }
+  return { responses, llmUsed };
 }
 
 function ensureEconomyState() {
@@ -6506,6 +7191,7 @@ function ensureSocialState() {
   if (!Array.isArray(G.social.llmModels)) G.social.llmModels = [];
   if (!Number.isFinite(parseNum(G.social.llmModelsFetchedAt, NaN))) G.social.llmModelsFetchedAt = 0;
   if (!G.social.lastLLMTest || typeof G.social.lastLLMTest !== 'object') G.social.lastLLMTest = { ok: false, message: '', at: 0 };
+  if (!G.social._leaguePlayerPoolCache || typeof G.social._leaguePlayerPoolCache !== 'object') G.social._leaguePlayerPoolCache = { key: '', pool: [] };
   if (typeof G.social.tweetImagesEnabled !== 'boolean') G.social.tweetImagesEnabled = false;
   if (!G.social.llm || typeof G.social.llm !== 'object') {
     G.social.llm = { enabled: false, baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini', apiKey: '', imageModel: '' };
@@ -6643,7 +7329,20 @@ function llmSystemPrompt(context = null) {
      - 评论区回复不得超过8个字相同
      - 鼓励使用：反问句、省略号、括号吐槽、引用数据、emoji混搭、对话体、截图体
      - 语气风格变化：有的长分析、有的一句话暴论、有的数据流、有的纯段子、有的认真讨论
-  
+ 
+  3.1 **热度数字必须符合身份层级**：
+     - 球星本人、球队记者、主流媒体的点赞/转发，默认应明显高于普通路人、吃瓜群众、装备党
+     - 普通路人或日常看球帖通常点赞 80-3000、转发 10-300；除非是全联盟大事件，不要随便上万
+     - 球队记者、战术分析、数据流帖子通常点赞 800-12000、转发 60-1200
+     - 球星亲自点名、签名鞋、重大流言、揭幕战级热点，可以到 5000-50000
+     - likes / reposts 可以写整数，也可以写 k / w，但必须像真人平台数据
+ 
+  3.2 **评论区也要像真人**：
+     - 每条推文提供 3-6 条评论
+     - 评论不要全部是两三个字的口水话，更不要重复“继续看 / 有点强 / 这条挺关键”这种模板
+     - 评论之间要有分工：有人支持、有人质疑、有人补充信息、有人玩梗、有人抬杠
+     - 评论语气和主帖要匹配，像真实用户在同一个评论区各说各话
+
   4. **篮球为主（95%以上）**：
      - 基于 context.league.top5/bot3 讨论强队弱队、战绩排名、季后赛形势
      - 基于 context.league.scorers/assisters/rebounders 讨论球星表现、数据对比
@@ -7020,7 +7719,7 @@ function getGeneratedSocialCount(day, season = G.season) {
   return count;
 }
 function hasGeneratedSocialForDay(day, season = G.season) {
-  return getGeneratedSocialCount(day, season) >= 5;
+  return getGeneratedSocialCount(day, season) >= SOCIAL_MIN_GENERATED_POSTS;
 }
 function markSocialGeneratedDay(day, count, season = G.season) {
   ensureSocialState();
@@ -7225,18 +7924,27 @@ async function generateDailySocialTweetsSmart(dayResult = {}, { force = false, c
     const added = [];
     parsed.posts.forEach(post => {
       if (!post || !post.text) return;
+      const tone = String(post.tone || 'neutral').trim().toLowerCase();
+      const normalizedAuthor = String(post.author || '@线上看球').trim();
+      const normalizedPersona = String(post.persona || '中立型').trim();
+      const postMeta = {
+        author: normalizedAuthor,
+        persona: normalizedPersona,
+        text: post.text,
+        tone
+      };
       const p = appendSocialPost({
-        author: String(post.author || '@线上看球').trim(),
-        persona: String(post.persona || '中立型').trim(),
+        author: normalizedAuthor,
+        persona: normalizedPersona,
         text: String(post.text).trim(),
-        tone: String(post.tone || 'neutral'),
-        likes: parseNum(String(post.likes || '').replace(/[kw万千]/gi, m => ({ k: '000', w: '0000', '万': '0000', '千': '000' }[m.toLowerCase()] || '')), rng(50, 500)),
-        reposts: parseNum(post.reposts, rng(10, 100)),
+        tone,
+        likes: post.likes,
+        reposts: post.reposts,
         comments: Array.isArray(post.comments) ? post.comments.map(c => ({
           author: String(c?.author || '@评论用户').trim(),
           text: String(c?.text || '').trim(),
-          likes: parseNum(c?.likes, rng(1, 50))
-        })) : makeFallbackComments(post.text, 'neutral', 2),
+          likes: c?.likes
+        })) : makeFallbackComments(post.text, tone, getRandomSocialCommentCount(getSocialPostHeatProfile(postMeta)), postMeta),
         day,
         season,
         year: G.year
@@ -7245,9 +7953,16 @@ async function generateDailySocialTweetsSmart(dayResult = {}, { force = false, c
     });
 
     await attachGeneratedImagesToSocialPosts(added, dayResult, context);
-    const starAdded = generateStarPlayerSocialPosts(dayResult, day, season, Math.min(2, Math.max(1, Math.round(count * 0.34))));
-    const totalAdded = added.concat(starAdded);
-    markSocialGeneratedDay(day, totalAdded.length, season);
+    const starAdded = await generateStarPlayerSocialPostsByLLM(dayResult, day, season, Math.min(2, Math.max(1, Math.round(count * 0.34))));
+    const supplemental = appendFallbackSocialPosts(
+      dayResult,
+      day,
+      season,
+      Math.max(0, SOCIAL_MIN_GENERATED_POSTS - getGeneratedSocialCount(day, season)),
+      { avoidTexts: added.concat(starAdded).map(post => String(post?.text || '').trim()).filter(Boolean) }
+    );
+    const totalAdded = added.concat(starAdded, supplemental);
+    markSocialGeneratedDay(day, getGeneratedSocialCount(day, season), season);
     G.social.lastLLMError = '';
     return totalAdded;
   } catch (err) {
@@ -7259,15 +7974,12 @@ async function generateDailySocialTweetsSmart(dayResult = {}, { force = false, c
   }
 }
 
-// 本地回退推文（无需LLM）
-function generateFallbackSocialTweets(dayResult, day, season, count = 6) {
-  const added = [];
+function buildFallbackSocialTemplates(dayResult = {}) {
   const isGame = !!dayResult?.isGame;
   const gr = dayResult?.gameResult;
   const playerName = G.player?.name || '球员';
   const teamName = G.team?.z || '球队';
-
-  const templates = isGame && gr ? [
+  return isGame && gr ? [
     { a: '@赛场快报', t: 'news', text: `${teamName}${gr.win ? '拿下' : '不敌'}${(getTeam(gr.opp) || {}).z || '对手'}，比分 ${gr.teamPts}-${gr.oppPts}。${playerName}贡献${gr.st?.pts || 0}分${gr.st?.reb || 0}板${gr.st?.ast || 0}助。` },
     { a: '@真爱球迷阿哲', t: 'fan', text: gr.win ? `赢了！${playerName}今晚太猛了！` : `输了…但${playerName}已经尽力了，下一场再来` },
     { a: '@数据实验室', t: 'data', text: `${playerName}本场效率值：${gr.st ? Math.round((gr.st.pts + gr.st.reb + gr.st.ast + gr.st.stl + gr.st.blk) * 1.2) : '??'}，${gr.win ? '正负值为正' : '球队整体需要反思'}` },
@@ -7282,24 +7994,73 @@ function generateFallbackSocialTweets(dayResult, day, season, count = 6) {
     { a: '@半场分析', t: 'neutral', text: `休赛日复盘一下最近的战绩走势，${teamName}需要稳住节奏` },
     { a: '@今晚稳赢', t: 'gambler', text: `明天的比赛盘口出了，研究研究` }
   ];
-
-  templates.slice(0, count).forEach(tpl => {
+}
+function appendFallbackSocialPosts(dayResult, day, season, count = 6, { avoidTexts = [] } = {}) {
+  ensureSocialState();
+  const targetCount = Math.max(0, Math.floor(parseNum(count, 0)));
+  if (!targetCount) return [];
+  const existingKeys = new Set(
+    [
+      ...(Array.isArray(avoidTexts) ? avoidTexts : []),
+      ...(G.social?.posts || [])
+        .filter(post =>
+          parseNum(post?.season, 0) === parseNum(season, 0) &&
+          parseNum(post?.day, -999) === parseNum(day, -999) &&
+          !post?.isPlayer &&
+          String(post?.sourceType || '').trim().toLowerCase() !== 'commercial'
+        )
+        .map(post => String(post?.text || '').trim())
+    ]
+      .map(text => String(text || '').replace(/\s+/g, '').toLowerCase())
+      .filter(Boolean)
+  );
+  const templates = buildFallbackSocialTemplates(dayResult);
+  const added = [];
+  const batchKeys = new Set();
+  const tryAppend = (tpl, allowExistingDuplicates = false) => {
+    if (added.length >= targetCount || !tpl) return;
+    const text = String(tpl.text || '').trim();
+    const key = text.replace(/\s+/g, '').toLowerCase();
+    if (!text || !key || batchKeys.has(key)) return;
+    if (!allowExistingDuplicates && existingKeys.has(key)) return;
+    const persona = SOCIAL_PERSONAS[tpl.t]?.type || '中立型';
+    const postMeta = { author: tpl.a, persona, text, tone: 'neutral' };
     const p = appendSocialPost({
       author: tpl.a,
-      persona: SOCIAL_PERSONAS[tpl.t]?.type || '中立型',
-      text: tpl.text,
+      persona,
+      text,
       tone: 'neutral',
       likes: rng(30, 300),
       reposts: rng(5, 60),
-      comments: makeFallbackComments(tpl.text, 'neutral', 2),
-      day, season, year: G.year
+      comments: makeFallbackComments(text, 'neutral', getRandomSocialCommentCount(getSocialPostHeatProfile(postMeta)), postMeta),
+      day,
+      season,
+      year: G.year
     });
-    if (p) added.push(p);
-  });
+    if (!p) return;
+    batchKeys.add(key);
+    added.push(p);
+  };
+  templates.forEach(tpl => tryAppend(tpl, false));
+  if (added.length < targetCount) {
+    templates.forEach(tpl => tryAppend(tpl, true));
+  }
+  return added;
+}
 
+// 本地回退推文（无需LLM）
+function generateFallbackSocialTweets(dayResult, day, season, count = 6) {
+  const added = appendFallbackSocialPosts(dayResult, day, season, count);
   const starAdded = generateStarPlayerSocialPosts(dayResult, day, season, Math.min(2, Math.max(1, Math.round(count * 0.34))));
-  const totalAdded = added.concat(starAdded);
-  markSocialGeneratedDay(day, totalAdded.length, season);
+  const supplemental = appendFallbackSocialPosts(
+    dayResult,
+    day,
+    season,
+    Math.max(0, SOCIAL_MIN_GENERATED_POSTS - getGeneratedSocialCount(day, season)),
+    { avoidTexts: added.concat(starAdded).map(post => String(post?.text || '').trim()).filter(Boolean) }
+  );
+  const totalAdded = added.concat(starAdded, supplemental);
+  markSocialGeneratedDay(day, getGeneratedSocialCount(day, season), season);
   return totalAdded;
 }
 function getDailySocialGateStatus() {
@@ -7311,7 +8072,7 @@ function getDailySocialGateStatus() {
   const requiredDay = currentDay - 1;
   const season = parseNum(G.season, 0);
   const count = getGeneratedSocialCount(requiredDay, season);
-  const generated = count >= 5;
+  const generated = count >= SOCIAL_MIN_GENERATED_POSTS;
   const blocked = !generated;
   const dateText = getDayDateString(requiredDay);
   const text = generated
@@ -7354,7 +8115,7 @@ async function ensureDailySocialReadyBeforeAdvance() {
 function socialPlayerPostKey(day = G.dayNum, season = G.season) {
   return `${parseNum(season, 0)}_${parseNum(day, 0)}`;
 }
-function postPlayerTweet(text = '') {
+function createPlayerTweetRecord(text = '') {
   ensureSocialState();
   const cleaned = cleanSocialText(text || '');
   if (!cleaned) return { ok: false, message: '推文内容不能为空' };
@@ -7379,25 +8140,53 @@ function postPlayerTweet(text = '') {
   if (!post) return { ok: false, message: '发布失败' };
   G.social.playerPostsByDay[key] = used + 1;
   const rep = applyReputationDelta({ fame: impact.fame, trust: impact.trust, source: '个人推文' });
-  const responders = maybeCreateStarResponseForPlayerPost(post, cleaned, impact);
+  return { ok: true, day, cleaned, impact, post, rep };
+}
+function finalizePlayerTweetRecord(base, responders = [], { llmUsed = false } = {}) {
+  if (!base?.ok) return base || { ok: false, message: '发布失败' };
   appendPlayerStatementLog({
-    day,
+    day: base.day,
     season: G.season,
     title: '个人推文',
     type: 'social_post',
-    text: cleaned,
-    analysisText: impact.label
+    text: base.cleaned,
+    analysisText: base.impact.label
   });
   if (responders.length) {
     const names = responders.map(p => p.name).filter(Boolean).join('、');
-    addNews(`📱 你的推文引来了球星互动：${names} 公开回应了你。`, impact.tone === 'negative' ? 'neg' : 'pos');
+    addNews(`📱 你的推文引来了球星互动：${names} 公开回应了你。`, base.impact.tone === 'negative' ? 'neg' : 'pos');
   }
-  return { ok: true, post, impact: { ...impact, label: impact.label, fameDelta: rep.fameDelta, trustDelta: rep.trustDelta }, responders };
+  return {
+    ok: true,
+    post: base.post,
+    impact: {
+      ...base.impact,
+      label: base.impact.label,
+      fameDelta: base.rep.fameDelta,
+      trustDelta: base.rep.trustDelta
+    },
+    responders,
+    llmUsed
+  };
+}
+function postPlayerTweet(text = '') {
+  const base = createPlayerTweetRecord(text);
+  if (!base.ok) return base;
+  const responders = maybeCreateStarResponseForPlayerPost(base.post, base.cleaned, base.impact);
+  return finalizePlayerTweetRecord(base, responders);
 }
 async function postPlayerTweetAsync(text = '') {
-  return postPlayerTweet(text);
+  const base = createPlayerTweetRecord(text);
+  if (!base.ok) return base;
+  const canUseLLM = !!(G.social?.llm?.enabled && String(G.social?.llm?.apiKey || '').trim());
+  if (!canUseLLM) {
+    const responders = maybeCreateStarResponseForPlayerPost(base.post, base.cleaned, base.impact);
+    return finalizePlayerTweetRecord(base, responders);
+  }
+  const { responses, llmUsed } = await maybeCreateStarResponseForPlayerPostAsync(base.post, base.cleaned, base.impact);
+  return finalizePlayerTweetRecord(base, responses, { llmUsed });
 }
-function replyToSocialPost(postId, text = '') {
+function createPlayerReplyRecord(postId, text = '') {
   ensureSocialState();
   const target = (G.social.posts || []).find(p => String(p.id) === String(postId));
   if (!target) return { ok: false, message: '推文不存在' };
@@ -7416,6 +8205,9 @@ function replyToSocialPost(postId, text = '') {
   target.likes = parseNum(target.likes, 0) + rng(6, 46);
   G.social.playerRepliedPostIds[key] = 1;
   const rep = applyReputationDelta({ fame: impact.fame, trust: impact.trust, source: '回复推文' });
+  return { ok: true, target, cleaned, impact, rep };
+}
+function maybeCreateStarResponseForReply(target, cleaned, impact) {
   let relation = null;
   if (target.authorType === 'star' || String(target.playerRefKey || '').trim()) {
     const profile = getSocialStarProfileByRef({
@@ -7431,36 +8223,92 @@ function replyToSocialPost(postId, text = '') {
         heatDelta: impact.relationHeat,
         source: '回复球星推文'
       });
-      const responseText = buildStarReplyComment(profile, resolveSocialLinkStatus(relation?.link), impact, target);
-      target.comments.unshift({
+      const relationInfo = resolveSocialLinkStatus(relation?.link);
+      const responseText = buildStarReplyComment(profile, relationInfo, impact, target);
+      const starComment = {
         author: String(profile.handle || buildStarHandleFromName(profile.name, profile.teamAbbr)).trim(),
         text: responseText,
         likes: rng(20, 260)
-      });
+      };
+      target.comments.unshift(starComment);
+      queueStarReplyCommentEnhancement(starComment, profile, relationInfo, impact, target, cleaned);
       addPhone('社媒提醒', `${profile.name} 看到了你的回复，并公开回了一句。`, 'info');
     }
   }
+  return relation;
+}
+async function maybeCreateStarResponseForReplyAsync(target, cleaned, impact) {
+  let relation = null;
+  let llmUsed = false;
+  if (target.authorType === 'star' || String(target.playerRefKey || '').trim()) {
+    const profile = getSocialStarProfileByRef({
+      key: target.playerRefKey,
+      playerId: target.playerId,
+      teamId: target.teamId,
+      name: target.playerName
+    });
+    if (profile) {
+      relation = applySocialPlayerLinkDelta(profile, {
+        affinityDelta: impact.relationAffinity,
+        respectDelta: impact.relationRespect,
+        heatDelta: impact.relationHeat,
+        source: '回复球星推文'
+      });
+      const relationInfo = resolveSocialLinkStatus(relation?.link);
+      const llmText = await generateStarReplyByLLM(profile, relationInfo, impact, target, cleaned);
+      const starComment = {
+        author: String(profile.handle || buildStarHandleFromName(profile.name, profile.teamAbbr)).trim(),
+        text: llmText || buildStarReplyComment(profile, relationInfo, impact, target),
+        likes: rng(20, 260)
+      };
+      target.comments.unshift(starComment);
+      llmUsed = !!llmText;
+      addPhone('社媒提醒', `${profile.name} 看到了你的回复，并公开回了一句。`, 'info');
+    }
+  }
+  return { relation, llmUsed };
+}
+function finalizePlayerReplyRecord(base, relation = null, { llmUsed = false } = {}) {
+  if (!base?.ok) return base || { ok: false, message: '回复失败' };
   appendPlayerStatementLog({
-    day: parseNum(target.day, G.dayNum),
-    season: parseNum(target.season, G.season),
-    title: `回复 ${target.author || '推文'}`,
+    day: parseNum(base.target.day, G.dayNum),
+    season: parseNum(base.target.season, G.season),
+    title: `回复 ${base.target.author || '推文'}`,
     type: 'social_reply',
-    text: cleaned,
-    analysisText: impact.label
+    text: base.cleaned,
+    analysisText: base.impact.label
   });
   return {
     ok: true,
-    target,
+    target: base.target,
     relation,
     impact: {
-      ...impact,
+      ...base.impact,
       label: relation?.newStatus?.id && relation.newStatus.id !== 'neutral'
-        ? `${impact.label} · ${relation.newStatus.label}`
-        : impact.label,
-      fameDelta: rep.fameDelta,
-      trustDelta: rep.trustDelta
-    }
+        ? `${base.impact.label} · ${relation.newStatus.label}`
+        : base.impact.label,
+      fameDelta: base.rep.fameDelta,
+      trustDelta: base.rep.trustDelta
+    },
+    llmUsed
   };
+}
+function replyToSocialPost(postId, text = '') {
+  const base = createPlayerReplyRecord(postId, text);
+  if (!base.ok) return base;
+  const relation = maybeCreateStarResponseForReply(base.target, base.cleaned, base.impact);
+  return finalizePlayerReplyRecord(base, relation);
+}
+async function replyToSocialPostAsync(postId, text = '') {
+  const base = createPlayerReplyRecord(postId, text);
+  if (!base.ok) return base;
+  const canUseLLM = !!(G.social?.llm?.enabled && String(G.social?.llm?.apiKey || '').trim());
+  if (!canUseLLM) {
+    const relation = maybeCreateStarResponseForReply(base.target, base.cleaned, base.impact);
+    return finalizePlayerReplyRecord(base, relation);
+  }
+  const { relation, llmUsed } = await maybeCreateStarResponseForReplyAsync(base.target, base.cleaned, base.impact);
+  return finalizePlayerReplyRecord(base, relation, { llmUsed });
 }
 async function regenerateCommercialBuzzPostsForDay(day, season, { enhanceText = true } = {}) {
   ensureSocialState();

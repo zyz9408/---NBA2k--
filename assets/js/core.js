@@ -372,6 +372,13 @@ function parseNum(v, def = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : def;
 }
+const MATCH_EFFECTIVE_ATTR_CAP = 125;
+function getMatchEffectiveAttrCap() {
+  return MATCH_EFFECTIVE_ATTR_CAP;
+}
+function clampMatchEffectiveAttr(v, min = 20, max = getMatchEffectiveAttrCap()) {
+  return clamp(Math.round(parseNum(v, 0)), min, max);
+}
 function normalizeSalaryMillion(v) {
   const n = parseNum(v, 0);
   if (n <= 0) return 0;
@@ -2467,6 +2474,22 @@ function getEffectivePlayerAttrs(player) {
     });
   }
 
+  if (typeof getPlayerLiveAttrBoosts === 'function') {
+    const liveBoosts = getPlayerLiveAttrBoosts(player);
+    if (liveBoosts && typeof liveBoosts === 'object') {
+      Object.entries(liveBoosts).forEach(([attrKey, boostVal]) => {
+        if (effective[attrKey] !== undefined) {
+          effective[attrKey] += parseNum(boostVal, 0);
+        }
+      });
+    }
+  }
+
+  Object.keys(effective).forEach(attrKey => {
+    if (!Number.isFinite(parseNum(effective[attrKey], NaN))) return;
+    effective[attrKey] = clampMatchEffectiveAttr(effective[attrKey]);
+  });
+
   return effective;
 }
 
@@ -2491,6 +2514,7 @@ function recalcPlayerBadges(player) {
 
   BADGES.forEach(badge => {
     const computedLevel = getBadgeLevel(player, badge);
+    if (computedLevel <= 0) return;
     const storedLevel = clamp(parseNum(currentBadges[badge.id], 0), 0, 4);
     const level = Math.max(computedLevel, storedLevel);
     if (level > 0) {
@@ -2523,11 +2547,11 @@ function normalizePlayerBadges(player, { assignIfEmpty = true } = {}) {
     Object.entries(player.badges).forEach(([id, lv]) => put(String(id || '').trim(), lv));
   }
 
-  if (assignIfEmpty && Object.keys(out).length === 0) {
-    Object.assign(out, assignInitialBadges(player));
-  }
   player.badges = out;
-  return out;
+  if (!assignIfEmpty && Object.keys(out).length === 0) {
+    return out;
+  }
+  return recalcPlayerBadges(player);
 }
 function ensureLeagueBadges() {
   if (LEAGUE.teams) {
@@ -2763,7 +2787,7 @@ function cloneRealRookie(base, pick, draftYear = G.year) {
     draftPick: pick,
     sourceDraftYear: rookieDraftYear(base),
     sourceDraftYear: rookieDraftYear(base),
-    badges: assignInitialBadges({ ...base, rating, potential, attrs, yearsLeague: 0 })
+    badges: assignInitialBadges({ ...base, rating, potential, attrs, yearsLeague: 0, badges: {} })
   };
 }
 function collectRealDraftCandidates(targetYear, classSize, activeNameSet) {
