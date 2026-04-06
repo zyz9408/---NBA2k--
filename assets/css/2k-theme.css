@@ -1,0 +1,563 @@
+/* =========================================================
+   NBA Career Sim — 2K Theme Overlay
+   Layered on top of app.css for enhanced game feel
+   ========================================================= */
+
+/* ---------- 1. Enhanced Variables ---------- */
+:root {
+  --neon-gold: #ffd54f;
+  --neon-cyan: #00e5ff;
+  --neon-purple: #b388ff;
+  --neon-red: #ff5252;
+  --court-wood: #c8956c;
+  --court-wood-dark: #8b5e3c;
+  --court-line: rgba(255,255,255,.6);
+  --glow-gold: 0 0 20px rgba(255,213,79,.35);
+  --glow-cyan: 0 0 20px rgba(0,229,255,.35);
+  --glow-purple: 0 0 20px rgba(179,136,255,.35);
+  --ease-2k: cubic-bezier(.4,0,.2,1);
+  --ease-bounce: cubic-bezier(.34,1.56,.64,1);
+}
+
+/* ---------- 2. Selection & Scrollbar ---------- */
+::selection { background: rgba(248,193,77,.35); color: #fff; }
+::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--gold), var(--primary)); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, var(--neon-gold), var(--cyan)); }
+
+/* ---------- 3. Page Transitions ---------- */
+.page.active { animation: pageSlideIn .42s var(--ease-2k); }
+@keyframes pageSlideIn {
+  from { opacity: 0; transform: translateY(18px) scale(.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ---------- 4. Card Stagger Entrance ---------- */
+.card {
+  animation: cardReveal .52s var(--ease-2k) backwards;
+  transition: transform .28s var(--ease-2k), box-shadow .28s var(--ease-2k);
+  position: relative;
+}
+.card:nth-child(1) { animation-delay: .04s; }
+.card:nth-child(2) { animation-delay: .10s; }
+.card:nth-child(3) { animation-delay: .16s; }
+.card:nth-child(4) { animation-delay: .22s; }
+.card:nth-child(5) { animation-delay: .28s; }
+.card:nth-child(6) { animation-delay: .34s; }
+@keyframes cardReveal {
+  from { opacity: 0; transform: translateY(28px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Card hover lift + basketball texture */
+.card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 24px 56px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.05);
+}
+.card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(circle at 82% 18%, rgba(200,149,108,.04), transparent 50%);
+}
+
+/* ---------- 5. Button Enhancements ---------- */
+.btn {
+  position: relative;
+  overflow: hidden;
+  transition: transform .22s var(--ease-2k), box-shadow .22s var(--ease-2k);
+}
+.btn:hover {
+  transform: translateY(-2px);
+}
+.btn:active {
+  transform: translateY(0) scale(.97);
+}
+
+/* Ripple effect */
+.btn-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255,255,255,.25);
+  transform: scale(0);
+  animation: btnRipple .55s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes btnRipple {
+  to { transform: scale(4); opacity: 0; }
+}
+
+/* Neon glow button variants */
+.btn-glow:hover {
+  box-shadow: 0 0 24px rgba(255,213,79,.4), 0 0 48px rgba(255,213,79,.12);
+}
+.btn-gold:hover {
+  box-shadow: var(--glow-gold);
+}
+.btn-cyan:hover {
+  box-shadow: var(--glow-cyan);
+}
+.btn-purple:hover {
+  box-shadow: var(--glow-purple);
+}
+
+/* ---------- 6. Navigation Enhancement ---------- */
+.nav-btn.active {
+  border-left: 3px solid var(--gold) !important;
+  background: linear-gradient(90deg, rgba(253,185,39,.14), rgba(45,102,255,.08), transparent) !important;
+}
+.nav-btn.active .nav-btn-icon {
+  box-shadow: 0 0 14px rgba(253,185,39,.35);
+}
+.nav-btn.active .nav-btn-icon::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 14px;
+  animation: navIconPulse 2.2s ease-in-out infinite;
+  pointer-events: none;
+  box-shadow: 0 0 10px rgba(253,185,39,.25);
+}
+@keyframes navIconPulse {
+  0%,100% { box-shadow: 0 0 8px rgba(253,185,39,.18); }
+  50%     { box-shadow: 0 0 18px rgba(253,185,39,.42); }
+}
+.nav-btn-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
+.nav-btn-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+/* ---------- 7. Stat Bar Shimmer ---------- */
+.bar-fill {
+  position: relative;
+  transition: width .85s var(--ease-2k) !important;
+}
+.bar-fill::after {
+  content: '';
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: rgba(255,255,255,.7);
+  border-radius: 2px;
+  animation: barShimmer 1.6s ease-in-out infinite;
+}
+@keyframes barShimmer {
+  0%,100% { opacity: .25; }
+  50%     { opacity: .85; }
+}
+
+/* OVR pulse */
+.ovr-pulse { animation: ovrPulse .6s var(--ease-2k); }
+@keyframes ovrPulse {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.35); color: var(--neon-gold); text-shadow: 0 0 20px rgba(255,213,79,.5); }
+  100% { transform: scale(1); }
+}
+
+/* ---------- 8. Grade Letter Animation ---------- */
+.grade { animation: gradeReveal .5s var(--ease-bounce) backwards; }
+@keyframes gradeReveal {
+  from { opacity: 0; transform: scale(0); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ---------- 9. Result Banner Glow ---------- */
+.result-banner.win {
+  animation: winPulse 1.8s ease-in-out infinite;
+}
+@keyframes winPulse {
+  0%,100% { box-shadow: 0 0 0 rgba(40,167,69,0); }
+  50%     { box-shadow: 0 0 22px rgba(40,167,69,.28); }
+}
+.result-banner.loss {
+  animation: none;
+}
+
+/* ---------- 10. Tag Hover Glow ---------- */
+.tag-gold, .b-gold {
+  box-shadow: 0 0 0 rgba(248,193,77,0);
+  transition: box-shadow .2s;
+}
+.tag-gold:hover, .b-gold:hover {
+  box-shadow: 0 0 10px rgba(248,193,77,.35);
+}
+
+/* ---------- 11. Table Row Hover ---------- */
+tr:hover td { background: rgba(255,255,255,.03); }
+.hl-row td { background: rgba(253,185,39,.10) !important; }
+
+/* ---------- 12. Modal Enhancement ---------- */
+.modal-bg.active { animation: modalBgIn .25s ease; }
+@keyframes modalBgIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.modal { animation: modalIn .35s var(--ease-bounce) !important; }
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(.88) translateY(20px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* ---------- 13. Stat Box Hover ---------- */
+.stat-box {
+  transition: transform .2s var(--ease-2k), background .2s;
+}
+.stat-box:hover {
+  transform: translateY(-2px);
+  background: rgba(255,255,255,.07);
+}
+.stat-box:hover .stat-val {
+  text-shadow: 0 0 12px rgba(248,193,77,.4);
+}
+
+/* ---------- 14. Create Flow Step Transitions ---------- */
+.create-step-enter {
+  animation: stepSlideIn .4s var(--ease-2k);
+}
+.create-step-exit {
+  animation: stepSlideOut .25s var(--ease-2k) forwards;
+}
+@keyframes stepSlideIn {
+  from { opacity: 0; transform: translateX(40px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes stepSlideOut {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(-40px); }
+}
+
+/* X-Factor card flip */
+.xfactor-flip-container { perspective: 800px; }
+.xfactor-flip-card {
+  transition: transform .7s var(--ease-2k);
+  transform-style: preserve-3d;
+}
+.xfactor-flip-card.flipped { transform: rotateY(180deg); }
+.xfactor-flip-front, .xfactor-flip-back {
+  backface-visibility: hidden;
+}
+.xfactor-flip-back { transform: rotateY(180deg); }
+
+/* ---------- 15. Upgrade Flash ---------- */
+.upgrade-flash-bar {
+  animation: upgradeBarFlash .45s var(--ease-2k);
+}
+@keyframes upgradeBarFlash {
+  0%   { box-shadow: inset 0 0 0 rgba(255,255,255,0); }
+  40%  { box-shadow: inset 0 0 30px rgba(255,255,255,.45); }
+  100% { box-shadow: inset 0 0 0 rgba(255,255,255,0); }
+}
+.upgrade-float-text {
+  position: absolute;
+  font-weight: 900;
+  font-size: 18px;
+  pointer-events: none;
+  animation: floatUp .8s var(--ease-2k) forwards;
+}
+@keyframes floatUp {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-32px); }
+}
+
+/* ---------- 16. Sweep Light (main menu top bar) ---------- */
+.sweep-light {
+  background-size: 200% 100% !important;
+  animation: sweepLight 3s linear infinite;
+}
+@keyframes sweepLight {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* ---------- 17. Save Slot Pulse ---------- */
+.save-slot-glow {
+  animation: slotPulse 2.4s ease-in-out infinite;
+}
+@keyframes slotPulse {
+  0%,100% { box-shadow: 0 0 0 rgba(248,193,77,0); }
+  50%     { box-shadow: 0 0 16px rgba(248,193,77,.2); }
+}
+
+/* ---------- 18. SVG Court Background ---------- */
+.court-bg-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: .08;
+  pointer-events: none;
+}
+.court-bg-svg .court-line {
+  stroke-dasharray: 600;
+  stroke-dashoffset: 600;
+  animation: courtDraw 2.5s var(--ease-2k) forwards;
+}
+@keyframes courtDraw {
+  to { stroke-dashoffset: 0; }
+}
+
+/* ---------- 19. Loading Spinner ---------- */
+.loading-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+}
+.loading-spinner svg {
+  animation: spinBall 1s linear infinite;
+}
+@keyframes spinBall {
+  to { transform: rotate(360deg); }
+}
+
+/* ---------- 20. Player Silhouette Watermark ---------- */
+.player-watermark {
+  position: absolute;
+  right: -5%;
+  bottom: -10%;
+  width: 55%;
+  opacity: .025;
+  pointer-events: none;
+  filter: drop-shadow(0 0 40px rgba(253,185,39,.1));
+}
+
+/* ---------- 21. Focus States ---------- */
+.btn:focus-visible,
+.nav-btn:focus-visible,
+.form-control:focus-visible,
+.page-tab:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+/* ---------- 22. Smooth Scroll ---------- */
+.home-feed-scroll,
+.home-news-list,
+.news-ticker,
+.event-log,
+.terminal-scroll {
+  scroll-behavior: smooth;
+}
+
+/* ---------- 23. News / Story Item Stagger ---------- */
+.story-item-enter {
+  animation: storyFadeIn .4s var(--ease-2k) backwards;
+}
+@keyframes storyFadeIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ---------- 24. Floating +N Text (upgrade) ---------- */
+.float-plus {
+  position: absolute;
+  right: 0;
+  top: -8px;
+  font-weight: 900;
+  pointer-events: none;
+  z-index: 10;
+  animation: floatPlus .9s var(--ease-2k) forwards;
+}
+@keyframes floatPlus {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  50%  { opacity: .8; transform: translateY(-16px) scale(1.2); }
+  100% { opacity: 0; transform: translateY(-36px) scale(.8); }
+}
+
+/* ---------- 25. VFX Canvas Overlay ---------- */
+#vfxCanvas {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+/* ---------- 26. Screen Flash ---------- */
+.screen-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  animation: screenFlash .4s ease-out forwards;
+}
+@keyframes screenFlash {
+  from { opacity: .35; }
+  to   { opacity: 0; }
+}
+
+/* ---------- 27. Radar Chart (Upgrade Page) ---------- */
+.radar-chart-svg {
+  width: 100%;
+  max-width: 340px;
+  margin: 0 auto;
+  display: block;
+  filter: drop-shadow(0 4px 16px rgba(0,0,0,.3));
+}
+.radar-chart-svg .radar-grid {
+  fill: none;
+  stroke: rgba(255,255,255,.08);
+  stroke-width: 1;
+}
+.radar-chart-svg .radar-axis {
+  stroke: rgba(255,255,255,.1);
+  stroke-width: 1;
+}
+.radar-chart-svg .radar-data {
+  transition: d .5s var(--ease-2k);
+}
+.radar-chart-svg .radar-label {
+  fill: var(--text2);
+  font-size: 10px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+/* ---------- 28. MAX Badge Pulse ---------- */
+.max-badge {
+  animation: maxPulse 1.5s ease-in-out infinite;
+}
+@keyframes maxPulse {
+  0%,100% { text-shadow: 0 0 4px rgba(255,213,79,.3); }
+  50%     { text-shadow: 0 0 18px rgba(255,213,79,.7), 0 0 30px rgba(255,213,79,.3); }
+}
+
+/* ---------- 29. Responsive Tweaks ---------- */
+@media (max-width: 768px) {
+  .player-watermark { width: 80%; right: -15%; }
+  .court-bg-svg { opacity: .04; }
+}
+
+/* ---------- 30. Header Sweep Glow ---------- */
+.header::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, var(--gold) 25%, var(--cyan) 50%, var(--gold) 75%, transparent 100%);
+  background-size: 200% 100%;
+  animation: sweepLight 4s linear infinite;
+  border-radius: 26px 26px 0 0;
+}
+
+/* ---------- 31. Header Info Badge Glow ---------- */
+.header-info span {
+  transition: box-shadow .25s, transform .2s;
+}
+.header-info span:hover {
+  box-shadow: 0 0 12px rgba(83,216,255,.2);
+  transform: translateY(-1px);
+}
+
+/* ---------- 32. Hero Button Glow ---------- */
+.btn-glow, .nba-btn-hero.btn-glow {
+  position: relative;
+  overflow: hidden;
+}
+.btn-glow::before, .nba-btn-hero.btn-glow::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255,213,79,.15), transparent 40%, rgba(0,229,255,.10));
+  opacity: 0;
+  transition: opacity .3s;
+  pointer-events: none;
+}
+.btn-glow:hover::before, .nba-btn-hero.btn-glow:hover::before {
+  opacity: 1;
+}
+
+/* ---------- 33. Save Slot Glow ---------- */
+.nba-save-slot.filled {
+  transition: transform .2s var(--ease-2k), box-shadow .2s;
+}
+.nba-save-slot.filled:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 18px rgba(248,193,77,.15);
+}
+
+/* ---------- 34. Stat Box Value Glow on Hover ---------- */
+.stat-val {
+  transition: text-shadow .25s;
+}
+.stat-box:hover .stat-val {
+  text-shadow: 0 0 12px currentColor;
+}
+
+/* ---------- 35. Shake Animation ---------- */
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+
+/* ---------- 36. Game Result Card Win Glow ---------- */
+.game-result-card[data-win="true"] {
+  border-color: rgba(40,167,69,.25) !important;
+}
+.game-result-card[data-win="true"]::after {
+  background: radial-gradient(circle at 50% 20%, rgba(40,167,69,.06), transparent 50%) !important;
+}
+.game-result-card[data-win="false"] {
+  border-color: rgba(220,53,69,.18) !important;
+}
+
+/* ---------- 37. Subpage Hero Sweep ---------- */
+.subpage-hero::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, var(--gold) 30%, var(--cyan) 50%, var(--gold) 70%, transparent 100%);
+  background-size: 200% 100%;
+  animation: sweepLight 5s linear infinite;
+  border-radius: 0 0 24px 24px;
+}
+
+/* ---------- 38. Home Shell Animated Gradient ---------- */
+.home-shell::before {
+  animation: homeGradientShift 12s ease-in-out infinite alternate !important;
+}
+@keyframes homeGradientShift {
+  0%   { background: radial-gradient(circle at 18% 16%,rgba(253,185,39,.12),transparent 26%),radial-gradient(circle at 82% 8%,rgba(0,212,255,.10),transparent 28%),radial-gradient(circle at 48% 0,rgba(155,89,182,.12),transparent 35%); }
+  50%  { background: radial-gradient(circle at 22% 12%,rgba(0,212,255,.14),transparent 28%),radial-gradient(circle at 78% 14%,rgba(155,89,182,.12),transparent 26%),radial-gradient(circle at 50% 0,rgba(253,185,39,.10),transparent 32%); }
+  100% { background: radial-gradient(circle at 16% 16%,rgba(253,185,39,.12),transparent 26%),radial-gradient(circle at 82% 8%,rgba(0,212,255,.10),transparent 28%),radial-gradient(circle at 48% 0,rgba(155,89,182,.12),transparent 35%); }
+}
+
+/* ---------- 39. Mini Tile Hover ---------- */
+.home-mini-tile {
+  transition: transform .2s var(--ease-2k), box-shadow .2s;
+}
+.home-mini-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0,0,0,.2);
+}
+.home-mini-tile:hover .home-mini-value {
+  text-shadow: 0 0 10px currentColor;
+}
+
+/* ---------- 40. Tag Shimmer ---------- */
+.tag, .badge {
+  transition: box-shadow .2s;
+}
+.tag:hover, .badge:hover {
+  box-shadow: 0 0 8px rgba(255,255,255,.15);
+}

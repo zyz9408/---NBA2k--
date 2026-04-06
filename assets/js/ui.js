@@ -1013,11 +1013,13 @@ function selectTemplate(id) {
 
 function renderAttrRoll() {
   const a = G.player.attrs;
+  const ovrVal = ovr(a);
   $('createPage').innerHTML = `
   <div class="nba-create-page">
     <div class="nba-create-bg">
       <div class="nba-create-court"></div>
       <div class="nba-create-glow"></div>
+      ${typeof svgCourtBg === 'function' ? svgCourtBg() : ''}
     </div>
 
     <div class="nba-create-header">
@@ -1028,21 +1030,21 @@ function renderAttrRoll() {
     <div class="nba-attr-container">
       <div class="nba-attr-scores">
         <div class="nba-score-box">
-          <div class="nba-score-value">${ovr(a)}</div>
+          <div class="nba-score-value" id="ovrCounter" data-target="${ovrVal}">0</div>
           <div class="nba-score-label">OVR</div>
         </div>
         <div class="nba-score-box">
-          <div class="nba-score-value">${G.player.potential}</div>
+          <div class="nba-score-value" id="potCounter" data-target="${G.player.potential}">0</div>
           <div class="nba-score-label">POT</div>
         </div>
       </div>
 
       <div class="nba-attr-panel">
-        ${ATTRS.map(at => `
-          <div class="nba-attr-row">
+        ${ATTRS.map((at, i) => `
+          <div class="nba-attr-row" style="animation-delay:${i * 0.06}s">
             <span class="nba-attr-name">${at.n}</span>
             <div class="nba-attr-bar">
-              <div class="nba-attr-fill" style="width:${a[at.k]}%"></div>
+              <div class="nba-attr-fill" data-target="${a[at.k]}" style="width:0%"></div>
             </div>
             <span class="nba-attr-value">${a[at.k]}</span>
           </div>
@@ -1050,11 +1052,26 @@ function renderAttrRoll() {
       </div>
 
       <div class="nba-attr-actions">
-        <button class="nba-reroll-btn" onclick="doReroll()">🎲 重新抽取</button>
-        <button class="nba-confirm-btn" onclick="confirmAttrs()">确认属性 →</button>
+        <button class="nba-reroll-btn btn-glow" onclick="doReroll()">🎲 重新抽取</button>
+        <button class="nba-confirm-btn btn-glow" onclick="confirmAttrs()">确认属性 →</button>
       </div>
     </div>
   </div>`;
+  // VFX: animate counters and bars
+  setTimeout(() => {
+    const ovrEl = document.getElementById('ovrCounter');
+    const potEl = document.getElementById('potCounter');
+    if (ovrEl && typeof animateCountUp === 'function') animateCountUp(ovrEl, 0, ovrVal, 800);
+    if (potEl && typeof animateCountUp === 'function') animateCountUp(potEl, 0, G.player.potential, 800);
+    document.querySelectorAll('.nba-attr-fill[data-target]').forEach((bar, i) => {
+      setTimeout(() => { bar.style.width = bar.dataset.target + '%'; }, 100 + i * 80);
+    });
+    // Spark particles on OVR reveal
+    if (typeof spawnSparks === 'function' && ovrEl) {
+      const r = ovrEl.getBoundingClientRect();
+      setTimeout(() => spawnSparks(r.left + r.width/2, r.top + r.height/2, '#ffd54f'), 700);
+    }
+  }, 50);
 }
 
 function doReroll() {
@@ -1076,6 +1093,7 @@ function renderXFactorReveal() {
     <div class="nba-create-bg">
       <div class="nba-create-court"></div>
       <div class="nba-create-glow"></div>
+      ${typeof svgCourtBg === 'function' ? svgCourtBg() : ''}
     </div>
 
     <div class="nba-xfactor-container">
@@ -1084,18 +1102,38 @@ function renderXFactorReveal() {
         <div class="nba-xfactor-title">特殊天赋</div>
       </div>
 
-      <div class="nba-xfactor-card">
-        <div class="nba-xfactor-icon">${xf.icon}</div>
-        <div class="nba-xfactor-name">${xf.n}</div>
-        <div class="nba-xfactor-desc">${xf.d}</div>
+      <div class="xfactor-flip-container" style="margin:0 auto;max-width:420px">
+        <div class="xfactor-flip-card nba-xfactor-card" id="xfactorCard" style="width:100%;min-height:200px">
+          <div class="xfactor-flip-front" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(135deg,rgba(155,89,182,.18),rgba(0,212,255,.10));border:2px solid var(--purple);border-radius:16px;padding:24px;text-align:center">
+            <div style="font-size:48px;margin-bottom:12px">❓</div>
+            <div style="font-size:16px;font-weight:800;color:var(--purple)">点击揭示天赋</div>
+          </div>
+          <div class="xfactor-flip-back" style="display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(135deg,rgba(155,89,182,.18),rgba(0,212,255,.10));border:2px solid var(--purple);border-radius:16px;padding:24px;text-align:center">
+            <div class="nba-xfactor-icon" style="font-size:72px;line-height:1">${xf.icon}</div>
+            <div class="nba-xfactor-name" style="margin-top:12px;font-size:24px;font-weight:900">${xf.n}</div>
+            <div class="nba-xfactor-desc" style="margin-top:8px;color:var(--text2);line-height:1.6">${xf.d}</div>
+          </div>
+        </div>
       </div>
 
-      <button class="nba-create-btn" onclick="gotoDraft()">
+      <button class="nba-create-btn btn-glow" onclick="gotoDraft()" style="margin-top:24px">
         <span class="nba-btn-text">进入选秀夜</span>
         <span class="nba-btn-arrow">→</span>
       </button>
     </div>
   </div>`;
+  // Auto-flip after short delay
+  setTimeout(() => {
+    const card = document.getElementById('xfactorCard');
+    if (card) {
+      card.classList.add('flipped');
+      // Purple particles on reveal
+      if (typeof spawnEnergyParticles === 'function') {
+        const r = card.getBoundingClientRect();
+        setTimeout(() => spawnEnergyParticles(r.left + r.width/2, r.top + r.height/2, '#b388ff'), 350);
+      }
+    }
+  }, 600);
 }
 
 async function gotoDraft() {
@@ -2011,7 +2049,17 @@ function updateHeader() {
   const baseOvr = ovr(G.player.attrs);
   const effOvr = ovr(effA);
   const ovrBonus = effOvr - baseOvr;
-  $('hdrOvr').textContent = `OVR: ${baseOvr}${ovrBonus > 0 ? '(+' + ovrBonus + ')' : ''}`;
+  const ovrEl = $('hdrOvr');
+  const oldText = ovrEl?.textContent || '';
+  const newText = `OVR: ${baseOvr}${ovrBonus > 0 ? '(+' + ovrBonus + ')' : ''}`;
+  ovrEl.textContent = newText;
+  // OVR change pulse animation
+  if (oldText !== newText && ovrEl) {
+    ovrEl.classList.remove('ovr-pulse');
+    ovrEl.offsetHeight; // reflow
+    ovrEl.classList.add('ovr-pulse');
+    setTimeout(() => ovrEl.classList.remove('ovr-pulse'), 700);
+  }
 }
 
 // ============ HOME PAGE ============
@@ -2107,9 +2155,17 @@ function renderHome() {
 
   $('homePage').innerHTML = `
   <div class="home-shell">
+    ${typeof svgCourtBg === 'function' ? svgCourtBg() : ''}
+    ${typeof svgPlayerSilhouette === 'function' ? svgPlayerSilhouette() : ''}
     <section class="card home-hero">
       <div class="home-hero-main">
-        <div class="home-portrait-frame">${portraitHtml}</div>
+        <div class="home-portrait-frame" style="position:relative">
+          <svg style="position:absolute;inset:-4px;width:calc(100% + 8px);height:calc(100% + 8px);pointer-events:none" viewBox="0 0 160 210" fill="none">
+            <rect x="2" y="2" width="156" height="206" rx="20" stroke="rgba(248,193,77,.25)" stroke-width="2" stroke-dasharray="6 4" class="svg-dash-flow"/>
+            <rect x="6" y="6" width="148" height="198" rx="18" stroke="rgba(248,193,77,.12)" stroke-width="1"/>
+          </svg>
+          ${portraitHtml}
+        </div>
         <div class="home-hero-copy">
           <div class="home-kicker">Career Command</div>
           <div class="home-title">${p.name}</div>
@@ -2227,6 +2283,13 @@ function renderHome() {
   setTimeout(() => {
     const sb = $('storyBoard');
     if (sb) sb.scrollTop = sb.scrollHeight;
+    // VFX: stagger-animate story items
+    if (typeof animateStatBars === 'function') animateStatBars($('homePage'));
+    const stories = sb?.querySelectorAll('.home-story-item');
+    if (stories) stories.forEach((item, i) => {
+      item.classList.add('story-item-enter');
+      item.style.animationDelay = (i * 0.05) + 's';
+    });
   }, 10);
 
   if (G.playoffs && G.playoffs.active && !G.playoffs.eliminated) {
@@ -2683,11 +2746,11 @@ function renderGameResultCard(res) {
   const resultSvg = renderResultBadgeSvg({ win: !!res.win });
 
   return `
-  <div class="card">
+  <div class="card game-result-card" data-win="${!!res.win}">
     <div class="card-title">${res.win ? '🎉 胜利' : '😞 失败'}${effortTag}</div>
     <div class="result-banner ${res.win ? 'win' : 'loss'}">${res.win ? 'W 胜利' : 'L 失利'}</div>
     <div class="tc">${resultSvg}</div>
-    <div class="tc fw-b mt-12">${teamAbbr} ${parseNum(res.teamPts, 0)} : ${parseNum(res.oppPts, 0)} ${oppAbbr}</div>
+    <div class="tc fw-b mt-12 game-score-text">${teamAbbr} <span class="t-gold" data-score="${parseNum(res.teamPts, 0)}">0</span> : <span data-score="${parseNum(res.oppPts, 0)}">0</span> ${oppAbbr}</div>
     <div class="grade ${gradeClass(res.grade)}">${gradeLetter(res.grade)}</div>
     <div class="grid g4 mt-12">
       <div class="stat-box"><div class="stat-val">${res.st.pts}</div><div class="stat-lbl">得分</div></div>
@@ -2788,6 +2851,7 @@ function doPlayGame() {
 async function doSimulateDay() {
   if (G._simulatingDay) return;
   G._simulatingDay = true;
+  if (typeof showLoading === 'function') showLoading();
   renderHome();
   try {
     // 赛前事件：如果今天是比赛日，先掷骰并展示事件
@@ -2843,6 +2907,7 @@ async function doSimulateDay() {
     if ($('phonePage').classList.contains('active')) renderPhone();
   } finally {
     G._simulatingDay = false;
+    if (typeof hideLoading === 'function') hideLoading();
     if ($('homePage').classList.contains('active')) renderHome();
     if ($('phonePage').classList.contains('active')) renderPhone();
     // 自动备份到 localStorage
@@ -4076,28 +4141,40 @@ function renderUpgrade() {
   const p = G.player;
   const playerBadges = (p.badges && typeof p.badges === 'object') ? p.badges : {};
   const badgeBonuses = typeof getBadgeAttrBonuses === 'function' ? getBadgeAttrBonuses(p) : {};
+
+  // Build radar chart SVG
+  const radarLabels = ATTRS.map(a => a.n);
+  const radarValues = ATTRS.map(a => {
+    const v = parseNum(p.attrs[a.k], 50);
+    const bonus = Math.round(parseNum(badgeBonuses[a.k], 0));
+    return Math.min(v + bonus, 99);
+  });
+  const radarSVG = typeof buildRadarSVG === 'function' ? buildRadarSVG(radarValues, radarLabels) : '';
+
   $('upgradePage').innerHTML = `
   ${buildTestAttrPanel('upgrade')}
+  ${radarSVG ? `<div class="card" style="text-align:center"><div class="card-title">${svgIcon('upgrade',16)} 属性雷达图</div>${radarSVG}</div>` : ''}
   <div class="grid g2">
     <div class="card">
-      <div class="card-title">💪 属性加点 (XP: <span class="t-gold">${p.xp}</span>)</div>
+      <div class="card-title">${svgIcon('upgrade',16)} 属性加点 (XP: <span class="t-gold" id="upgradeXP">${p.xp}</span>)</div>
       ${ATTRS.map(at => {
     const v = p.attrs[at.k];
     const bonus = Math.round(parseNum(badgeBonuses[at.k], 0));
     const cost = getUpgradeCost(v);
     const maxed = v >= 99;
     const bonusTag = bonus > 0 ? `<span class="t-cyan fs-xs" style="margin-left:2px">(+${bonus})</span>` : '';
-    return `<div class="flex fb" style="margin-bottom:10px">
+    const maxBadge = maxed ? '<span class="max-badge" style="color:var(--gold);font-weight:900;margin-left:4px">MAX</span>' : '';
+    return `<div class="flex fb" style="margin-bottom:10px;position:relative" id="attr-row-${at.k}">
           <span class="fs-sm" style="width:50px">${at.n}</span>
-          <div class="bar" style="flex:1;margin:0 8px"><div class="bar-fill ${barClass(v + bonus)}" style="width:${Math.min(v + bonus, 99)}%"></div></div>
-          <span class="fw-b" style="width:50px;text-align:right">${v}${bonusTag}</span>
-          <button class="btn btn-sm btn-gold" style="margin-left:8px" onclick="doUpgrade('${at.k}')"
+          <div class="bar" style="flex:1;margin:0 8px"><div class="bar-fill ${barClass(v + bonus)}" data-target="${Math.min(v + bonus, 99)}" style="width:0%"></div></div>
+          <span class="fw-b" style="width:50px;text-align:right">${v}${bonusTag}${maxBadge}</span>
+          <button class="btn btn-sm btn-gold btn-glow" style="margin-left:8px" onclick="doUpgrade('${at.k}')"
             ${maxed || p.xp < cost ? 'disabled' : ''}>${maxed ? 'MAX' : cost + 'XP'}</button>
         </div>`;
   }).join('')}
     </div>
     <div class="card">
-      <div class="card-title">🎖 徽章升级</div>
+      <div class="card-title">${svgIcon('awards',16)} 徽章升级</div>
       ${BADGES.map(b => {
     const lv = playerBadges[b.id] || 0;
     const costs = [0, 30, 80, 180, 400];
@@ -4110,21 +4187,21 @@ function renderUpgrade() {
     const effectText = typeof getBadgeEffectShortText === 'function'
       ? (getBadgeEffectShortText(b.effect, Math.max(1, lv || 1)) || b.d || '暂无描述')
       : (b.d || '暂无描述');
-    return `<div class="flex fb" style="margin-bottom:10px;align-items:flex-start">
+    return `<div class="flex fb" style="margin-bottom:10px;align-items:flex-start" id="badge-row-${b.id}">
           <div style="padding-right:8px">
             <div><span class="fw-b fs-sm">${icon} ${b.n}</span>
             <span class="tag ${badgeTierClass(lv)}">${badgeTierName(lv)}</span></div>
             <div class="t-2 fs-xs mt-12">${effectText}</div>
             <div class="t-2 fs-xs mt-12" style="color:${reqMet || lv > 0 ? '#9ad0ff' : '#ff9a9a'}">${reqMet || lv > 0 ? '✅' : '⛔'} 要求: ${reqText}</div>
           </div>
-          <button class="btn btn-sm btn-purple" onclick="doUpgradeBadge('${b.id}')"
+          <button class="btn btn-sm btn-purple btn-glow" onclick="doUpgradeBadge('${b.id}')"
             ${lv >= 4 || p.xp < nextCost ? 'disabled' : ''}>${lv >= 4 ? 'HOF' : nextCost + 'XP'}</button>
         </div>`;
   }).join('')}
     </div>
   </div>
   <div class="card">
-    <div class="card-title">🎯 倾向升级 (XP: <span class="t-gold">${p.xp}</span>)</div>
+    <div class="card-title">${svgIcon('basketball',16)} 倾向升级 (XP: <span class="t-gold">${p.xp}</span>)</div>
     <div class="t-2 fs-xs mb-16">倾向影响比赛中的出手分配 (上限100)，升级后会重新计算徽章</div>
     ${[
       { k: 'in', n: '内线倾向', d: '越高越多内线出手', color: '#e74c3c' },
@@ -4136,22 +4213,53 @@ function renderUpgrade() {
       const cost = typeof getTendencyUpgradeCost === 'function' ? getTendencyUpgradeCost(v) : 10;
       return `<div class="flex fb" style="margin-bottom:10px">
         <span class="fs-sm" style="width:70px">${t.n}</span>
-        <div class="bar" style="flex:1;margin:0 8px"><div class="bar-fill" style="width:${v}%;background:${t.color}"></div></div>
+        <div class="bar" style="flex:1;margin:0 8px"><div class="bar-fill" data-target="${v}" style="width:0%;background:${t.color}"></div></div>
         <span class="fw-b" style="width:36px;text-align:right;color:${t.color}">${v}</span>
-        <button class="btn btn-sm btn-gold" style="margin-left:8px" onclick="doUpgradeTendency('${t.k}')"
+        <button class="btn btn-sm btn-gold btn-glow" style="margin-left:8px" onclick="doUpgradeTendency('${t.k}')"
           ${maxed || p.xp < cost ? 'disabled' : ''}>${maxed ? 'MAX' : cost + 'XP'}</button>
       </div>`;
     }).join('')}
   </div>`;
+  // Animate stat bars after render
+  if (typeof animateStatBars === 'function') {
+    setTimeout(() => animateStatBars($('upgradePage')), 50);
+  }
 }
 
 function doUpgrade(key) {
   const cost = getUpgradeCost(G.player.attrs[key]);
-  if (spendXP(key, cost)) { renderUpgrade(); updateHeader(); }
+  const oldVal = G.player.attrs[key];
+  if (spendXP(key, cost)) {
+    renderUpgrade();
+    updateHeader();
+    // VFX: upgrade flash + particles
+    const row = document.getElementById('attr-row-' + key);
+    if (row && typeof playUpgradeFlash === 'function') {
+      const barFill = row.querySelector('.bar-fill');
+      if (barFill) playUpgradeFlash(barFill);
+      addFloatText(row, '+1', '#69f0ae');
+    }
+    if (oldVal >= 98 && typeof spawnConfetti === 'function') {
+      // MAX reached — confetti!
+      const rect = row?.getBoundingClientRect();
+      if (rect) spawnConfetti(rect.left + rect.width/2, rect.top);
+    } else if (typeof spawnSparks === 'function') {
+      const rect = row?.getBoundingClientRect();
+      if (rect) spawnSparks(rect.left + rect.width * 0.7, rect.top + rect.height/2, '#ffd54f');
+    }
+  }
 }
 
 function doUpgradeBadge(id) {
-  if (upgradeBadge(id)) renderUpgrade();
+  if (upgradeBadge(id)) {
+    renderUpgrade();
+    // VFX: badge upgrade particles
+    const row = document.getElementById('badge-row-' + id);
+    if (row && typeof spawnEnergyParticles === 'function') {
+      const rect = row.getBoundingClientRect();
+      spawnEnergyParticles(rect.left + rect.width/2, rect.top + rect.height/2, '#b388ff');
+    }
+  }
 }
 
 // 倾向XP升级
@@ -6240,6 +6348,47 @@ function setMainNavigationVisible(visible) {
   if (shell) shell.classList.toggle('shell-main-nav-hidden', !visible);
 }
 
+// Post-render VFX hooks — called after each page render
+function _vfxPostRender(page, pg) {
+  if (!pg) return;
+  // Animate stat bars on applicable pages
+  if (typeof animateStatBars === 'function') {
+    animateStatBars(pg);
+  }
+  // Animate game score count-up on home page
+  if (page === 'home') {
+    pg.querySelectorAll('[data-score]').forEach(el => {
+      const target = parseInt(el.dataset.score, 10);
+      if (!isNaN(target) && typeof animateCountUp === 'function') {
+        animateCountUp(el, 0, target, 600);
+      }
+    });
+    // VFX for latest game result win
+    const latest = G.results?.length ? G.results[G.results.length - 1] : null;
+    if (latest?.win && typeof spawnConfetti === 'function') {
+      const card = pg.querySelector('.game-result-card[data-win="true"]');
+      if (card) {
+        const rect = card.getBoundingClientRect();
+        setTimeout(() => spawnConfetti(rect.left + rect.width/2, rect.top + 30, 20), 400);
+      }
+    }
+  }
+  // Stagger-animate list items on stats, matches, roster pages
+  if (page === 'stats' || page === 'matches' || page === 'roster' || page === 'trade') {
+    pg.querySelectorAll('tbody tr').forEach((tr, i) => {
+      tr.style.animation = `cardReveal .4s var(--ease-2k) ${i * 0.03}s backwards`;
+    });
+  }
+  // Awards page: confetti for championships
+  if (page === 'awards' && typeof spawnSparks === 'function') {
+    const champEl = pg.querySelector('[data-champion]');
+    if (champEl) {
+      const r = champEl.getBoundingClientRect();
+      setTimeout(() => spawnSparks(r.left + r.width/2, r.top + r.height/2, '#ffd54f'), 500);
+    }
+  }
+}
+
 function navTo(page) {
   if (G._simulatingDay) return;
   setMainNavigationVisible(true);
@@ -6255,6 +6404,8 @@ function navTo(page) {
     phone: renderPhone, commerce: renderCommerce, settings: renderSettings, save: renderSave
   };
   if (renderers[page]) renderers[page]();
+  // Post-render VFX hooks
+  _vfxPostRender(page, pg);
 }
 
 // ============ INITIALIZATION ============
@@ -6439,6 +6590,8 @@ function renderMainMenu() {
         <div class="nba-hero-bg">
           <div class="nba-court-lines"></div>
           <div class="nba-glow-orb"></div>
+          ${typeof svgCourtBg === 'function' ? svgCourtBg() : ''}
+          ${typeof svgPlayerSilhouette === 'function' ? svgPlayerSilhouette() : ''}
         </div>
         <div class="nba-hero-content">
           <div class="nba-logo-area">
@@ -6459,7 +6612,7 @@ function renderMainMenu() {
           </div>
 
           <div class="nba-main-actions">
-            <button class="nba-btn-hero" onclick="startNewGame()">
+            <button class="nba-btn-hero btn-glow" onclick="startNewGame()" onmouseenter="if(typeof spawnBasketballParticles==='function'){const r=this.getBoundingClientRect();spawnBasketballParticles(r.left+r.width/2,r.top)}">
               <span class="nba-btn-icon">🏀</span>
               <span class="nba-btn-text">开始新生涯</span>
               <span class="nba-btn-arrow">→</span>
