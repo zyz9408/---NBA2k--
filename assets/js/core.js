@@ -238,7 +238,11 @@ let G = {
   seasonStats: { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, mins: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0, gp: 0, wins: 0, losses: 0 },
   careerStats: [],
   standings: { East: [], West: [] },
-  playoffs: { active: false, round: 0, series: [] },
+  playoffs: { active: false, round: 0, eliminated: false, champion: false, bracket: [], series: null },
+  allStar: { held: false, day: 90, east: [], west: [], mvp: null, userSelected: false, userMVP: false },
+  aiTradeLog: [],
+  eraConfig: { salaryCapM: 170, luxuryTaxMult: 1.18, eraName: 'modern' },
+  teamPicks: {},
   awards: [], allAwards: [],
   leagueAwards: [],
   hallOfFame: [],
@@ -256,6 +260,7 @@ let G = {
     playerPostsByDay: {},
     playerStatementLog: [],
     playerLinks: {},
+    rivalry: { lastPreviewGameKey: '', lastResultGameKey: '' },
     starProfiles: {},
     tweetImagesEnabled: false,
     llm: {
@@ -281,6 +286,27 @@ let G = {
   },
   coachRelations: { byKey: {} },
   coachDynamics: { lastConversationDay: -99, lastDailyPromptDay: -99, lastRenewalBriefSeason: 0, directives: { usageDemandUntilDay: -1, startingDemandUntilDay: -1, buyInUntilDay: -1 } },
+  // ========== 队内关系系统 ==========
+  teamRelations: {
+    teammates: {},
+    chemistry: { overall: 50, offenseSynergy: 50, defenseSynergy: 50, lockerRoomMood: 50, leadershipScore: 0, dramaLevel: 0, lastUpdated: -1 },
+    events: [],
+    lastPromptDay: -99
+  },
+  // ========== 赛季目标系统 ==========
+  seasonGoals: {
+    active: {
+      streaks: { doubleFigures: { active: true, current: 0, best: 0 }, over20: { active: true, current: 0, best: 0 }, winStreak: { current: 0, best: 0 } },
+      season: {},
+      milestones: {}
+    },
+    completed: [],
+    claimed: []
+  },
+  // ========== 比赛解释器 ==========
+  matchInterpreter: {
+    lastGame: { gameId: null, explanations: [], factors: {} }
+  },
   economy: {
     staminaCoachLevel: 0,
     trainingCoachLevel: 0,
@@ -322,15 +348,15 @@ const LEAGUE = {
 const LEAGUE_SALARY_CAP_M = 170;
 const APK_NBA_START_YEARS = [
   2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017,
-  2015, 2011, 2008, 2005, 2004, 1995, 1983, 1971, 1946
+  2015, 2011, 2008, 2005, 2003, 1995, 1983, 1971, 1946
 ];
 const APK_ROSTER_INDEX_TO_START_YEAR = {
   1: 2025, 2: 2024, 3: 2023, 4: 2022, 5: 2021, 6: 2020, 7: 2019, 8: 2018, 9: 2017,
-  10: 2015, 11: 2011, 12: 2008, 13: 2005, 14: 2004, 15: 1995, 16: 1983, 17: 1971,
+  10: 2015, 11: 2011, 12: 2008, 13: 2005, 14: 2003, 15: 1995, 16: 1983, 17: 1971,
   18: 1946, 19: 1946, 20: 2025, 21: 1946
 };
 const APK_START_YEAR_TO_ROSTER_INDEXES = {
-  2025: [1, 20],
+  2025: [1],
   2024: [2],
   2023: [3],
   2022: [4],
@@ -343,12 +369,11 @@ const APK_START_YEAR_TO_ROSTER_INDEXES = {
   2011: [11],
   2008: [12],
   2005: [13],
-  2004: [14],
   2003: [14],
   1995: [15],
   1983: [16],
   1971: [17],
-  1946: [18, 19, 21]
+  1946: [18, 19]
 };
 const APK_RAW_BASE_PATH = 'APK/resources/res/raw';
 
@@ -535,17 +560,23 @@ function calcPlayerRating(row) {
   return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
 }
 function parsePlayerAttrs(row) {
+  const physique = parseNum(row.skillPhysique, 55);
+  // 从 physique + 位置推导 speed / strength（CSV 无独立列）
+  // 参考 NBA 2K 属性分布：PG 速度快力量弱，C 速度慢力量强
+  const pos = clamp(parseNum(row.positionFirst, 3), 1, 5);
+  const speedBias = { 1: 6, 2: 3, 3: 0, 4: -4, 5: -8 }[pos] || 0;
+  const strengthBias = { 1: -6, 2: -3, 3: 0, 4: 4, 5: 8 }[pos] || 0;
   return {
     pass: parseNum(row.skillPass, 55),
     shotInt: parseNum(row.skillShotInterior, 55),
     shotExt: parseNum(row.skillShotExterior, 55),
     shotFree: parseNum(row.skillShotFree, 55),
-    physique: parseNum(row.skillPhysique, 55),
+    physique,
     blk: parseNum(row.skillBlock, 55),
     reb: parseNum(row.skillRebound, 55),
     stl: parseNum(row.skillSteal, 55),
-    speed: parseNum(row.skillPhysique, 55),
-    strength: parseNum(row.skillPhysique, 55)
+    speed: clamp(physique + speedBias + rng(-3, 3), 25, 99),
+    strength: clamp(physique + strengthBias + rng(-3, 3), 25, 99)
   };
 }
 function normalizePotentialValue(v, rating = 70) {
@@ -1034,8 +1065,75 @@ const FILE_ACCESS = {
   store: 'fs',
   key: 'root'
 };
+
+// ============ IMAGE CACHE (IndexedDB) ============
+const IMAGE_CACHE_DB = 'nba_image_cache';
+const IMAGE_CACHE_STORE = 'images';
+
+function openImageCacheDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IMAGE_CACHE_DB, 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore(IMAGE_CACHE_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function getCachedImageData(url) {
+  if (!url || typeof url !== 'string') return null;
+  if (url.startsWith('data:')) return url;
+  try {
+    const db = await openImageCacheDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(IMAGE_CACHE_STORE, 'readonly');
+      const req = tx.objectStore(IMAGE_CACHE_STORE).get(url);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch (e) { return null; }
+}
+
+async function setImageCacheData(url, dataUrl) {
+  if (!url || !dataUrl) return;
+  try {
+    const db = await openImageCacheDB();
+    const tx = db.transaction(IMAGE_CACHE_STORE, 'readwrite');
+    tx.objectStore(IMAGE_CACHE_STORE).put(dataUrl, url);
+    return new Promise((resolve) => { tx.oncomplete = () => resolve(); tx.onerror = () => resolve(); });
+  } catch (e) {}
+}
+
+async function cacheRemoteImage(url) {
+  if (!url || typeof url !== 'string') return url;
+  if (url.startsWith('data:')) return url;
+  if (url.startsWith('<svg') || url.startsWith('<SVG')) return url;
+  const cached = await getCachedImageData(url);
+  if (cached) return cached;
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (!res.ok) return url;
+    const blob = await res.blob();
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+    await setImageCacheData(url, dataUrl);
+    return dataUrl;
+  } catch (e) { return url; }
+}
+
 const isFileMode = () => location.protocol === 'file:';
 const canUseFS = () => typeof window.showDirectoryPicker === 'function' && typeof indexedDB !== 'undefined';
+
+async function resolveImageSrc(src) {
+  if (!src || typeof src !== 'string') return src;
+  if (src.startsWith('data:')) return src;
+  if (src.startsWith('<svg') || src.startsWith('<SVG')) return src;
+  const cached = await getCachedImageData(src);
+  return cached || src;
+}
 function normalizePath(path) {
   return String(path || '').replace(/\\/g, '/').replace(/^\.?\//, '');
 }
@@ -1340,16 +1438,14 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
     const preferredCoachIndex = detectedRosterYear || resolveRosterIndexesByStartYear(requestedStartYear)[0] || 1;
     const coachCandidates = buildCoachPathCandidatesByIndex(preferredCoachIndex);
 
-    const [coachPack, namesPack, rookiePack] = await Promise.all([
+    const [coachPack, namesPack] = await Promise.all([
       fetchFirstText(coachCandidates, { required: true, label: 'coach' }),
-      fetchFirstText(buildNamesPathCandidates(), { required: false, label: 'names' }),
-      fetchFirstText(buildRookiePathCandidates(), { required: false, label: 'rookies' })
+      fetchFirstText(buildNamesPathCandidates(), { required: false, label: 'names' })
     ]);
 
     const rosterText = rosterPack.text;
     const coachText = coachPack.text;
     const namesText = namesPack.text || '[]';
-    const rookieText = rookiePack.text || '';
 
     const detectedCoachYear = parseYearFromPath(coachPack.path, 'coaches');
     const mappedRosterYear = resolveRosterScriptStartYear(detectedRosterYear);
@@ -1360,7 +1456,6 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
 
     const rosterRows = parseCSV(rosterText);
     const coachRows = parseCSV(coachText);
-    const rookieRows = parseCSV(rookieText);
     try {
       LEAGUE.namesPool = JSON.parse(namesText);
     } catch (e) {
@@ -1373,6 +1468,10 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
     rosterRows.forEach((r, idx) => {
       const teamId = resolveTeamId(r.teamID, r.team);
       if (teamId <= 0 || teamId > 30) return;
+      // 跳过选秀年份晚于开档年份的球员（他们还未被选秀）
+      const draftCode = parseNum(r.draft, 0);
+      const draftYear = draftCode > 0 ? Math.floor(draftCode / 100) : 0;
+      if (draftYear > requestedStartYear) return;
       if (!LEAGUE.teams[teamId]) {
         LEAGUE.teams[teamId] = { meta: toTeamMeta(teamId, r.team), players: [], rotation: [], coach: null, strength: 75 };
       }
@@ -1384,7 +1483,7 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
       if (!LEAGUE.teams[teamId]) {
         LEAGUE.teams[teamId] = { meta: toTeamMeta(teamId, c.team), players: [], rotation: [], coach: null, strength: 75 };
       }
-      const systemId = resolveCoachSystemIdByName(c.name);
+      const systemId = resolveCoachSystemIdByName(c.name, c);
       const systemProfile = getCoachSystemProfile(systemId);
       const coach = {
         id: idx + 1,
@@ -1411,36 +1510,30 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
       LEAGUE.teams[teamId].coach = coach;
       LEAGUE.coaches.push({ ...coach, teamMeta: LEAGUE.teams[teamId].meta });
     });
-    LEAGUE.rookieCatalog = rookieRows.map((r, idx) => {
-      const nameCn = cleanText(r.name);
-      const nameEn = cleanText(r.nameBirth);
-      const displayName = resolveRookieDisplayName(nameCn, nameEn, `新秀${idx + 1}号`);
-      return rowToPlayer(r, 500000 + idx, {
-        id: 500000 + idx,
-        uid: `rookie_${idx + 1}`,
-        name: displayName,
-        altName: nameEn,
-        nameCn,
-        nameEn,
-        rookie: true,
-        yearsLeague: parseNum(r.yearsLeague, 0)
+    // 从名单中提取球龄=0的球员作为新秀池，从各队中移除，然后重新选秀分配
+    const extractedRookies = [];
+    Object.values(LEAGUE.teams).forEach(t => {
+      const kept = [];
+      (t.players || []).forEach(p => {
+        if (parseNum(p.yearsLeague, -1) === 0) {
+          extractedRookies.push({ ...p, teamId: 0, rookie: true });
+        } else {
+          kept.push(p);
+        }
       });
-    }).filter(p => p.name);
-    const scriptYears = [...new Set(rookieRows.map(r => parseNum(r.yearsLeague, 0)).filter(y => y >= 1947 && y <= 2100))].sort((a, b) => a - b);
-    LEAGUE.availableScriptYears = scriptYears.length ? scriptYears : [clamp(parseNum(G.year, 2025), 1947, 2100)];
-    const startYears = getAvailableScriptYears();
-    const preferredStart = resolveRosterScriptStartYear(LEAGUE.years.roster) || startYears[0] || parseNum(G.startYear, G.year || 2025);
-    if (!startYears.includes(parseNum(G.startYear, 0))) {
+      t.players = kept;
+    });
+    LEAGUE.rookieCatalog = extractedRookies;
+    LEAGUE.rookiesBySeason = {};
+
+    const scriptYears = getAvailableScriptYears();
+    const preferredStart = resolveRosterScriptStartYear(LEAGUE.years.roster) || scriptYears[0] || parseNum(G.startYear, G.year || 2025);
+    if (!scriptYears.includes(parseNum(G.startYear, 0))) {
       G.startYear = preferredStart;
     }
     if (!Number.isFinite(parseNum(G.year, 0)) || parseNum(G.year, 0) < 1900) {
       G.year = G.startYear;
     }
-
-    // 名单文件本身已经是赛季开局状态，球龄不需要额外 +1。
-    // 但如果当前年份的已选秀球员已经在名单里，需要先退回选秀池，
-    // 这样用户可以直接参加当年选秀，而不会和上一届/下一届新秀混在一起。
-    detachCurrentDraftClassFromLeague(requestedStartYear);
 
     normalizeLeagueSalaryUnits({ includeUser: false });
     Object.values(LEAGUE.teams).forEach(t => {
@@ -1605,7 +1698,7 @@ function getCoachPlayerSystemFit(player = null, coach = null) {
   const physique = parseNum(attrs.physique, 55);
   const strength = parseNum(attrs.strength, physique);
   const balanceScore = 100 - Math.min(40, Math.abs(shotExt - shotInt));
-  const systemId = String(targetCoach?.systemId || resolveCoachSystemIdByName(targetCoach?.name) || 'balance').trim() || 'balance';
+  const systemId = String(targetCoach?.systemId || resolveCoachSystemIdByName(targetCoach?.name, targetCoach) || 'balance').trim() || 'balance';
   let raw = 55;
   switch (systemId) {
     case 'defense':
@@ -1746,6 +1839,224 @@ function syncLeagueCoachList() {
     .filter(Boolean);
   return LEAGUE.coaches;
 }
+
+// ============ 队内关系系统 ============
+function ensureTeamRelationsState() {
+  if (!G.teamRelations || typeof G.teamRelations !== 'object') {
+    G.teamRelations = { teammates: {}, chemistry: { overall: 50, offenseSynergy: 50, defenseSynergy: 50, lockerRoomMood: 50, leadershipScore: 0, dramaLevel: 0, lastUpdated: -1 }, events: [], lastPromptDay: -99 };
+  }
+  if (!G.teamRelations.teammates) G.teamRelations.teammates = {};
+  if (!G.teamRelations.chemistry) G.teamRelations.chemistry = { overall: 50, offenseSynergy: 50, defenseSynergy: 50, lockerRoomMood: 50, leadershipScore: 0, dramaLevel: 0, lastUpdated: -1 };
+  if (!Array.isArray(G.teamRelations.events)) G.teamRelations.events = [];
+  if (!Number.isFinite(Number(G.teamRelations.lastPromptDay))) G.teamRelations.lastPromptDay = -99;
+  return G.teamRelations;
+}
+
+function teammateRelationKey(player, teamId) {
+  const tid = parseNum(teamId || G.teamId, 0);
+  const pid = parseNum(player?.id, 0);
+  if (!tid || !pid) return '';
+  return `${tid}_${pid}`;
+}
+
+function ensureTeammateRelation(player, teamId = null) {
+  const state = ensureTeamRelationsState();
+  const tid = parseNum(teamId || G.teamId, 0);
+  const pid = parseNum(player?.id, 0);
+  const key = teammateRelationKey(player, tid);
+  if (!key || !pid) return null;
+
+  const yearsLeague = parseNum(player?.yearsLeague, 0);
+  const isVeteran = yearsLeague >= 5;
+  const isRookie = yearsLeague <= 1;
+
+  if (!state.teammates[key] || typeof state.teammates[key] !== 'object') {
+    state.teammates[key] = {
+      key,
+      playerId: pid,
+      name: String(player?.name || player?.nameCn || '队友').trim(),
+      pos: parseNum(player?.pos, 3),
+      rating: parseNum(player?.rating, 75),
+      favorability: 50,
+      usageSatisfaction: 0,
+      bondType: 'neutral',
+      veteranEndorsement: 0,
+      interactions: 0,
+      lastInteractionDay: -1,
+      isVeteran,
+      isRookie,
+      contractYear: false
+    };
+  }
+
+  const entry = state.teammates[key];
+  entry.rating = parseNum(player?.rating, entry.rating);
+  entry.isVeteran = yearsLeague >= 5;
+  entry.isRookie = yearsLeague <= 1;
+  entry.name = String(player?.name || player?.nameCn || entry.name).trim();
+
+  return entry;
+}
+
+function findTeamPlayerById(teamId, playerId) {
+  const tid = parseNum(teamId || G.teamId, 0);
+  const pid = parseNum(playerId, 0);
+  if (!tid || !pid) return null;
+  return (getTeamPlayers(tid) || []).find(p => parseNum(p?.id, 0) === pid) || null;
+}
+
+function resolveTeammateRelationPlayer(playerOrId, teamId = null) {
+  if (playerOrId && typeof playerOrId === 'object') {
+    const resolvedId = parseNum(playerOrId?.id, 0);
+    if (!resolvedId) return null;
+    const livePlayer = findTeamPlayerById(teamId, resolvedId);
+    return livePlayer ? { ...livePlayer, ...playerOrId } : playerOrId;
+  }
+  return findTeamPlayerById(teamId, playerOrId) || { id: parseNum(playerOrId, 0) };
+}
+
+function getTeammateRelationEntry(playerId, teamId = null) {
+  const tid = parseNum(teamId || G.teamId, 0);
+  const pid = parseNum(playerId, 0);
+  if (!tid || !pid) return null;
+  return ensureTeamRelationsState().teammates?.[`${tid}_${pid}`] || null;
+}
+
+function getTeammateFavorability(playerId, teamId = null) {
+  const tid = parseNum(teamId || G.teamId, 0);
+  const pid = parseNum(playerId, 0);
+  const key = `${tid}_${pid}`;
+  const entry = G.teamRelations?.teammates?.[key];
+  return entry ? clamp(parseNum(entry.favorability, 50), 0, 100) : 50;
+}
+
+function setTeammateFavorability(playerId, value, teamId = null) {
+  const entry = ensureTeammateRelation(resolveTeammateRelationPlayer(playerId, teamId), teamId);
+  if (!entry) return 50;
+  entry.favorability = clamp(Math.round(parseNum(value, 50)), 0, 100);
+  recalculateTeamChemistry();
+  return entry.favorability;
+}
+
+function changeTeammateFavorability(playerId, delta, teamId = null, source = '') {
+  const entry = ensureTeammateRelation(resolveTeammateRelationPlayer(playerId, teamId), teamId);
+  if (!entry) return 50;
+  const old = parseNum(entry.favorability, 50);
+  const next = clamp(Math.round(old + parseNum(delta, 0)), 0, 100);
+  entry.favorability = next;
+  entry.interactions = (entry.interactions || 0) + 1;
+  entry.lastInteractionDay = parseNum(G.dayNum, 0);
+  if (source) entry.lastSource = String(source).trim();
+  recalculateTeamChemistry();
+  return next;
+}
+
+function setTeammateUsageSatisfaction(playerId, value, teamId = null) {
+  const entry = ensureTeammateRelation(resolveTeammateRelationPlayer(playerId, teamId), teamId);
+  if (!entry) return 0;
+  entry.usageSatisfaction = clamp(Math.round(parseNum(value, 0)), -40, 40);
+  recalculateTeamChemistry();
+  return entry.usageSatisfaction;
+}
+
+function changeTeammateUsageSatisfaction(playerId, delta, teamId = null, source = '') {
+  const entry = ensureTeammateRelation(resolveTeammateRelationPlayer(playerId, teamId), teamId);
+  if (!entry) return 0;
+  const old = parseNum(entry.usageSatisfaction, 0);
+  const next = clamp(Math.round(old + parseNum(delta, 0)), -40, 40);
+  entry.usageSatisfaction = next;
+  entry.interactions = (entry.interactions || 0) + 1;
+  entry.lastInteractionDay = parseNum(G.dayNum, 0);
+  if (source) entry.lastSource = String(source).trim();
+  recalculateTeamChemistry();
+  return next;
+}
+
+function pushTeamRelationEvent(evt = {}) {
+  const state = ensureTeamRelationsState();
+  const player = resolveTeammateRelationPlayer(evt.player || evt.playerId, evt.teamId);
+  const playerId = parseNum(evt.playerId ?? player?.id, 0);
+  const playerName = String(evt.playerName || player?.name || player?.nameCn || '').trim();
+  const favorDelta = Math.round(parseNum(evt.favorDelta, 0));
+  const usageDelta = Math.round(parseNum(evt.usageDelta, 0));
+  const veteranDelta = Math.round(parseNum(evt.veteranDelta, 0));
+  const detail = String(evt.detail || '').trim();
+  const item = {
+    day: parseNum(evt.day, G.dayNum),
+    teamId: parseNum(evt.teamId || G.teamId, 0),
+    playerId,
+    playerName,
+    title: String(evt.title || '更衣室动态').trim(),
+    detail,
+    type: String(evt.type || (favorDelta + usageDelta + veteranDelta >= 0 ? 'pos' : 'neg')).trim(),
+    favorDelta,
+    usageDelta,
+    veteranDelta,
+    source: String(evt.source || '').trim(),
+    ts: Date.now()
+  };
+  state.events.unshift(item);
+  if (state.events.length > 24) state.events.length = 24;
+  return item;
+}
+
+function getRecentTeamRelationEvents(limit = 5, teamId = null) {
+  const tid = parseNum(teamId || G.teamId, 0);
+  return (ensureTeamRelationsState().events || [])
+    .filter(evt => !tid || parseNum(evt?.teamId, 0) === tid)
+    .slice(0, Math.max(1, parseNum(limit, 5)));
+}
+
+function getTeammateAttitudeLabel(favorability, usageSatisfaction = 0) {
+  const favor = clamp(parseNum(favorability, 50), 0, 100);
+  const usage = parseNum(usageSatisfaction, 0);
+  if (favor >= 80 && usage >= 0) return { label: '铁哥们', icon: '🤝', hint: '愿意为你做挡拆、传球，更衣室里站你这边' };
+  if (favor >= 65) return { label: '关系不错', icon: '👍', hint: '场上场下都配合得来' };
+  if (favor >= 45) return { label: '一般队友', icon: '😐', hint: '正常职业关系' };
+  if (usage < -20) return { label: '球权积怨', icon: '😤', hint: '觉得你太独，可能影响传球' };
+  if (favor < 30) return { label: '更衣室矛盾', icon: '⚠️', hint: '关系紧张，可能影响化学反应' };
+  return { label: '微妙', icon: '🤨', hint: '有点不太对劲' };
+}
+
+function recalculateTeamChemistry() {
+  const state = ensureTeamRelationsState();
+  const teammates = Object.values(state.teammates);
+  if (teammates.length === 0) {
+    state.chemistry = { overall: 50, offenseSynergy: 50, defenseSynergy: 50, lockerRoomMood: 50, leadershipScore: 0, dramaLevel: 0, lastUpdated: parseNum(G.dayNum, 0) };
+    return state.chemistry;
+  }
+
+  const avgFavor = teammates.reduce((sum, t) => sum + parseNum(t.favorability, 50), 0) / teammates.length;
+  const usageVariance = teammates.reduce((sum, t) => sum + Math.abs(parseNum(t.usageSatisfaction, 0)), 0) / teammates.length;
+  const veteranSupport = teammates.filter(t => t.isVeteran).reduce((sum, t) => sum + parseNum(t.veteranEndorsement, 0), 0);
+  const lockerRoomMood = clamp(avgFavor - usageVariance * 0.5 + veteranSupport * 0.3, 0, 100);
+  const overall = clamp(avgFavor * 0.6 + lockerRoomMood * 0.4, 0, 100);
+  const dramaLevel = clamp(Math.floor(teammates.filter(t => parseNum(t.favorability, 50) < 35 || parseNum(t.usageSatisfaction, 0) < -25).length), 0, 5);
+
+  state.chemistry = {
+    overall,
+    offenseSynergy: clamp(overall + (parseNum(G.seasonStats?.wins, 0) > parseNum(G.seasonStats?.losses, 0) ? 5 : -5), 0, 100),
+    defenseSynergy: clamp(overall - dramaLevel * 3, 0, 100),
+    lockerRoomMood,
+    leadershipScore: clamp(veteranSupport, -20, 20),
+    dramaLevel,
+    lastUpdated: parseNum(G.dayNum, 0)
+  };
+
+  return state.chemistry;
+}
+
+function initTeamRelationsForCurrentTeam() {
+  const state = ensureTeamRelationsState();
+  const players = getTeamPlayers(parseNum(G.teamId, 0)) || [];
+  players.forEach(p => {
+    if (String(p.id) === String(G.player?.id)) return;
+    ensureTeammateRelation(p, G.teamId);
+  });
+  recalculateTeamChemistry();
+  return state;
+}
+
 function getRookieCatalog() {
   return LEAGUE.rookieCatalog || [];
 }
@@ -1886,7 +2197,8 @@ function resolveRookieDisplayName(nameCn, nameEn, fallback = '') {
   return fallback || '新秀球员';
 }
 function getAvailableDraftYears() {
-  const years = (LEAGUE.availableScriptYears || []).filter(y => y >= 1947 && y <= 2100).sort((a, b) => a - b);
+  // 直接从名单年份映射返回所有可开档年份（不再依赖新秀CSV）
+  const years = [...APK_NBA_START_YEARS].filter(y => y >= 1946 && y <= 2100).sort((a, b) => a - b);
   if (years.length) return years;
   const y = clamp(parseNum(G.startYear, G.year || 2025), 1947, 2100);
   return [y];
@@ -2215,11 +2527,15 @@ function applyNpcSeasonDevelopment(player, coach) {
   applyOvrDeltaToAttrs(attrs, cappedDelta, potential, parseNum(player.age, 24));
   player.attrs = attrs;
   player.rating = ovr(attrs);
-  player.att = player.rating;
-  player.def = player.rating;
+  player.att = calcPlayerAtt(attrs);
+  player.def = calcPlayerDef(attrs);
   player.age = parseNum(player.age, 24) + 1;
   player.yearsLeague = Math.max(0, parseNum(player.yearsLeague, 0) + 1);
   player.rookie = false;
+  // Contract year decrement
+  if (player.contract && typeof player.contract === 'object') {
+    player.contract.years = Math.max(0, parseNum(player.contract.years, 1) - 1);
+  }
 }
 // 全年分散成长：每轮比赛有概率触发NPC属性微调（替代赛季末一次性成长）
 function applyNpcIncrementalGrowth(player, coach) {
@@ -2239,14 +2555,19 @@ function applyNpcIncrementalGrowth(player, coach) {
   attrs[key] = clamp(attrs[key] + direction, 25, 99);
   player.attrs = attrs;
   player.rating = ovr(attrs);
-  player.att = player.rating;
-  player.def = player.rating;
+  player.att = calcPlayerAtt(attrs);
+  player.def = calcPlayerDef(attrs);
   player._seasonDevApplied = true;
 }
 function ageUserOneYear() {
   G.player.age = parseNum(G.player.age, 19) + 1;
   G.player.stamina = 100;
   G.player.maxStamina = 100;
+  // Age 33+ stamina cap decrease
+  const age = parseNum(G.player.age, 20);
+  if (age >= 36) G.player.maxStamina = Math.max(70, (G.player.maxStamina || 100) - 5);
+  else if (age >= 34) G.player.maxStamina = Math.max(78, (G.player.maxStamina || 100) - 3);
+  else if (age >= 33) G.player.maxStamina = Math.max(85, (G.player.maxStamina || 100) - 2);
 }
 function teamLogoMarkup(team, size = 50) {
   if (!team) return '';
@@ -2695,8 +3016,8 @@ function spendXP(attrKey, cost) {
   p.xp = parseNum(p.xp, 0) - c;
   p.attrs[attrKey] = Math.min(99, curVal + 1);
   p.rating = ovr(p.attrs);
-  p.att = p.rating;
-  p.def = p.rating;
+  p.att = calcPlayerAtt(p.attrs);
+  p.def = calcPlayerDef(p.attrs);
   // 重新计算徽章（属性变化可能解锁/升级徽章）
   recalcPlayerBadges(p);
   return true;
@@ -2786,7 +3107,6 @@ function cloneRealRookie(base, pick, draftYear = G.year) {
     injury: { active: false, games: 0, type: "" },
     draftPick: pick,
     sourceDraftYear: rookieDraftYear(base),
-    sourceDraftYear: rookieDraftYear(base),
     badges: assignInitialBadges({ ...base, rating, potential, attrs, yearsLeague: 0, badges: {} })
   };
 }
@@ -2825,7 +3145,18 @@ function collectRealDraftCandidates(targetYear, classSize, activeNameSet) {
     }
     if (selected.length >= classSize) break;
   }
-  return { year, players: selected };
+  // 根据实际选中的球员决定显示的届年份，而非使用映射后的目标年份
+  let actualYear = year;
+  if (selected.length) {
+    const yearCount = new Map();
+    for (const p of selected) {
+      const py = rookieDraftYear(p);
+      if (py >= 1947 && py <= 2100) yearCount.set(py, (yearCount.get(py) || 0) + 1);
+    }
+    let maxC = 0;
+    for (const [y2, c] of yearCount) { if (c > maxC) { maxC = c; actualYear = y2; } }
+  }
+  return { year: actualYear, players: selected };
 }
 function generateDraftClass(classSize = 64, { targetYear = G.year } = {}) {
   classSize = Math.max(8, Math.min(128, Math.round(classSize || 64)));
@@ -2982,38 +3313,141 @@ const COACH_SYSTEMS = Object.freeze({
     usageByPos: { 1: 0.026, 2: 0.020, 3: 0.012, 4: -0.010, 5: -0.026 }
   }
 });
-const COACH_SYSTEM_MAP = Object.freeze({
-  '乔-马祖拉': 'pace_space',
-  '约迪-费尔南德斯': 'defense',
-  '迈克-布朗': 'defense',
-  '尼克-纳斯': 'defense',
-  '达尔科-拉亚科维奇': 'balance',
-  '比利-多诺万': 'balance',
-  '肯尼-阿特金森': 'pace_space',
-  'JB-比克斯塔夫': 'grit',
-  '里克-卡莱尔': 'pace_space',
-  '道格-里弗斯': 'balance',
-  '奎因-斯奈德': 'pace_space',
-  '斯蒂夫-克里福德': 'defense',
-  '埃里克-斯波尔斯特拉': 'defense',
-  '贾马尔-莫斯利': 'defense',
-  '布莱恩-基夫': 'balance',
-  '贾森-基德': 'perimeter_star',
-  '艾米-乌度卡': 'grit',
-  '托马斯-伊萨洛': 'seven_seconds',
-  '威利-格林': 'interior_star',
-  '米奇-约翰逊': 'balance',
-  '大卫-阿德尔曼': 'interior_star',
-  '克里斯-芬奇': 'interior_star',
-  '昌西-比卢普斯': 'grit',
-  '马克-戴格诺特': 'balance',
-  '威尔-哈迪': 'pace_space',
-  '斯蒂夫-科尔': 'triangle',
-  '泰伦-卢': 'perimeter_star',
-  'JJ-雷迪克': 'pace_space',
-  '乔丹-奥特': 'perimeter_star',
-  '道格-克里斯蒂': 'balance'
-});
+const _COACH_SYSTEM_GROUPS = {
+  pace_space: [
+    // 当前NBA
+    '乔-马祖拉', '肯尼-阿特金森', '里克-卡莱尔', '奎因-斯奈德', '威尔-哈迪', 'JJ-雷迪克',
+    // 历史NBA
+    '布拉德-史蒂文斯', '迈克-布登霍尔泽', '泰勒-詹金斯', '特里-斯托茨', '卢克-沃顿', '布雷特-布朗',
+    '里克-阿德尔曼', '里德-阿德尔曼', '杰克-拉姆西', '科顿-菲茨西蒙斯', '克顿-菲茨西蒙斯',
+    '斯蒂夫-纳什', '劳埃德-皮尔斯', '莱恩-桑德斯',
+    // 虚构变体
+    'Kenny Atkinson', 'Fred Hoiberg', 'Randy Carlisle', 'Quentin Snyder', 'Thomas Stotts', 'Lion Walton',
+    // CBA
+    '杨鸣', '王博', '刘炜', '布拉尼斯拉夫-维琴蒂奇',
+    // 国际
+    '詹马尔科-波泽科', '亚历山大-凯撒', '亚历山德罗斯-法莱卡斯'
+  ],
+  defense: [
+    // 当前NBA
+    '约迪-费尔南德斯', '迈克-布朗', '尼克-纳斯', '斯蒂夫-克里福德', '埃里克-斯波尔斯特拉', '贾马尔-莫斯利',
+    // 历史NBA
+    '汤姆-锡伯杜', '杰夫-范甘迪', '拉里-布朗', '斯坦-范甘迪', '弗兰克-沃格尔', '达尔文-哈姆',
+    '迈克-伍德森', '莱昂内尔-霍林斯', '布兰登-马龙', '蒂龙-科尔宾',
+    '迈克-弗雷特洛', '迈克-弗拉特洛', '比尔-费奇', '帕特-莱利', '胡比-布朗',
+    '斯科特-斯凯尔斯', '斯科特-斯基尔斯', '戴夫-乔格尔', '埃托雷-梅西纳',
+    '詹姆斯-伯雷格',
+    // 虚构变体
+    'Stuart VanGundy', 'Ernest Spoelstra', 'Ferry Vogel', 'Terry Thibodeau', 'Shawn Clifford', 'Donald Joerger',
+    // CBA
+    '杜锋', '郭士强', '刘维伟', '闵鹿蕾', '许利民', '李维刚', '张成',
+    // 国际
+    '斯韦蒂斯拉夫-佩希奇', '瑟吉欧-史卡利欧罗', '吉姆-奥布莱恩'
+  ],
+  grit: [
+    // 当前NBA
+    'JB-比克斯塔夫', '艾米-乌度卡', '昌西-比卢普斯',
+    // 历史NBA
+    '拜伦-斯科特', '内特-麦克米兰', '莫里斯-奇克斯', '保罗-塞拉斯', '小韦斯-昂塞尔德',
+    '艾弗里-约翰逊', '查克-戴利', '伯尼-比克斯塔夫', '伯尼-比克斯达夫',
+    '约翰-卢卡斯', '波比-希尔', 'PJ-卡勒西莫', '戴夫-考恩斯',
+    // 虚构变体
+    'Norris McMillan', 'Barry Brown',
+    // CBA
+    '邱彪', '钟诚', '卢伟'
+  ],
+  seven_seconds: [
+    // 当前NBA
+    '托马斯-伊萨洛',
+    // 历史NBA
+    '唐-尼尔森', '保罗-韦斯特法尔', '阿尔文-金特里', '迈克-德安东尼', '乔治-卡尔',
+    // 虚构变体
+    'Alvin Gentry', 'Miles Danthony',
+    // CBA
+    '杨学增', '潘江', '丁伟'
+  ],
+  perimeter_star: [
+    // 当前NBA
+    '贾森-基德', '泰伦-卢', '乔丹-奥特',
+    // 历史NBA
+    '蒙蒂-威廉姆斯', '马克-杰克逊', '艾迪-乔丹',
+    // 虚构变体
+    'Juan Kidd', 'Timmy Lue',
+    // CBA
+    '西热力江', '易立', '梅米-贝西洛维奇',
+    // 国际
+    '瓦斯里斯-斯潘诺里斯'
+  ],
+  interior_star: [
+    // 当前NBA
+    '威利-格林', '大卫-阿德尔曼', '克里斯-芬奇',
+    // 历史NBA
+    '杰里-斯隆', '鲁迪-汤姆贾诺维奇', '格雷格-波波维奇', '凯文-麦克海尔',
+    // 虚构变体
+    'Morry Malone',
+    // CBA
+    '阿的江', '于梁', '张勇', '郑武', '李骏'
+  ],
+  triangle: [
+    // 当前NBA
+    '斯蒂夫-科尔',
+    // 历史NBA
+    '菲尔-杰克逊',
+    // 虚构变体
+    'Shawn Kerr'
+  ],
+  balance: [
+    // 当前NBA
+    '达尔科-拉亚科维奇', '比利-多诺万', '道格-里弗斯', '布莱恩-基夫', '米奇-约翰逊',
+    '马克-戴格诺特', '道格-克里斯蒂',
+    // 历史NBA
+    '道格-科林斯', '迈克-邓利维', '老迈克-邓利维', '斯科特-布鲁克斯',
+    '德维恩-凯西', '德韦恩-凯西', '雅克-沃恩', '斯蒂芬-塞拉斯',
+    '大卫-费兹戴尔', '大卫-菲兹戴尔', '劳伦斯-弗兰克', '吉姆-博伊兰',
+    '迈克尔-库里', '肯尼-奈特', '布莱恩-希尔', '布莱恩-温特斯', '凯文-朗格里',
+    '托尼-迪莱奥', '杰-特里亚诺', '艾德-泰普斯科特',
+    '吉姆-利耶姆', '吉姆-利那姆', '朗-克鲁格', '德尔-哈里斯',
+    '鲍勃-希尔', '鲍勃-巴斯', '弗兰克-雷登', '约翰-巴赫', '约翰-克劳德',
+    '迪克-莫塔', '斯坦-艾尔贝克', '比利-康宁汉姆', '吉姆-弗洛伊德',
+    '兰尼-威尔肯斯', '阿兰-布里斯托', '比利-巴雷', '加里-圣-吉恩',
+    '菲利普-桑德斯', '拉里-德鲁', '萨姆-米切尔', '德里克-费舍尔',
+    '文尼-德尔-尼格罗', '维尼-德纳格罗', '乔治-欧文', '以赛亚-托马斯',
+    '丹-伊赛尔', '布奇-贝尔德', '迈克-蒙哥马利', '迈克-斯科特',
+    // 虚构变体
+    'Berni Stevens', 'Josh Hornacek', 'Daniel Casey', 'Scott Brooks', 'Donald Fizdale',
+    'Buck Donovan', 'Danny Rivers', 'Jeter Hornaceck', 'Geoff Popovic', 'M-L-凯尔',
+    // CBA
+    '王非', '朱世龙', '郑永刚', '高俊超', '刘鹏', '刘铁', '杨钦',
+    '王世龙', '王伟力', '赵俊培', '代勇', '解立彬', '张伟',
+    '周鹏', '周金利', '邓宇', '鲁刚', '张庆鹏', '韩硕',
+    '黄文龙', '热夏提-克里木', '史利平', '卢伟',
+    '乔里欧-格里乔里', '佩罗-卡梅隆', '纳撒尼尔-米歇尔',
+    '内特·米切尔', '马科普洛斯·哈里斯',
+    // 国际
+    '汤姆-霍瓦斯', '蒂姆-孔恩', '亚当-卡彭', '贾德-弗拉维尔',
+    '亚历山大-德兹基奇', '亚历山大-塞库利奇', '博斯科-拉多维奇',
+    '米奥德拉格-佩里希奇', '罗伊-拉纳', '穆罕默德-穆尼尔-优素福-凯尔达尼',
+    '洛尔-邓', '何塞-克拉罗斯-卡纳尔斯', '埃马努埃尔-特罗瓦达',
+    '拉西-托维', '卢卡-班奇', '里马斯-库尔蒂奈蒂斯', '阿莱克斯-默布鲁',
+    '弗雷德里克-福图', '亚历山大-彼得罗维奇', '罗纳德-吉恩',
+    '奧马尔-昆特罗', '内斯托-加西亚', '卡洛斯-冈萨雷斯',
+    // 占位教练 (XX主教练 / XX教练)
+    '凯尔特人主教练', '篮网主教练', '尼克斯主教练', '76人主教练', '猛龙主教练',
+    '公牛主教练', '骑士主教练', '活塞主教练', '步行者主教练', '雄鹿主教练',
+    '老鹰主教练', '黄蜂主教练', '热火主教练', '魔术主教练', '奇才主教练',
+    '独行侠主教练', '火箭主教练', '灰熊主教练', '鹈鹕主教练', '马刺主教练',
+    '掘金主教练', '森林狼主教练', '开拓者主教练', '雷霆主教练', '爵士主教练',
+    '勇士主教练', '快船主教练', '湖人主教练', '太阳主教练', '国王主教练',
+    '猛龙教练', '山猫教练', '热火教练', '魔术教练', '灰熊教练',
+    '黄蜂教练', '森林狼教练', '基恩-苏', '吉克-迈克尼', '豆格-莫',
+    '米肯-弗兰特罗', '德克-马丁', 'K.C-琼斯'
+  ]
+};
+const COACH_SYSTEM_MAP = Object.freeze(
+  Object.fromEntries(
+    Object.entries(_COACH_SYSTEM_GROUPS).flatMap(([sys, names]) => names.map(n => [n, sys]))
+  )
+);
 function getCoachSystemProfile(systemId = 'balance') {
   const key = String(systemId || '').trim().toLowerCase();
   return COACH_SYSTEMS[key] || COACH_SYSTEMS.balance;
@@ -3021,12 +3455,35 @@ function getCoachSystemProfile(systemId = 'balance') {
 function getCoachSystemLabel(systemId = 'balance') {
   return getCoachSystemProfile(systemId).label;
 }
-function resolveCoachSystemIdByName(name = '') {
+function deriveSystemFromBaseValues(coach) {
+  if (!coach) return 'balance';
+  const int = parseNum(coach.baseShotIntPercent, 40);
+  const tri = parseNum(coach.baseShotTriplePercent, 40);
+  const off = parseNum(coach.baseOffensive, 40);
+  const def = parseNum(coach.baseDefense, 40);
+  if (int === 40 && tri === 40 && off === 40 && def === 40) return 'balance';
+  if (tri >= 44 && off >= 43) return 'seven_seconds';
+  if (tri >= 43 && off >= 42) return 'pace_space';
+  if (tri >= 44 && off >= 41) return 'pace_space';
+  if (def >= 44) return 'defense';
+  if (def >= 43 && tri <= 39) return 'defense';
+  if (int >= 44 && def >= 43) return 'grit';
+  if (int >= 43 && tri <= 37) return 'grit';
+  if (int >= 43 && tri <= 39) return 'interior_star';
+  if (int >= 42 && def >= 41 && tri <= 39) return 'interior_star';
+  if (off >= 43 && tri >= 39 && tri <= 42) return 'triangle';
+  if (tri >= 43 && off >= 40) return 'perimeter_star';
+  if (tri >= 42 && off >= 41) return 'perimeter_star';
+  return 'balance';
+}
+function resolveCoachSystemIdByName(name = '', coach) {
   const raw = String(name || '').trim();
-  return COACH_SYSTEM_MAP[raw] || 'balance';
+  if (COACH_SYSTEM_MAP[raw]) return COACH_SYSTEM_MAP[raw];
+  if (coach) return deriveSystemFromBaseValues(coach);
+  return 'balance';
 }
 function getCoachEffectsByCoach(coach) {
-  const system = getCoachSystemProfile(coach?.systemId || resolveCoachSystemIdByName(coach?.name));
+  const system = getCoachSystemProfile(coach?.systemId || resolveCoachSystemIdByName(coach?.name, coach));
   if (!coach) {
     return {
       offPct: 0, defPct: 0, tacticsPct: 0, xpPct: 0, xpMult: 1, teamRatingMult: 1,

@@ -459,7 +459,14 @@ async function generateSignatureShoeImageForOffer(contractRef) {
   const imageModel = userModel || defaultModel;
   const llmResult = await generateSignatureShoeImageByLLM(prompt, { model: imageModel });
   const usedModel = llmResult.ok ? (llmResult.model || imageModel) : 'fallback';
-  const image = llmResult.ok && llmResult.image ? llmResult.image : buildSignatureShoeFallbackImage(contract, shoe);
+  let image = llmResult.ok && llmResult.image ? llmResult.image : buildSignatureShoeFallbackImage(contract, shoe);
+  // 将远程图片缓存为 data URL，防止链接过期
+  if (image && image.startsWith('http')) {
+    try {
+      const cached = await cacheRemoteImage(image);
+      if (cached) image = cached;
+    } catch (e) { console.warn('签名鞋图片缓存失败:', e); }
+  }
   const res = updateSignatureShoeProject(contract, {
     image,
     imagePrompt: prompt,

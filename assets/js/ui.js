@@ -190,64 +190,618 @@ function applyTestAttrs(scope) {
 
 function renderCreate() {
   const pg = $('createPage');
+
+  // 添加创建页面样式
+  if (!$('nbaCreateStyles')) {
+    const style = document.createElement('style');
+    style.id = 'nbaCreateStyles';
+    style.textContent = `
+      .nba-create-page {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #0f0f1a 100%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 40px 20px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .nba-create-bg {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .nba-create-court {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(90deg, transparent 49.5%, rgba(251,191,39,0.03) 49.5%, rgba(251,191,39,0.03) 50.5%, transparent 50.5%),
+          linear-gradient(0deg, transparent 49.5%, rgba(251,191,39,0.03) 49.5%, rgba(251,191,39,0.03) 50.5%, transparent 50.5%);
+      }
+
+      .nba-create-glow {
+        position: absolute;
+        width: 600px;
+        height: 600px;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: radial-gradient(circle, rgba(251,191,39,0.1) 0%, transparent 70%);
+        animation: createGlow 4s ease-in-out infinite;
+      }
+
+      @keyframes createGlow {
+        0%, 100% { opacity: 0.3; transform: translate(-50%, -50%) scale(1); }
+        50% { opacity: 0.6; transform: translate(-50%, -50%) scale(1.1); }
+      }
+
+      .nba-create-header {
+        text-align: center;
+        margin-bottom: 40px;
+        position: relative;
+        z-index: 2;
+      }
+
+      .nba-create-logo {
+        margin-bottom: 16px;
+      }
+
+      .nba-ball-icon {
+        width: 60px;
+        height: 60px;
+        color: #fbbf27;
+        animation: ballBounce 2s ease-in-out infinite;
+      }
+
+      @keyframes ballBounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-10px); }
+      }
+
+      .nba-create-title {
+        font-size: 36px;
+        font-weight: 900;
+        letter-spacing: 4px;
+        background: linear-gradient(135deg, #fff 0%, #fbbf27 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-transform: uppercase;
+      }
+
+      .nba-create-subtitle {
+        font-size: 14px;
+        color: #666;
+        margin-top: 8px;
+        letter-spacing: 2px;
+      }
+
+      .nba-create-content {
+        width: 100%;
+        max-width: 440px;
+        position: relative;
+        z-index: 2;
+      }
+
+      .nba-create-avatar-section {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin-bottom: 32px;
+      }
+
+      .nba-avatar-container {
+        position: relative;
+        width: 120px;
+        height: 120px;
+        cursor: pointer;
+      }
+
+      .nba-avatar-ring {
+        position: absolute;
+        inset: 0;
+        border: 3px solid #fbbf27;
+        border-radius: 50%;
+        animation: ringPulse 2s ease-in-out infinite;
+      }
+
+      @keyframes ringPulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.05); opacity: 0.7; }
+      }
+
+      .nba-avatar-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 50%;
+      }
+
+      .nba-avatar-placeholder {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.05);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+      }
+
+      .nba-avatar-icon {
+        font-size: 32px;
+      }
+
+      .nba-avatar-text {
+        font-size: 11px;
+        color: #666;
+      }
+
+      .nba-avatar-hint {
+        font-size: 12px;
+        color: #555;
+        margin-top: 12px;
+      }
+
+      .nba-create-form {
+        background: rgba(0,0,0,0.3);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 24px;
+      }
+
+      .nba-form-group {
+        margin-bottom: 20px;
+      }
+
+      .nba-form-label {
+        display: block;
+        font-size: 11px;
+        font-weight: 600;
+        color: #888;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 8px;
+      }
+
+      .nba-form-input, .nba-form-select {
+        width: 100%;
+        padding: 14px 16px;
+        background: rgba(30,30,40,0.9);
+        border: 1px solid rgba(255,255,255,0.15);
+        border-radius: 8px;
+        color: #fff;
+        font-size: 15px;
+        transition: all 0.2s;
+      }
+
+      .nba-form-select {
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+        padding-right: 36px;
+      }
+
+      .nba-form-select option {
+        background: #1a1a2e;
+        color: #fff;
+        padding: 8px;
+      }
+
+      .nba-form-input:focus, .nba-form-select:focus {
+        outline: none;
+        border-color: rgba(251,191,39,0.5);
+        background: rgba(40,40,50,0.95);
+      }
+
+      .nba-form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      .nba-create-btn {
+        width: 100%;
+        padding: 18px 32px;
+        background: linear-gradient(135deg, #fbbf27 0%, #f59e0b 100%);
+        border: none;
+        border-radius: 12px;
+        color: #000;
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        transition: all 0.3s;
+        box-shadow: 0 4px 30px rgba(251,191,39,0.3);
+      }
+
+      .nba-create-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 40px rgba(251,191,39,0.5);
+      }
+
+      .nba-btn-arrow {
+        font-size: 20px;
+        transition: transform 0.3s;
+      }
+
+      .nba-create-btn:hover .nba-btn-arrow {
+        transform: translateX(8px);
+      }
+
+      /* 身体模板页面 */
+      .nba-body-page {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #0f0f1a 100%);
+        padding: 40px 20px;
+      }
+
+      .nba-body-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 16px;
+        max-width: 600px;
+        margin: 0 auto;
+      }
+
+      .nba-body-card {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s;
+      }
+
+      .nba-body-card:hover {
+        border-color: rgba(251,191,39,0.5);
+        transform: translateY(-4px);
+      }
+
+      .nba-body-icon {
+        font-size: 48px;
+        margin-bottom: 12px;
+      }
+
+      .nba-body-name {
+        font-weight: 600;
+        font-size: 14px;
+        margin-bottom: 4px;
+      }
+
+      .nba-body-desc {
+        font-size: 11px;
+        color: #666;
+      }
+
+      .nba-body-stats {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 12px;
+        font-size: 11px;
+        color: #888;
+      }
+
+      /* 模板选择 */
+      .nba-template-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        max-width: 700px;
+        margin: 0 auto;
+        padding: 0 20px;
+      }
+
+      .nba-template-card {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 20px;
+        cursor: pointer;
+        transition: all 0.3s;
+      }
+
+      .nba-template-card:hover {
+        border-color: rgba(251,191,39,0.5);
+        transform: translateY(-4px);
+      }
+
+      .nba-template-name {
+        font-size: 16px;
+        font-weight: 700;
+        color: #fff;
+      }
+
+      .nba-template-zh {
+        font-size: 12px;
+        color: #fbbf27;
+        margin-top: 4px;
+      }
+
+      .nba-template-desc {
+        font-size: 12px;
+        color: #666;
+        margin-top: 8px;
+      }
+
+      .nba-template-boosts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 12px;
+      }
+
+      .nba-boost {
+        padding: 4px 8px;
+        font-size: 10px;
+        border-radius: 4px;
+      }
+
+      .nba-boost.pos {
+        background: rgba(34,197,94,0.2);
+        color: #22c55e;
+      }
+
+      /* 属性面板 */
+      .nba-attr-page {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #0f0f1a 100%);
+        padding: 40px 20px;
+      }
+
+      .nba-attr-container {
+        max-width: 500px;
+        margin: 0 auto;
+      }
+
+      .nba-attr-scores {
+        display: flex;
+        justify-content: center;
+        gap: 40px;
+        margin-bottom: 32px;
+      }
+
+      .nba-score-box {
+        text-align: center;
+      }
+
+      .nba-score-value {
+        font-size: 48px;
+        font-weight: 900;
+        color: #fbbf27;
+        line-height: 1;
+      }
+
+      .nba-score-label {
+        font-size: 12px;
+        color: #666;
+        margin-top: 8px;
+        letter-spacing: 2px;
+      }
+
+      .nba-attr-panel {
+        background: rgba(0,0,0,0.3);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 24px;
+      }
+
+      .nba-attr-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 10px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+      }
+
+      .nba-attr-name {
+        flex: 0 0 60px;
+        font-size: 13px;
+        color: #888;
+      }
+
+      .nba-attr-bar {
+        flex: 1;
+        height: 6px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+
+      .nba-attr-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #fbbf27, #f59e0b);
+        border-radius: 3px;
+        transition: width 0.3s;
+      }
+
+      .nba-attr-value {
+        flex: 0 0 40px;
+        text-align: right;
+        font-size: 16px;
+        font-weight: 700;
+        color: #fbbf27;
+      }
+
+      .nba-attr-actions {
+        display: flex;
+        gap: 12px;
+      }
+
+      .nba-reroll-btn {
+        flex: 1;
+        padding: 14px 20px;
+        background: rgba(255,255,255,0.1);
+        border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 8px;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .nba-reroll-btn:hover {
+        background: rgba(255,255,255,0.15);
+      }
+
+      .nba-confirm-btn {
+        flex: 1;
+        padding: 14px 20px;
+        background: linear-gradient(135deg, #fbbf27 0%, #f59e0b 100%);
+        border: none;
+        border-radius: 8px;
+        color: #000;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .nba-confirm-btn:hover {
+        transform: translateY(-2px);
+      }
+
+      /* X-Factor */
+      .nba-xfactor-container {
+        max-width: 400px;
+        margin: 0 auto;
+        text-align: center;
+      }
+
+      .nba-xfactor-header {
+        margin-bottom: 32px;
+      }
+
+      .nba-xfactor-label {
+        font-size: 12px;
+        color: #666;
+        letter-spacing: 4px;
+      }
+
+      .nba-xfactor-title {
+        font-size: 28px;
+        font-weight: 900;
+        background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-top: 8px;
+      }
+
+      .nba-xfactor-card {
+        background: rgba(168,85,247,0.1);
+        border: 1px solid rgba(168,85,247,0.3);
+        border-radius: 16px;
+        padding: 40px 24px;
+        margin-bottom: 32px;
+      }
+
+      .nba-xfactor-icon {
+        font-size: 64px;
+        margin-bottom: 16px;
+      }
+
+      .nba-xfactor-name {
+        font-size: 24px;
+        font-weight: 700;
+        color: #a855f7;
+        margin-bottom: 12px;
+      }
+
+      .nba-xfactor-desc {
+        font-size: 14px;
+        color: #888;
+        line-height: 1.6;
+      }
+        border-radius: 2px;
+        transition: width 0.3s;
+      }
+
+      @media (max-width: 480px) {
+        .nba-create-title {
+          font-size: 28px;
+        }
+        .nba-form-row {
+          grid-template-columns: 1fr;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
   if (createStep === 0) {
     pg.innerHTML = `
-    <div class="create-page-shell">
-      ${renderCreateStageHeader('新秀登记', '从球员身份开始，建立属于你的第一份球探档案。', 'Draft Combine')}
-      <div class="create-intro-grid">
-        <div class="card create-intro-panel">
-          <div class="create-hero-copy">
-            <div class="create-hero-mark">🏀</div>
-            <div>
-              <div class="create-hero-kicker">Rookie Journey</div>
-              <div class="create-hero-title">进入选秀夜之前，先把你的标签定下来。</div>
+    <div class="nba-create-page">
+      <div class="nba-create-bg">
+        <div class="nba-create-court"></div>
+        <div class="nba-create-glow"></div>
+      </div>
+
+      <div class="nba-create-header">
+        <div class="nba-create-logo">
+          <svg viewBox="0 0 100 100" class="nba-ball-icon">
+            <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" stroke-width="2"/>
+            <path d="M50 5 Q50 50 50 95" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M5 50 Q50 50 95 50" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <div class="nba-create-title">CREATE YOUR PLAYER</div>
+        <div class="nba-create-subtitle">打造你的NBA传奇</div>
+      </div>
+
+      <div class="nba-create-content">
+        <div class="nba-create-avatar-section">
+          <div class="nba-avatar-container" onclick="document.getElementById('avatarInput').click()">
+            <div class="nba-avatar-ring"></div>
+            <img id="avatarPreview" src="${G.player.avatar || G.player.photo || ''}" class="nba-avatar-img" style="display:${(G.player.avatar || G.player.photo) ? 'block' : 'none'}">
+            <div id="avatarPlaceholder" class="nba-avatar-placeholder" style="display:${(G.player.avatar || G.player.photo) ? 'none' : 'flex'}">
+              <span class="nba-avatar-icon">👤</span>
+              <span class="nba-avatar-text">上传头像</span>
             </div>
           </div>
-          <div class="create-hero-story">
-            从起始年份、位置、头像到姓名，这一步决定你会以什么身份踏进联盟。界面已按窄屏重排，手机和小窗口也不会再把表单挤爆。
+          <input type="file" id="avatarInput" accept="image/*" style="display:none" onchange="handleAvatarUpload(this)">
+          <div class="nba-avatar-hint">点击上传球员照片</div>
+        </div>
+
+        <div class="nba-create-form">
+          <div class="nba-form-group">
+            <label class="nba-form-label">球员姓名</label>
+            <input class="nba-form-input" id="cName" placeholder="输入你的名字" value="${G.player.name}">
           </div>
-          <div class="create-hero-stats">
-            <div class="create-hero-stat">
-              <div class="create-hero-stat-label">起点</div>
-              <div class="create-hero-stat-value">选秀前夜</div>
+
+          <div class="nba-form-row">
+            <div class="nba-form-group">
+              <label class="nba-form-label">选秀年份</label>
+              <select class="nba-form-select" id="cStartYear">
+                ${getAvailableScriptYears().map(y => `<option value="${y}" ${y === parseNum(G.startYear, G.year) ? 'selected' : ''}>${y}届</option>`).join('')}
+              </select>
             </div>
-            <div class="create-hero-stat">
-              <div class="create-hero-stat-label">目标</div>
-              <div class="create-hero-stat-value">成为乐透焦点</div>
-            </div>
-            <div class="create-hero-stat">
-              <div class="create-hero-stat-label">风格</div>
-              <div class="create-hero-stat-value">篮球生涯模式</div>
+            <div class="nba-form-group">
+              <label class="nba-form-label">场上位置</label>
+              <select class="nba-form-select" id="cPos">
+                ${POS.map(p => `<option value="${p.id}">${p.n}</option>`).join('')}
+              </select>
             </div>
           </div>
+
           ${renderLocalFileHint()}
-          <div class="create-hero-note">建议先上传头像再开档，全身图会自动裁到头部区域。</div>
         </div>
-        <div class="card create-form-panel">
-          <div class="create-avatar-stage">
-            <div class="create-avatar-ring" onclick="document.getElementById('avatarInput').click()" title="点击上传头像">
-              <img id="avatarPreview" src="${G.player.avatar || G.player.photo || ''}" class="create-avatar-preview" style="display:${(G.player.avatar || G.player.photo) ? 'block' : 'none'}">
-              <div id="avatarPlaceholder" class="create-avatar-placeholder" style="display:${(G.player.avatar || G.player.photo) ? 'none' : 'flex'}">📷</div>
-            </div>
-            <input type="file" id="avatarInput" accept="image/*" style="display:none" onchange="handleAvatarUpload(this)">
-            <div class="create-avatar-copy">
-              <div class="create-avatar-title">球员头像</div>
-              <div class="create-avatar-sub">可选上传，系统会自动聚焦头部</div>
-            </div>
-          </div>
-          <div class="form-group"><label>球员姓名</label>
-            <input class="form-control" id="cName" placeholder="输入你的名字" value="${G.player.name}"></div>
-          <div class="form-group"><label>开始剧本（年份）</label>
-            <select class="form-control" id="cStartYear">
-              ${getAvailableScriptYears().map(y => `<option value="${y}" ${y === parseNum(G.startYear, G.year) ? 'selected' : ''}>${y}年</option>`).join('')}
-            </select>
-          </div>
-          <div class="form-group"><label>选择位置</label>
-            <select class="form-control" id="cPos">
-              ${POS.map(p => `<option value="${p.id}">${p.n} - ${p.z}</option>`).join('')}
-            </select></div>
-          <button class="btn btn-gold create-next-btn" onclick="createStep1()">进入体测营 →</button>
-        </div>
+
+        <button class="nba-create-btn" onclick="createStep1()">
+          <span class="nba-btn-text">进入选秀</span>
+          <span class="nba-btn-arrow">→</span>
+        </button>
       </div>
     </div>`;
   } else if (createStep === 1) {
@@ -383,27 +937,29 @@ function handleAvatarUpload(input) {
 
 function renderBodyType() {
   $('createPage').innerHTML = `
-  <div class="create-page-shell">
-    ${renderCreateStageHeader('身体模板', '选择体型会影响你在选秀报告中的第一印象，以及后续身高、体重和臂展范围。', 'Draft Combine')}
-    <div class="card create-stage-card">
-      <div class="card-title">📏 选择体型</div>
-      <div class="create-card-note">更宽的肩线、更长的臂展，还是灵活轻快的后场模型，都在这里定调。</div>
-      <div class="create-choice-grid create-choice-grid-body" id="bodyGrid">
+  <div class="nba-create-page">
+    <div class="nba-create-bg">
+      <div class="nba-create-court"></div>
+      <div class="nba-create-glow"></div>
+    </div>
+
+    <div class="nba-create-header">
+      <div class="nba-create-title">BODY TYPE</div>
+      <div class="nba-create-subtitle">选择你的体型模板</div>
+    </div>
+
+    <div class="nba-body-grid">
       ${BODY_TYPES.map(b => `
-        <div class="choice-card create-choice-card" onclick="selectBody('${b.id}')">
-          <div class="create-choice-top">
-            <div class="fs-lg fw-b">${b.n}</div>
-            <div class="badge b-gold">体测模板</div>
+        <div class="nba-body-card" onclick="selectBody('${b.id}')">
+          <div class="nba-body-icon">${b.id === 'guard' ? '🏃' : b.id === 'wing' ? '🦅' : '💪'}</div>
+          <div class="nba-body-name">${b.n}</div>
+          <div class="nba-body-desc">${b.d}</div>
+          <div class="nba-body-stats">
+            <span>${b.hRange[0]}-${b.hRange[1]}cm</span>
+            <span>${b.wRange[0]}-${b.wRange[1]}kg</span>
           </div>
-          <div class="t-2 fs-sm mt-12">${b.d}</div>
-          <div class="create-choice-meta">
-            <span>身高 ${b.hRange[0]}-${b.hRange[1]}cm</span>
-            <span>体重 ${b.wRange[0]}-${b.wRange[1]}kg</span>
-          </div>
-          <div class="create-tag-row mt-12">${Object.entries(b.boost).map(([k, v]) => `<span class="tag tag-gold">+${v} ${ATTRS.find(a => a.k === k)?.n || k}</span>`).join('')}</div>
-          <div class="create-tag-row">${Object.entries(b.nerf).map(([k, v]) => `<span class="tag create-tag-danger">${v} ${ATTRS.find(a => a.k === k)?.n || k}</span>`).join('')}</div>
-        </div>`).join('')}
-      </div>
+        </div>
+      `).join('')}
     </div>
   </div>`;
 }
@@ -421,23 +977,28 @@ function renderTemplateSelect() {
   const pos = getPos(G.player.pos);
   const templates = getTemplatesForPos(G.player.pos);
   $('createPage').innerHTML = `
-  <div class="create-page-shell">
-    ${renderCreateStageHeader('比赛模板', '决定你的球风标签，让球探一眼看出你是控场核心、锋线终结者还是全面持球手。', pos ? `${pos.n} / ${pos.z}` : 'Player Archetype')}
-    <div class="card create-stage-card">
-      <div class="card-title">🎯 选择模版${pos ? ` (${pos.n} ${pos.z})` : ''}</div>
-      <div class="create-card-note">模板将影响初始属性倾向、球探对位想象以及模拟中的成长方向。</div>
-      <div class="create-choice-grid create-choice-grid-template" id="tplGrid">
+  <div class="nba-create-page">
+    <div class="nba-create-bg">
+      <div class="nba-create-court"></div>
+      <div class="nba-create-glow"></div>
+    </div>
+
+    <div class="nba-create-header">
+      <div class="nba-create-title">PLAY STYLE</div>
+      <div class="nba-create-subtitle">${pos ? pos.n : ''} · 选择你的比赛风格</div>
+    </div>
+
+    <div class="nba-template-grid">
       ${templates.map(t => `
-        <div class="choice-card create-choice-card" onclick="selectTemplate('${t.id}')">
-          <div class="create-choice-top">
-            <div class="fs-lg fw-b">${t.n}</div>
-            <div class="badge b-cyan">${t.z}</div>
+        <div class="nba-template-card" onclick="selectTemplate('${t.id}')">
+          <div class="nba-template-name">${t.n}</div>
+          <div class="nba-template-zh">${t.z}</div>
+          <div class="nba-template-desc">${t.d}</div>
+          <div class="nba-template-boosts">
+            ${Object.entries(t.boost).map(([k, v]) => `<span class="nba-boost pos">+${v} ${ATTRS.find(a => a.k === k)?.n || k}</span>`).join('')}
           </div>
-          <div class="t-2 fs-sm mt-12">${t.d}</div>
-          <div class="create-tag-row mt-12">${Object.entries(t.boost).map(([k, v]) => `<span class="tag tag-gold">+${v} ${ATTRS.find(a => a.k === k)?.n || k}</span>`).join('')}</div>
-          <div class="create-tag-row">${Object.entries(t.nerf).map(([k, v]) => `<span class="tag create-tag-danger">${v} ${ATTRS.find(a => a.k === k)?.n || k}</span>`).join('')}</div>
-        </div>`).join('')}
-      </div>
+        </div>
+      `).join('')}
     </div>
   </div>`;
 }
@@ -453,40 +1014,46 @@ function selectTemplate(id) {
 function renderAttrRoll() {
   const a = G.player.attrs;
   $('createPage').innerHTML = `
-  <div class="create-page-shell">
-    ${renderCreateStageHeader('新秀评测', '反复重抽直到你满意为止，选出第一份真正像样的新秀属性面板。', 'Scouting Report')}
-    <div class="create-roll-grid">
-      <div class="card create-roll-summary">
-        <div class="card-title">🎲 天赋抽取</div>
-        <div class="create-card-note">这里允许无限重抽。想冲高上限就继续刷，想保底稳进联盟也可以直接锁定。</div>
-        <div class="create-roll-scoreboard">
-          <div class="create-score-card gold">
-            <div class="create-score-label">综合评分</div>
-            <div class="create-score-value">${ovr(a)}</div>
-            <div class="create-score-note">OVR</div>
-          </div>
-          <div class="create-score-card cyan">
-            <div class="create-score-label">成长上限</div>
-            <div class="create-score-value">${G.player.potential}</div>
-            <div class="create-score-note">POT</div>
-          </div>
+  <div class="nba-create-page">
+    <div class="nba-create-bg">
+      <div class="nba-create-court"></div>
+      <div class="nba-create-glow"></div>
+    </div>
+
+    <div class="nba-create-header">
+      <div class="nba-create-title">ATTRIBUTES</div>
+      <div class="nba-create-subtitle">抽取你的初始属性</div>
+    </div>
+
+    <div class="nba-attr-container">
+      <div class="nba-attr-scores">
+        <div class="nba-score-box">
+          <div class="nba-score-value">${ovr(a)}</div>
+          <div class="nba-score-label">OVR</div>
         </div>
-        <div class="create-roll-actions">
-          <button class="btn btn-gold" onclick="doReroll()">🎲 重新抽取</button>
-          <button class="btn btn-ok" onclick="confirmAttrs()">✓ 确认属性</button>
+        <div class="nba-score-box">
+          <div class="nba-score-value">${G.player.potential}</div>
+          <div class="nba-score-label">POT</div>
         </div>
       </div>
-      <div class="card create-roll-detail">
-        <div class="card-title">📊 球探拆解</div>
+
+      <div class="nba-attr-panel">
         ${ATTRS.map(at => `
-          <div class="create-attr-row">
-            <span class="fs-sm create-attr-label">${at.n}</span>
-            <div class="bar create-attr-bar"><div class="bar-fill ${barClass(a[at.k])}" style="width:${a[at.k]}%"></div></div>
-            <span class="fw-b create-attr-value">${a[at.k]}</span>
-          </div>`).join('')}
+          <div class="nba-attr-row">
+            <span class="nba-attr-name">${at.n}</span>
+            <div class="nba-attr-bar">
+              <div class="nba-attr-fill" style="width:${a[at.k]}%"></div>
+            </div>
+            <span class="nba-attr-value">${a[at.k]}</span>
+          </div>
+        `).join('')}
+      </div>
+
+      <div class="nba-attr-actions">
+        <button class="nba-reroll-btn" onclick="doReroll()">🎲 重新抽取</button>
+        <button class="nba-confirm-btn" onclick="confirmAttrs()">确认属性 →</button>
       </div>
     </div>
-    ${buildTestAttrPanel('draft')}
   </div>`;
 }
 
@@ -505,17 +1072,28 @@ function confirmAttrs() {
 function renderXFactorReveal() {
   const xf = getXFactor(G.player.xfactor) || { icon: '❔', n: '未知天赋', d: '该天赋未能正确加载' };
   $('createPage').innerHTML = `
-  <div class="create-page-shell">
-    ${renderCreateStageHeader('X-Factor 揭晓', '你的核心天赋已经浮出水面，这会是新秀赛季最鲜明的个人标识。', 'Special Trait')}
-    <div class="card create-reveal-card tc">
-      <div class="card-title fc" style="justify-content:center">✨ X-Factor 天赋揭晓</div>
-      <div class="xfactor-card create-xfactor-panel">
-        <div class="create-xfactor-icon">${xf.icon}</div>
-        <div class="fs-lg fw-b t-purple mt-12">${xf.n}</div>
-        <div class="t-2 mt-12">${xf.d}</div>
+  <div class="nba-create-page">
+    <div class="nba-create-bg">
+      <div class="nba-create-court"></div>
+      <div class="nba-create-glow"></div>
+    </div>
+
+    <div class="nba-xfactor-container">
+      <div class="nba-xfactor-header">
+        <div class="nba-xfactor-label">X-FACTOR</div>
+        <div class="nba-xfactor-title">特殊天赋</div>
       </div>
-      <div class="create-hero-note">下一步将生成选秀夜结果，并根据当前年份载入对应联盟环境。</div>
-      <button class="btn btn-gold mt-16 create-next-btn" onclick="gotoDraft()">进入选秀 →</button>
+
+      <div class="nba-xfactor-card">
+        <div class="nba-xfactor-icon">${xf.icon}</div>
+        <div class="nba-xfactor-name">${xf.n}</div>
+        <div class="nba-xfactor-desc">${xf.d}</div>
+      </div>
+
+      <button class="nba-create-btn" onclick="gotoDraft()">
+        <span class="nba-btn-text">进入选秀夜</span>
+        <span class="nba-btn-arrow">→</span>
+      </button>
     </div>
   </div>`;
 }
@@ -541,60 +1119,830 @@ async function gotoDraft() {
 function renderDraftResult() {
   const t = G.team;
   const board = G.draftBoard;
-  const scout = G.draftScoutingReport || null;
   const allResults = Array.isArray(board?.results) ? board.results : [];
   const tierText = board ? (board.tier === 'big' ? '大年' : board.tier === 'weak' ? '小年' : '正常年') : '';
+  const pickResults = board?._pickResults || [];
+
+  // 初始化选秀状态
+  if (!G._draftState) {
+    G._draftState = {
+      currentPick: 0,
+      isAnimating: false,
+      showAll: false
+    };
+  }
+
+  const currentPick = G._draftState.currentPick;
+  const showAll = G._draftState.showAll;
+
+  // 当前揭晓的球员
+  const currentPlayer = currentPick > 0 && currentPick <= pickResults.length ? pickResults[currentPick - 1]?.player : null;
+  const currentResult = currentPick > 0 && currentPick <= allResults.length ? allResults[currentPick - 1] : null;
+  const currentTeam = currentResult ? getTeam(currentResult.teamId) : null;
+
+  // 生成选秀榜单HTML
+  const draftBoardHtml = allResults.map((r, idx) => {
+    const pickNum = idx + 1;
+    const isRevealed = showAll || pickNum <= currentPick;
+    const isCurrent = pickNum === currentPick;
+    const isUser = r.user;
+    const team = getTeam(r.teamId) || {};
+
+    return `
+      <div class="draft-pick-row ${isUser ? 'user-pick' : ''} ${isCurrent ? 'current' : ''} ${isRevealed ? 'revealed' : ''}">
+        <div class="draft-pick-num">${r.pick}</div>
+        <div class="draft-pick-team-logo" style="background:${team.cl || '#333'}">
+          ${teamLogoMarkup(team, 20)}
+        </div>
+        <div class="draft-pick-info">
+          <div class="draft-pick-name">${isRevealed ? (isUser ? `⭐ ${r.name}` : r.name) : '---'}</div>
+          <div class="draft-pick-meta">${isRevealed ? `${r.pos} | ${r.rating} OVR` : ''}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // 生成当前球员球探报告
+  let scoutReportHtml = '';
+  if (currentPlayer && currentResult) {
+    const pos = getPos(currentPlayer.pos) || { n: '-' };
+    const attrs = currentPlayer.attrs || {};
+    const isUser = currentResult.user;
+    const avatarSrc = isUser ? (G.player.avatar || G.player.photo || currentPlayer.photo || '') : (currentPlayer.photo || '');
+    const avatarHtml = avatarSrc
+      ? `<img src="${avatarSrc}" style="width:64px;height:64px;border-radius:50%;object-fit:cover">`
+      : `<div style="font-size:32px">🏀</div>`;
+
+    // 球探分析：优先使用 LLM 报告（仅用户球员），否则使用规则生成
+    let analysisHtml = '';
+    if (isUser && G.draftScoutingReport) {
+      const r = G.draftScoutingReport;
+      const strengths = Array.isArray(r.strengths) ? r.strengths : [];
+      const weaknesses = Array.isArray(r.weaknesses) ? r.weaknesses : [];
+      analysisHtml = `
+        <div class="draft-scout-pros">
+          ${strengths.map(s => `<div class="pros">✅ ${s}</div>`).join('')}
+        </div>
+        <div class="draft-scout-cons">
+          ${weaknesses.map(w => `<div class="cons">⚠️ ${w}</div>`).join('')}
+        </div>
+        ${r.comparable ? `<div class="draft-scout-compare">🔍 ${r.comparable}</div>` : ''}
+        ${r.projection ? `<div class="draft-scout-projection">📈 ${r.projection}</div>` : ''}
+      `;
+    } else {
+      analysisHtml = generatePlayerScoutReport(currentPlayer, currentResult);
+    }
+
+    scoutReportHtml = `
+      <div class="draft-player-report">
+        <div class="draft-report-header">
+          <div class="draft-report-pick">PICK #${currentPick}</div>
+          <div class="draft-report-team">${currentTeam?.z || ''} ${currentTeam?.n || ''}</div>
+        </div>
+
+        <div class="draft-report-player">
+          <div class="draft-report-avatar">${avatarHtml}</div>
+          <div class="draft-report-info">
+            <div class="draft-report-name">${isUser ? `⭐ ${currentResult.name}` : currentResult.name}</div>
+            <div class="draft-report-pos">${pos.n} | ${currentResult.rating} OVR | ${currentResult.potential} POT</div>
+          </div>
+        </div>
+
+        <div class="draft-report-attrs">
+          <div class="draft-attr-item"><span>传球</span><span>${attrs.pass || 50}</span></div>
+          <div class="draft-attr-item"><span>内线</span><span>${attrs.shotInt || 50}</span></div>
+          <div class="draft-attr-item"><span>外线</span><span>${attrs.shotExt || 50}</span></div>
+          <div class="draft-attr-item"><span>篮板</span><span>${attrs.reb || 50}</span></div>
+          <div class="draft-attr-item"><span>盖帽</span><span>${attrs.blk || 50}</span></div>
+          <div class="draft-attr-item"><span>抢断</span><span>${attrs.stl || 50}</span></div>
+        </div>
+
+        <div class="draft-report-analysis">
+          <div class="draft-analysis-title">球探分析</div>
+          <div class="draft-analysis-content">
+            ${analysisHtml}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // 生成媒体预测（营造悬念）
+  let mediaHtml = '';
+  if (currentPick === 0) {
+    const actualPick = parseNum(G.draftPick, 1);
+    const pName = G.player.name || '新秀';
+    const pos = getPos(G.player.pos);
+    const posName = pos?.n || '球员';
+    const tierLabel = tierText || '正常年';
+    const topProspects = (G.draftBoard?.top || []).filter(t => !t.user).slice(0, 5).map(t => t.name);
+    const topNamesStr = topProspects.length ? topProspects.join('、') : '多位热门新秀';
+
+    // 生成不同专家的模拟选秀预测
+    const experts = [
+      { src: 'ESPN Draft Analytics', icon: '📺', offset: Math.max(1, actualPick - rng(2, 5)) },
+      { src: 'The Athletic 选秀专刊', icon: '📰', offset: Math.min(60, actualPick + rng(1, 4)) },
+      { src: 'Bleacher Report', icon: '🎙️', offset: Math.max(1, actualPick - rng(0, 3)) },
+      { src: 'Yahoo Sports', icon: '💻', offset: Math.min(30, actualPick + rng(2, 6)) },
+      { src: 'Sports Illustrated', icon: '📑', offset: actualPick }
+    ];
+    // 排序让预测更随机感
+    experts.sort(() => Math.random() - 0.5);
+
+    const pickLabel = (n) => n === 1 ? '状元签（第1顺位）' : n <= 5 ? `前5顺位（第${n}顺位）` : n <= 14 ? `乐透区（第${n}顺位）` : n <= 30 ? `首轮第${n}顺位` : `第${n}顺位`;
+
+    const headlines = [
+      { src: '📺 NBA TV 直播', text: `"${pName}在联合试训中表现出色，多位经理认为其行情正在上涨..."` },
+      { src: '📰 内部消息源', text: `"有球队高管透露，如果${pName}掉到他们的签位，会毫不犹豫地选择..."` },
+      { src: '💬 选秀推特热议', text: `"${topNamesStr}和${pName}都可能是本届最大黑马，选秀结果难以预测"` }
+    ];
+
+    const fanComments = [
+      `"${pName}如果被${getTeam(G.teamId)?.z || ''}选中的话就完美了！"`,
+      `"说实话，${pName}的潜力比很多人想象的要高得多"`,
+      `"本届选秀是${tierLabel}，${pName}的最终顺位可能是最大悬念"`
+    ];
+
+    mediaHtml = `
+      <div class="draft-start-screen draft-media-phase">
+        <div class="draft-start-title">📡 选秀前夜 · 媒体预测</div>
+        <div class="draft-start-subtitle">${board?.year || G.year} 届选秀 · ${tierLabel} · ${allResults.length} 名新秀</div>
+
+        <div class="draft-media-feed">
+          <div class="draft-media-section-label">📝 专家模拟选秀</div>
+          ${experts.slice(0, 4).map(e => `
+            <div class="draft-media-card">
+              <div class="media-source">${e.icon} ${e.src}</div>
+              <div class="media-prediction">预测顺位：<strong>${pickLabel(e.offset)}</strong></div>
+              <div class="media-quote">"${e.offset <= 5 ? `${pName}的天赋毋庸置疑，有望在前5顺位被选中` : e.offset <= 14 ? `${pName}是乐透区的有力竞争者，多家球探给予高度评价` : `${posName}位置竞争激烈，${pName}的最终顺位存在较大分歧`}。"</div>
+            </div>
+          `).join('')}
+
+          <div class="draft-media-section-label">🔥 最新动态</div>
+          ${headlines.map(h => `
+            <div class="draft-media-card draft-media-hot">
+              <div class="media-source">${h.src}</div>
+              <div class="media-quote">${h.text}</div>
+            </div>
+          `).join('')}
+
+          <div class="draft-media-section-label">💬 球迷热议</div>
+          ${fanComments.map(c => `
+            <div class="draft-media-card draft-media-fan">
+              <div class="media-quote">${c}</div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="draft-media-summary">
+          <div class="draft-summary-text">综合预测：${pickLabel(actualPick)}附近，各家意见不一</div>
+          <div class="draft-summary-sub">最终顺位以选秀大会结果为准</div>
+        </div>
+
+        <button class="draft-start-btn" onclick="startDraftReveal()">选秀大会正式开始 🏀</button>
+      </div>
+    `;
+  }
+
   $('createPage').innerHTML = `
-  <div class="create-page-shell">
-    ${renderCreateStageHeader('选秀夜', '球队已经做出决定。这里是你的顺位、球探总结，以及同届新秀榜单。', 'Draft Night')}
-    <div class="create-draft-grid">
-      <div class="card create-draft-hero">
-        <div class="card-title fc" style="justify-content:center">🎉 选秀结果</div>
-        <div class="team-logo create-draft-logo" style="background:${t.cl};margin:16px auto">${teamLogoMarkup(t, 80)}</div>
-        <div class="fs-lg fw-b mt-12">${board?.year || G.year}年NBA选秀</div>
-        <div class="create-draft-pick">第${G.draftPick}顺位</div>
-        <div class="fs-lg">${t.z} ${t.n}</div>
-        <div class="t-2 mt-12">${G.player.name} | ${getPos(G.player.pos).n} | OVR ${ovr(G.player.attrs)}</div>
-        <div class="t-2 fs-sm mt-12">合同: ${G.player.contractYears}年 / $${formatSalaryM(G.player.salary)}M</div>
-        ${board ? `<div class="t-2 fs-sm mt-12">同届: ${board.classSize || allResults.length}人竞争 (${tierText})</div>` : ''}
-        <button class="btn btn-gold mt-16 create-next-btn" onclick="startCareer()" style="font-size:18px;padding:14px 40px">开始生涯 🏀</button>
-      </div>
-      <div class="create-draft-side">
-      ${scout ? `
-      <div class="card create-draft-report" style="text-align:left;background:rgba(0,0,0,.18)">
-        <div class="card-title">🧾 球探报道</div>
-        <div class="fw-b" style="font-size:15px;color:var(--gold);margin-bottom:8px">${scout.title || '球队球探报告'}</div>
-        <div class="t-2" style="line-height:1.7;margin-bottom:14px;padding:10px 12px;background:rgba(255,255,255,.04);border-radius:6px">${scout.summary || ''}</div>
-        <div class="create-report-grid" style="margin-bottom:14px">
-          <div style="padding:10px 12px;background:rgba(40,167,69,.12);border-radius:8px;border:1px solid rgba(40,167,69,.3)">
-            <div class="fw-b" style="color:#28a745;margin-bottom:6px">💪 优势</div>
-            ${Array.isArray(scout.strengths) ? scout.strengths.map(s => `<div style="padding:4px 0;font-size:13px">• ${s}</div>`).join('') : '<div class="t-2">-</div>'}
+  <div class="draft-night-page">
+    <div class="draft-night-bg">
+      <div class="draft-spotlight"></div>
+    </div>
+
+    <div class="draft-night-header">
+      <div class="draft-night-title">🏀 ${board?.year || G.year} NBA DRAFT</div>
+      <div class="draft-night-subtitle">${currentPick > 0 ? `${tierText} · 第 ${currentPick} / ${allResults.length} 顺位` : `${tierText} · 选秀前夜`}</div>
+    </div>
+
+    <div class="draft-night-content">
+      <!-- 左侧：当前球员展示 -->
+      <div class="draft-reveal-panel">
+        ${currentPick === 0 ? mediaHtml : scoutReportHtml}
+
+        ${currentPick > 0 && currentPick <= allResults.length ? `
+          <div class="draft-reveal-actions">
+            ${!showAll && currentPick < allResults.length ? `
+              <button class="draft-next-btn" onclick="revealNextPick()">下一位 →</button>
+            ` : ''}
+            <button class="draft-skip-btn" onclick="revealAllPicks()">跳过剩余</button>
+            <button class="draft-start-btn" onclick="startCareer()">开始生涯 🏀</button>
           </div>
-          <div style="padding:10px 12px;background:rgba(220,53,69,.12);border-radius:8px;border:1px solid rgba(220,53,69,.3)">
-            <div class="fw-b" style="color:#dc3545;margin-bottom:6px">⚠️ 风险</div>
-            ${Array.isArray(scout.weaknesses) ? scout.weaknesses.map(w => `<div style="padding:4px 0;font-size:13px">• ${w}</div>`).join('') : '<div class="t-2">-</div>'}
-          </div>
-        </div>
-        ${scout.projection ? `<div style="padding:10px 12px;background:rgba(253,185,39,.08);border-radius:6px;border-left:3px solid var(--gold);margin-bottom:10px"><span class="fw-b" style="color:var(--gold)">📈 前景预测：</span><span class="t-2">${scout.projection}</span></div>` : ''}
-        ${scout.comparable ? `<div style="padding:10px 12px;background:rgba(23,162,184,.08);border-radius:6px;border-left:3px solid var(--cyan)"><span class="fw-b" style="color:var(--cyan)">🔄 球员模版：</span><span class="t-2">${scout.comparable}</span></div>` : ''}
+        ` : ''}
       </div>
-      ` : ''}
-      ${allResults.length ? `
-      <div class="card create-draft-board">
-        <div class="card-title">📋 同届榜单</div>
-        <div class="tbl" style="text-align:left;max-height:360px;overflow-y:auto">
-        <table>
-          <thead><tr><th>顺位</th><th>球队</th><th>球员</th><th>位置</th><th>OVR</th><th>POT</th></tr></thead>
-          <tbody>
-            ${allResults.map(r => `<tr class="${r.user ? 'hl-row' : ''}"><td>${r.pick}</td><td>${r.team || '--'}</td><td>${r.user ? `⭐ ${r.name}` : r.name}</td><td>${r.pos}</td><td>${r.rating}</td><td>${r.potential}</td></tr>`).join('')}
-          </tbody>
-        </table>
+
+      <!-- 右侧：选秀榜单 -->
+      <div class="draft-board-panel">
+        <div class="draft-board-header">
+          <span>📋 选秀榜单</span>
         </div>
-      </div>
-      `: ''}
+        <div class="draft-board-list">
+          ${draftBoardHtml}
+        </div>
       </div>
     </div>
-  </div>`;
+  </div>
+
+  <!-- 球员详情弹窗 -->
+  <div id="draftPlayerModal" class="draft-modal" style="display:none">
+    <div class="draft-modal-content">
+      <div class="draft-modal-header">
+        <span class="draft-modal-title">球员详情</span>
+        <button class="draft-modal-close" onclick="closeDraftPlayerModal()">×</button>
+      </div>
+      <div id="draftPlayerModalBody" class="draft-modal-body"></div>
+    </div>
+  </div>
+  `;
+
+  // 添加样式
+  if (!$('draftNightStyles')) {
+    const style = document.createElement('style');
+    style.id = 'draftNightStyles';
+    style.textContent = `
+      .draft-night-page {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #0f0f1a 100%);
+        padding: 20px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .draft-night-bg {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .draft-spotlight {
+        position: absolute;
+        top: -30%;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 600px;
+        height: 600px;
+        background: radial-gradient(ellipse, rgba(251,191,39,0.12) 0%, transparent 70%);
+      }
+
+      .draft-night-header {
+        text-align: center;
+        padding: 20px 0 24px;
+        position: relative;
+        z-index: 2;
+      }
+
+      .draft-night-title {
+        font-size: 28px;
+        font-weight: 900;
+        letter-spacing: 3px;
+        background: linear-gradient(135deg, #fff 0%, #fbbf27 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      .draft-night-subtitle {
+        font-size: 14px;
+        color: #666;
+        margin-top: 8px;
+      }
+
+      .draft-night-content {
+        display: flex;
+        gap: 20px;
+        max-width: 1100px;
+        margin: 0 auto;
+        position: relative;
+        z-index: 2;
+      }
+
+      .draft-reveal-panel {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .draft-start-screen {
+        background: rgba(0,0,0,0.4);
+        border: 1px solid rgba(251,191,39,0.2);
+        border-radius: 16px;
+        padding: 60px 40px;
+        text-align: center;
+      }
+
+      .draft-start-title {
+        font-size: 24px;
+        font-weight: 700;
+        color: #fbbf27;
+        margin-bottom: 12px;
+      }
+
+      .draft-start-subtitle {
+        font-size: 14px;
+        color: #888;
+        margin-bottom: 32px;
+      }
+
+      .draft-start-btn {
+        padding: 14px 40px;
+        background: linear-gradient(135deg, #fbbf27 0%, #f59e0b 100%);
+        border: none;
+        border-radius: 8px;
+        color: #000;
+        font-size: 16px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .draft-start-btn:hover {
+        transform: translateY(-2px);
+      }
+
+      .draft-media-phase {
+        max-height: 70vh;
+        overflow-y: auto;
+        padding: 30px 24px;
+      }
+
+      .draft-media-feed {
+        margin: 16px 0;
+        text-align: left;
+      }
+
+      .draft-media-section-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: #fbbf27;
+        padding: 6px 12px;
+        margin: 12px 0 6px;
+        background: rgba(251,191,39,0.1);
+        border-radius: 4px;
+        letter-spacing: 1px;
+      }
+
+      .draft-media-card {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px;
+        padding: 12px 16px;
+        margin-bottom: 8px;
+        transition: all 0.2s;
+      }
+
+      .draft-media-card:hover {
+        background: rgba(255,255,255,0.07);
+        border-color: rgba(251,191,39,0.2);
+      }
+
+      .draft-media-hot {
+        border-left: 3px solid #ef4444;
+      }
+
+      .draft-media-fan {
+        border-left: 3px solid #3b82f6;
+        font-style: italic;
+      }
+
+      .draft-media-card .media-source {
+        font-size: 11px;
+        color: #888;
+        margin-bottom: 4px;
+        font-weight: 600;
+      }
+
+      .draft-media-card .media-prediction {
+        font-size: 14px;
+        color: #fbbf27;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .draft-media-card .media-quote {
+        font-size: 13px;
+        color: #bbb;
+        line-height: 1.5;
+      }
+
+      .draft-media-summary {
+        text-align: center;
+        margin: 16px 0;
+        padding: 12px;
+        background: rgba(251,191,39,0.08);
+        border-radius: 8px;
+      }
+
+      .draft-summary-text {
+        font-size: 14px;
+        color: #fbbf27;
+        font-weight: 600;
+      }
+
+      .draft-summary-sub {
+        font-size: 11px;
+        color: #666;
+        margin-top: 4px;
+      }
+
+      .draft-player-report {
+        background: rgba(0,0,0,0.4);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 16px;
+        padding: 24px;
+        animation: slideIn 0.4s ease;
+      }
+
+      @keyframes slideIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      .draft-report-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+      }
+
+      .draft-report-pick {
+        font-size: 20px;
+        font-weight: 900;
+        color: #fbbf27;
+      }
+
+      .draft-report-team {
+        font-size: 14px;
+        color: #888;
+      }
+
+      .draft-report-player {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+
+      .draft-report-avatar {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #333 0%, #222 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 32px;
+        border: 2px solid #fbbf27;
+      }
+
+      .draft-report-name {
+        font-size: 22px;
+        font-weight: 700;
+        color: #fff;
+      }
+
+      .draft-report-pos {
+        font-size: 13px;
+        color: #888;
+        margin-top: 4px;
+      }
+
+      .draft-report-attrs {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-bottom: 20px;
+      }
+
+      .draft-attr-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 12px;
+        background: rgba(255,255,255,0.03);
+        border-radius: 6px;
+        font-size: 12px;
+      }
+
+      .draft-attr-item span:first-child { color: #888; }
+      .draft-attr-item span:last-child { color: #fbbf27; font-weight: 600; }
+
+      .draft-report-analysis {
+        background: rgba(255,255,255,0.03);
+        border-radius: 12px;
+        padding: 16px;
+      }
+
+      .draft-analysis-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #fbbf27;
+        margin-bottom: 12px;
+      }
+
+      .draft-analysis-content {
+        font-size: 13px;
+        color: #aaa;
+        line-height: 1.7;
+      }
+
+      .draft-analysis-content p {
+        margin: 0 0 8px;
+      }
+
+      .draft-analysis-content .pros { color: #22c55e; margin-bottom: 4px; }
+      .draft-analysis-content .cons { color: #ef4444; margin-bottom: 4px; }
+      .draft-scout-compare { color: #818cf8; margin: 8px 0 4px; font-size: 13px; }
+      .draft-scout-projection { color: #60a5fa; font-size: 13px; line-height: 1.6; }
+
+      .draft-reveal-actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 20px;
+      }
+
+      .draft-next-btn {
+        flex: 1;
+        padding: 14px 20px;
+        background: linear-gradient(135deg, #fbbf27 0%, #f59e0b 100%);
+        border: none;
+        border-radius: 8px;
+        color: #000;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .draft-skip-btn {
+        padding: 14px 20px;
+        background: rgba(255,255,255,0.1);
+        border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 8px;
+        color: #888;
+        font-size: 14px;
+        cursor: pointer;
+      }
+
+      .draft-board-panel {
+        width: 320px;
+        background: rgba(0,0,0,0.3);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      .draft-board-header {
+        padding: 14px 16px;
+        font-weight: 600;
+        font-size: 13px;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+      }
+
+      .draft-board-list {
+        max-height: 450px;
+        overflow-y: auto;
+        padding: 8px;
+      }
+
+      .draft-pick-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        margin-bottom: 4px;
+        background: rgba(255,255,255,0.02);
+        transition: all 0.3s;
+      }
+
+      .draft-pick-row.current {
+        background: rgba(251,191,39,0.15);
+        border: 1px solid rgba(251,191,39,0.3);
+      }
+
+      .draft-pick-row.user-pick {
+        background: rgba(34,197,94,0.1);
+      }
+
+      .draft-pick-row.revealed {
+        opacity: 1;
+      }
+
+      .draft-pick-row:not(.revealed) {
+        opacity: 0.4;
+      }
+
+      .draft-pick-num {
+        width: 28px;
+        font-weight: 700;
+        font-size: 13px;
+        color: #fbbf27;
+      }
+
+      .draft-pick-team-logo {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .draft-pick-name {
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .draft-pick-meta {
+        font-size: 11px;
+        color: #666;
+        margin-top: 2px;
+      }
+
+      /* 弹窗 */
+      .draft-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.85);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+      }
+
+      .draft-modal-content {
+        background: #1a1a2e;
+        border-radius: 16px;
+        width: 90%;
+        max-width: 500px;
+        max-height: 80vh;
+        overflow: hidden;
+      }
+
+      .draft-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 20px;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+      }
+
+      .draft-modal-close {
+        width: 28px;
+        height: 28px;
+        border: none;
+        background: rgba(255,255,255,0.1);
+        border-radius: 50%;
+        color: #fff;
+        font-size: 18px;
+        cursor: pointer;
+      }
+
+      .draft-modal-body {
+        padding: 20px;
+        max-height: 60vh;
+        overflow-y: auto;
+      }
+
+      @media (max-width: 800px) {
+        .draft-night-content {
+          flex-direction: column;
+        }
+        .draft-board-panel {
+          width: 100%;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
+
+function startDraftReveal() {
+  G._draftState = { currentPick: 1, isAnimating: false, showAll: false };
+  renderCreate();
+}
+
+function revealNextPick() {
+  if (!G._draftState) G._draftState = { currentPick: 0 };
+  const total = (G.draftBoard?.results || []).length;
+  if (G._draftState.currentPick < total) {
+    G._draftState.currentPick++;
+    renderCreate();
+  }
+}
+
+function revealAllPicks() {
+  if (!G._draftState) G._draftState = { currentPick: 0 };
+  const total = (G.draftBoard?.results || []).length;
+  G._draftState.currentPick = total;
+  G._draftState.showAll = true;
+  renderCreate();
+}
+
+function generatePlayerScoutReport(player, result) {
+  if (!player) return '<p>暂无球探报告</p>';
+
+  const attrs = player.attrs || {};
+  const pos = getPos(player.pos) || { n: '球员' };
+  const rating = result?.rating || 70;
+  const potential = result?.potential || 75;
+
+  // 根据属性生成优势
+  const strengths = [];
+  if (attrs.shotExt >= 75) strengths.push('出色的外线投射能力');
+  if (attrs.shotInt >= 75) strengths.push('稳定的内线终结能力');
+  if (attrs.pass >= 75) strengths.push('优秀的传球视野');
+  if (attrs.reb >= 75) strengths.push('强悍的篮板能力');
+  if (attrs.blk >= 75) strengths.push('出色的护框能力');
+  if (attrs.stl >= 75) strengths.push('敏锐的抢断嗅觉');
+  if (attrs.phy >= 75) strengths.push('强壮的身体素质');
+  if (potential >= 85) strengths.push('极高的成长上限');
+  if (strengths.length === 0) strengths.push('扎实的篮球基本功');
+
+  // 根据属性生成劣势
+  const weaknesses = [];
+  if (attrs.shotExt < 60) weaknesses.push('外线投射需要提升');
+  if (attrs.shotInt < 60) weaknesses.push('内线终结能力有待加强');
+  if (attrs.pass < 60) weaknesses.push('传球视野需要改善');
+  if (attrs.reb < 60) weaknesses.push('篮板意识需要提高');
+  if (attrs.blk < 60) weaknesses.push('护框能力不足');
+  if (attrs.stl < 60) weaknesses.push('防守端侵略性不够');
+  if (attrs.phy < 60) weaknesses.push('身体对抗能力偏弱');
+  if (potential < 70) weaknesses.push('成长空间有限');
+  if (weaknesses.length === 0) weaknesses.push('需要增加比赛经验');
+
+  // 球员模板
+  let template = '角色球员';
+  if (rating >= 85) template = '全明星级别';
+  else if (rating >= 78) template = '首发级别';
+  else if (rating >= 70) template = '轮换球员';
+
+  return `
+    <p class="pros"><strong>优势：</strong>${strengths.join('、')}。</p>
+    <p class="cons"><strong>劣势：</strong>${weaknesses.join('、')}。</p>
+    <p><strong>球员模板：</strong>${template} ${pos.n}</p>
+    <p><strong>发展预期：</strong>${potential >= 85 ? '有望成为球队核心' : potential >= 78 ? '可成长为稳定首发' : '需要时间培养'}</p>
+  `;
+}
+
+function showDraftPlayerDetail(idx) {
+  const pickResults = G.draftBoard?._pickResults || [];
+  const player = pickResults[idx]?.player;
+  if (!player) return;
+
+  const team = getTeam(pickResults[idx]?.teamId) || {};
+  const pos = getPos(player.pos) || { n: '-' };
+  const attrs = player.attrs || {};
+  const isUser = player.id === 'USER_PROSPECT';
+  const avatarSrc = isUser ? (G.player.avatar || G.player.photo || player.photo || '') : (player.photo || '');
+  const avatarInner = avatarSrc
+    ? `<img src="${avatarSrc}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:2px solid #fbbf27">`
+    : `<div style="font-size:40px">🏀</div>`;
+
+  const attrLabels = [
+    { k: 'pass', n: '传球' },
+    { k: 'shotInt', n: '内线' },
+    { k: 'shotExt', n: '外线' },
+    { k: 'ft', n: '罚球' },
+    { k: 'reb', n: '篮板' },
+    { k: 'blk', n: '盖帽' },
+    { k: 'stl', n: '抢断' },
+    { k: 'phy', n: '身体' }
+  ];
+
+  const modalBody = `
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="width:80px;height:80px;border-radius:50%;background:#333;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;overflow:hidden">${avatarInner}</div>
+      <div style="font-size:20px;font-weight:700">${isUser ? `⭐ ${player.name}` : player.name}</div>
+      <div style="font-size:13px;color:#888;margin-top:4px">${team.z || ''} ${team.n || ''} · ${pos.n}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px">
+      <div style="background:rgba(255,255,255,0.03);padding:12px;border-radius:8px;text-align:center">
+        <div style="font-size:24px;font-weight:700;color:#fbbf27">${player.rating || 70}</div>
+        <div style="font-size:11px;color:#666">OVR</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.03);padding:12px;border-radius:8px;text-align:center">
+        <div style="font-size:24px;font-weight:700;color:#22c55e">${player.potential || 75}</div>
+        <div style="font-size:11px;color:#666">POT</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.03);padding:12px;border-radius:8px;text-align:center">
+        <div style="font-size:24px;font-weight:700;color:#fff">${player.age || 20}</div>
+        <div style="font-size:11px;color:#666">年龄</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+      ${attrLabels.map(a => `
+        <div style="display:flex;justify-content:space-between;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;font-size:12px">
+          <span style="color:#888">${a.n}</span>
+          <span style="color:#fbbf27;font-weight:600">${attrs[a.k] || 50}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  $('draftPlayerModalBody').innerHTML = modalBody;
+  $('draftPlayerModal').style.display = 'flex';
+}
+
+function closeDraftPlayerModal() {
+  $('draftPlayerModal').style.display = 'none';
 }
 
 function startCareer() {
@@ -618,6 +1966,10 @@ function startCareer() {
   if (typeof ensureLeagueBadges === 'function') ensureLeagueBadges();
   if (typeof enforceLeagueRosterCap === 'function') enforceLeagueRosterCap(15);
   if (typeof enforceLeagueRosterCap === 'function') enforceLeagueRosterCap(15);
+
+  // 初始化队内关系和赛季目标
+  if (typeof initTeamRelationsForCurrentTeam === 'function') initTeamRelationsForCurrentTeam();
+  if (typeof initializeSeasonGoals === 'function') initializeSeasonGoals();
 
   // 开局直接进入所选年份的选秀与新秀赛季，不再强行预模拟一年。
   if (typeof injectSeasonRookies === 'function') {
@@ -653,7 +2005,7 @@ function startCareer() {
 }
 
 function updateHeader() {
-  $('hdrSeason').textContent = `赛季: ${G.year}-${G.year + 1} (第${G.season}赛季)`;
+  $('hdrSeason').textContent = `赛季: ${G.year - 1}-${G.year} (第${G.season}赛季)`;
   $('hdrTeam').textContent = `球队: ${G.team ? G.team.z : '--'}`;
   const effA = typeof getEffectivePlayerAttrs === 'function' ? getEffectivePlayerAttrs(G.player) : G.player.attrs;
   const baseOvr = ovr(G.player.attrs);
@@ -674,6 +2026,17 @@ function renderHome() {
   const coachFavor = coach && typeof getCoachFavorability === 'function' ? getCoachFavorability(coach) : 50;
   const coachTreatment = coach && typeof getUserCoachTreatmentProfile === 'function' ? getUserCoachTreatmentProfile(G.player, coach) : null;
   const relationView = typeof buildSocialRelationshipFeedView === 'function' ? buildSocialRelationshipFeedView(3) : { list: [], friendCount: 0, rivalCount: 0, respectCount: 0 };
+
+  // 队内关系和化学反应
+  const teamChemistry = typeof ensureTeamRelationsState === 'function' ? ensureTeamRelationsState().chemistry : { overall: 50, lockerRoomMood: 50, dramaLevel: 0 };
+  const teammateCount = Object.keys(G.teamRelations?.teammates || {}).length;
+
+  // 赛季目标进度
+  const goalsProgress = typeof getGoalsProgressView === 'function' ? getGoalsProgressView() : null;
+
+  // 比赛解释器
+  const lastExplanation = G.matchInterpreter?.lastGame?.explanations || [];
+  const explanationSummary = lastExplanation.length > 0 ? lastExplanation.map(e => `${e.icon} ${e.label}`).join(' ') : null;
 
   if (!G.storyLog) {
     G.storyLog = ["欢迎来到《篮球生涯模拟器》。你的传奇，从这里开始——点击【推进日程】开启新的一天或直接去打比赛。"];
@@ -719,8 +2082,28 @@ function renderHome() {
         <div class="home-progress-row"><span>最近一战</span><span>${latest.win ? '胜利' : '失利'}</span></div>
         <div class="home-result-meta">${latestOpp.z || latestOpp.a || '对手'} · ${parseNum(latest.teamPts, 0)} : ${parseNum(latest.oppPts, 0)}</div>
         <div class="home-result-sub">你的数据：${latest.injured ? '本场缺阵' : `${parseNum(latest.pts, 0)} 分 ${parseNum(latest.reb, 0)} 板 ${parseNum(latest.ast, 0)} 助 · ${latest.grade || '--'} 级`}</div>
+        ${explanationSummary ? `<div class="home-result-sub t-amber">${explanationSummary}</div>` : ''}
       </div>`
     : '<div class="home-empty">还没有正式比赛记录。</div>';
+
+  // 赛季目标进度HTML
+  const goalsHtml = goalsProgress ? `
+    <div class="home-progress-stack mt-8">
+      <div class="home-result-sub">
+        ${goalsProgress.streaks.doubleFigures.current > 0 ? `🔥 连续${goalsProgress.streaks.doubleFigures.current}场上双` : ''}
+        ${goalsProgress.streaks.over20.current > 0 ? ` · 连续${goalsProgress.streaks.over20.current}场20+` : ''}
+      </div>
+    </div>` : '';
+
+  // 队内关系HTML
+  const teamRelationHtml = `
+    <div class="home-news-item fs-sm">
+      <div class="flex fb ai-c gap-8">
+        <div class="fw-b">更衣室氛围</div>
+        <span class="badge ${teamChemistry.overall >= 60 ? 'b-gold' : teamChemistry.overall >= 40 ? 'b-pri' : 'b-war'}">${teamChemistry.overall >= 70 ? '融洽' : teamChemistry.overall >= 50 ? '一般' : '紧张'}</span>
+      </div>
+      <div class="t-2 mt-8">化学反应 ${Math.round(parseNum(teamChemistry.overall, 50))} | 队友好感 ${teammateCount}人 | ${teamChemistry.dramaLevel > 0 ? `⚠️ ${teamChemistry.dramaLevel}个矛盾` : '✅ 无明显矛盾'}</div>
+    </div>`;
 
   $('homePage').innerHTML = `
   <div class="home-shell">
@@ -733,7 +2116,7 @@ function renderHome() {
           <div class="home-subline">${G.team?.z || '--'} | ${p.age} 岁 | ${getPos(p.pos).z} | OVR ${ovr(p.attrs)}${p.injury.active ? ` · 🩹 ${p.injury.type} ${p.injury.games}场` : ''}</div>
           <div class="home-chip-row">
             <span class="home-chip">${xf.icon} ${xf.n}</span>
-            <span class="home-chip">${G.year}-${G.year + 1} 赛季</span>
+            <span class="home-chip">${G.year - 1}-${G.year} 赛季</span>
             <span class="home-chip">${commerceProfile.privilegeLabel || '新秀观察'}</span>
             <span class="home-chip ${p.injury.active ? 'danger' : ''}">${p.injury.active ? '伤病名单' : '可出战'}</span>
           </div>
@@ -816,6 +2199,7 @@ function renderHome() {
             </div>
           </div>
           ${latestGameHtml}
+          ${goalsHtml}
         </section>
 
         <section class="card home-panel">
@@ -827,6 +2211,7 @@ function renderHome() {
             </div>
             <div class="t-2 mt-8">教练好感 ${coachFavor} | 体系契合 ${coachTreatment ? `${coachTreatment.fitScore}/100` : '--'} | ${coachTreatment?.fitLabel || '正常适配'}</div>
           </div>
+          ${teamRelationHtml}
           ${relationContent}
           <div class="mt-12"><button class="btn btn-no btn-sm home-inline-btn" onclick="if(confirm('确定要宣布退役吗？生涯将就此落幕！\\n如果是误触请点击取消。')) forceRetire()">结束生涯</button></div>
         </section>
@@ -846,18 +2231,19 @@ function renderHome() {
 
   if (G.playoffs && G.playoffs.active && !G.playoffs.eliminated) {
     if (typeof renderPlayoffGame === 'function') renderPlayoffGame();
-  } else if (G.gameNum >= 82) {
+  } else if (G.gameNum >= (typeof getSeasonGameCount === 'function' ? getSeasonGameCount() : (G.totalGames || 82))) {
     if (typeof renderSeasonEnd === 'function') renderSeasonEnd();
   } else {
     if (typeof renderRegularSeasonAction === 'function') renderRegularSeasonAction();
   }
 }
 
-function appendStoryToBoard(text, color = '#fff', typewrite = true) {
+function appendStoryToBoard(text, color = '#fff', typewrite = true, opts = {}) {
   if (!G.storyLog) G.storyLog = [];
   const formatted = `<span style="color:${color}">${text}</span>`;
   G.storyLog.push(formatted);
   if (G.storyLog.length > 50) G.storyLog.shift(); // Keep history size contained
+  if (opts?.skipDom) return;
 
   const sb = $('storyBoard');
   if (sb) {
@@ -997,6 +2383,71 @@ function showLeagueGameDetailModal(gameId) {
     </div>
   `, { className: 'modal-game-detail' });
 }
+
+function cloneLeagueSeasonState() {
+  return JSON.parse(JSON.stringify(G.leagueSeason || {
+    round: 0,
+    teamRecords: {},
+    playerStats: {},
+    roundSchedule: [],
+    teamGameLogs: {},
+    gameDetails: []
+  }));
+}
+
+function previewLeagueMatchup(homeTeamId, awayTeamId, opts = {}) {
+  if (typeof simulateLeagueMatchup !== 'function') return null;
+  const snapshot = cloneLeagueSeasonState();
+  try {
+    return simulateLeagueMatchup(homeTeamId, awayTeamId, opts);
+  } finally {
+    G.leagueSeason = snapshot;
+  }
+}
+
+function showLeagueMatchupPreviewModal(game) {
+  if (!game) return;
+  const home = getTeam(game.homeTeamId) || {};
+  const away = getTeam(game.awayTeamId) || {};
+  const homeRows = Array.isArray(game.homeRows) ? game.homeRows : [];
+  const awayRows = Array.isArray(game.awayRows) ? game.awayRows : [];
+  const homeWin = parseNum(game.homeScore, 0) > parseNum(game.awayScore, 0);
+  showModal(`
+    <div class="game-detail-wrap">
+    <div class="modal-hd">
+      <h3>姣旇禌棰勮 | 绗?{parseNum(game.round, 0)}杞?${parseNum(game.year, G.year)}璧涘</h3>
+      <button class="modal-x" onclick="hideModal()">鉁?/button>
+    </div>
+    <div class="ev neu mb-12">杩欐槸涓€娆￠瑙傦紝涓嶄細鍐欏叆璧涘绉垎銆佹垬缁╂垨鐞冨憳缁熻銆?/div>
+    <div class="card game-detail-score" style="margin-bottom:12px">
+      <div class="flex fb">
+        <div class="fw-b">${away.z || away.n || '瀹㈤槦'} (${away.a || '--'})</div>
+        <div class="fw-b ${homeWin ? 't-ok' : 't-no'}">${parseNum(game.awayScore, 0)} - ${parseNum(game.homeScore, 0)}</div>
+        <div class="fw-b">${home.z || home.n || '涓婚槦'} (${home.a || '--'})</div>
+      </div>
+      <div class="tc mt-12">
+        <span class="badge ${homeWin ? 'b-ok' : 'b-no'}">${homeWin ? '涓昏儨' : '瀹㈣儨'}</span>
+      </div>
+    </div>
+    ${renderHomeAwayFlow(game)}
+    <div class="grid g1 game-detail-teams">
+      <div class="card game-detail-team" style="margin-bottom:0">
+        <div class="card-title">${home.z || home.n || '涓婚槦'} 鐩掑垎</div>
+        <div class="tbl"><table><thead><tr>
+          <th>#</th><th>鐞冨憳</th><th>浣嶇疆</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>PF</th><th>TOV</th><th>鍛戒腑 FG/3PT/FT</th>
+        </tr></thead><tbody>${renderGameDetailRows(homeRows)}</tbody></table></div>
+      </div>
+      <div class="card game-detail-team" style="margin-bottom:0">
+        <div class="card-title">${away.z || away.n || '瀹㈤槦'} 鐩掑垎</div>
+        <div class="tbl"><table><thead><tr>
+          <th>#</th><th>鐞冨憳</th><th>浣嶇疆</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>PF</th><th>TOV</th><th>鍛戒腑 FG/3PT/FT</th>
+        </tr></thead><tbody>${renderGameDetailRows(awayRows)}</tbody></table></div>
+      </div>
+    </div>
+    </div>
+  `, { className: 'modal-game-detail' });
+}
+
 function renderRecentGameRows(limit = 10) {
   return G.results.slice(-limit).reverse().map(r => {
     const o = getTeam(r.opp);
@@ -1299,7 +2750,7 @@ function renderRegularSeasonAction() {
     gameHtml = `
       <div style="background:linear-gradient(90deg, rgba(20,20,20,0.9), rgba(40,40,40,0.9)); border:1px solid var(--gold); border-radius:6px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
         <div style="font-size:14px;">
-          📅 第${G.dayNum + 1}天 | 🏀 比赛: ${G.gameNum + 1}/82 VS <span class="t-gold fw-b">${opp?.z || '对手'}</span> (${game?.home ? '主场' : '客场'})
+          📅 第${G.dayNum + 1}天 | 🏀 比赛: ${G.gameNum + 1}/${typeof getSeasonGameCount === 'function' ? getSeasonGameCount() : (G.totalGames || 82)} VS <span class="t-gold fw-b">${opp?.z || '对手'}</span> (${game?.home ? '主场' : '客场'})
           ${fatigueCtx ? `<div style="font-size:12px;color:#9fb0c8;margin-top:4px">体能报告: ${fatigueCtx.summary} | 当前体力 ${parseNum(G.player.stamina, 100)}%</div>` : ''}
         </div>
         <div style="display:flex; align-items:center; gap:8px;">
@@ -1340,7 +2791,7 @@ async function doSimulateDay() {
   renderHome();
   try {
     // 赛前事件：如果今天是比赛日，先掷骰并展示事件
-    const isGame = typeof isGameDay === 'function' && isGameDay(G.dayNum) && G.gameNum < 82;
+    const isGame = typeof isGameDay === 'function' && isGameDay(G.dayNum) && G.gameNum < (typeof getSeasonGameCount === 'function' ? getSeasonGameCount() : (G.totalGames || 82));
     if (isGame && !G.player?.injury?.active && typeof rollPreGameEvent === 'function') {
       const ev = rollPreGameEvent();
       if (ev && typeof showEventOutcomeModal === 'function') {
@@ -1356,9 +2807,11 @@ async function doSimulateDay() {
       return;
     }
 
-    const coachPrompt = typeof buildCoachDailyPrompt === 'function' ? buildCoachDailyPrompt(result) : null;
-    if (coachPrompt) {
-      await showCoachChoiceModal(coachPrompt, result, { mandatory: true });
+    const dailyPrompt = typeof buildDailyInteractionPrompt === 'function'
+      ? buildDailyInteractionPrompt(result)
+      : (typeof buildCoachDailyPrompt === 'function' ? buildCoachDailyPrompt(result) : null);
+    if (dailyPrompt) {
+      await showCoachChoiceModal(dailyPrompt, result, { mandatory: true });
       updateHeader();
       renderHome();
       if ($('rosterPage').classList.contains('active')) renderRoster();
@@ -1366,9 +2819,11 @@ async function doSimulateDay() {
       if ($('phonePage').classList.contains('active')) renderPhone();
     }
 
+    G._latestDayResult = result;
+
     // ========== 剧情引擎接管 ==========
     if (typeof generateDailyStoryByLLM === 'function') {
-      await generateDailyStoryByLLM(result);
+      await generateDailyStoryByLLM(result, { deferRender: true });
     }
     // ===================================
     if (result.isGame && typeof generateMatchRecapByLLM === 'function') {
@@ -1379,20 +2834,13 @@ async function doSimulateDay() {
       }
     }
 
-    G._latestDayResult = result;
+    if (typeof generateDailySocialTweetsSmart === 'function') {
+      await generateDailySocialTweetsSmart(result);
+    }
+
     updateHeader();
     renderHome();
     if ($('phonePage').classList.contains('active')) renderPhone();
-
-    // 后台非阻塞生成推文，每日都生成从而反映休赛日花边或日常训练
-    if (typeof generateDailySocialTweets === 'function') {
-      generateDailySocialTweetsSmart(result).then(() => {
-        if ($('phonePage').classList.contains('active')) renderPhone();
-      }).catch(e => {
-        G.social = G.social || {};
-        G.social.lastLLMError = String(e?.message || e || '推文生成失败');
-      });
-    }
   } finally {
     G._simulatingDay = false;
     if ($('homePage').classList.contains('active')) renderHome();
@@ -1427,6 +2875,39 @@ function buildCoachChoiceOutcomeSummary() {
   return rows.map(line => `<div class="t-2 fs-sm mt-8">${line}</div>`).join('');
 }
 
+function buildTeamChoiceOutcomeSummary(prompt = null) {
+  const chemistry = typeof ensureTeamRelationsState === 'function'
+    ? ensureTeamRelationsState().chemistry
+    : { overall: 50, lockerRoomMood: 50, dramaLevel: 0 };
+  const targetPlayerId = parseNum(prompt?.targetPlayerId, 0);
+  const relation = targetPlayerId && typeof getTeammateRelationEntry === 'function'
+    ? getTeammateRelationEntry(targetPlayerId, G.teamId)
+    : null;
+  const attitude = relation && typeof getTeammateAttitudeLabel === 'function'
+    ? getTeammateAttitudeLabel(relation.favorability, relation.usageSatisfaction)
+    : null;
+  const rows = [
+    `更衣室化学反应：${Math.round(parseNum(chemistry?.overall, 50))}/100`,
+    `更衣室氛围：${Math.round(parseNum(chemistry?.lockerRoomMood, 50))}/100`,
+    `内部矛盾：${parseNum(chemistry?.dramaLevel, 0)}`
+  ];
+  if (relation) {
+    rows.unshift(`球权满意度：${parseNum(relation.usageSatisfaction, 0) >= 0 ? '+' : ''}${parseNum(relation.usageSatisfaction, 0)}`);
+    rows.unshift(`队友态度：${attitude ? `${attitude.icon} ${attitude.label}` : '普通'}`);
+    rows.unshift(`${relation.name || '目标队友'} 好感度：${Math.round(parseNum(relation.favorability, 50))}/100`);
+  }
+  return rows.map(line => `<div class="t-2 fs-sm mt-8">${line}</div>`).join('');
+}
+
+function buildDailyChoiceOutcomeSummary(prompt = null) {
+  const type = String(prompt?.type || '').trim();
+  const teamPromptTypes = new Set(['teammate_ball_movement', 'teammate_shot_tension', 'veteran_film_session', 'rookie_help_request', 'bench_unit_talk']);
+  if (String(prompt?.summaryMode || '').trim() === 'team' || teamPromptTypes.has(type)) {
+    return buildTeamChoiceOutcomeSummary(prompt);
+  }
+  return buildCoachChoiceOutcomeSummary();
+}
+
 function showCoachChoiceModal(prompt, result = null, opts = {}) {
   const promptObj = prompt && typeof prompt === 'object' ? prompt : null;
   if (!promptObj || !Array.isArray(promptObj.choices) || !promptObj.choices.length) return Promise.resolve(null);
@@ -1448,7 +2929,7 @@ function showCoachChoiceModal(prompt, result = null, opts = {}) {
     modalBg?.addEventListener('click', bgHandler, true);
 
     const renderOutcome = (choice, outcome, submittedText = '') => {
-      const summaryHtml = buildCoachChoiceOutcomeSummary();
+      const summaryHtml = buildDailyChoiceOutcomeSummary(promptObj);
       const submittedSafe = String(submittedText || '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -1585,14 +3066,16 @@ function showCoachChoiceModal(prompt, result = null, opts = {}) {
       if (cancelBtn) cancelBtn.onclick = () => finish(null);
     }
 
-    document.querySelectorAll('[data-coach-choice]').forEach(btn => {
+      document.querySelectorAll('[data-coach-choice]').forEach(btn => {
       btn.addEventListener('click', () => {
         const idx = parseNum(btn.getAttribute('data-coach-choice'), -1);
         const choice = promptObj.choices[idx];
         if (!choice) return;
-        const outcome = promptObj.type === 'coach_conversation'
-          ? (typeof applyCoachConversationChoice === 'function' ? applyCoachConversationChoice(choice.id) : null)
-          : (typeof applyCoachDailyPromptChoice === 'function' ? applyCoachDailyPromptChoice(promptObj, choice.id, result) : null);
+        const outcome = typeof applyDailyInteractionChoice === 'function'
+          ? applyDailyInteractionChoice(promptObj, choice.id, result)
+          : (promptObj.type === 'coach_conversation'
+            ? (typeof applyCoachConversationChoice === 'function' ? applyCoachConversationChoice(choice.id) : null)
+            : (typeof applyCoachDailyPromptChoice === 'function' ? applyCoachDailyPromptChoice(promptObj, choice.id, result) : null));
         renderOutcome(choice, outcome);
       });
     });
@@ -1687,7 +3170,7 @@ function renderSeasonEnd() {
   if (container) container.innerHTML = `
   <div style="background:rgba(40,20,0,0.9); border:1px solid var(--gold); border-radius:6px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
     <div style="font-size:14px;">
-      🏁 <span class="t-gold fw-b">${G.year}-${G.year+1} 赛季结束</span> | 战绩: ${s.wins}胜${s.losses}负 ${G.playoffs.champion ? '🏆 总冠军' : ''} | 场均 ${ (s.pts / gp).toFixed(1) }分 ${ (s.reb / gp).toFixed(1) }板 ${ (s.ast / gp).toFixed(1) }助
+      🏁 <span class="t-gold fw-b">${G.year - 1}-${G.year} 赛季结束</span> | 战绩: ${s.wins}胜${s.losses}负 ${G.playoffs.champion ? '🏆 总冠军' : ''} | 场均 ${ (s.pts / gp).toFixed(1) }分 ${ (s.reb / gp).toFixed(1) }板 ${ (s.ast / gp).toFixed(1) }助
     </div>
     <button class="btn btn-gold btn-sm" style="padding:4px 12px; height:28px; border-radius:4px" onclick="goToOffseason()">进入休赛期 ▶</button>
   </div>`;
@@ -1698,6 +3181,7 @@ function renderPlayoffGame() {
   const opp = getTeam(s.opp);
   const roundNames = ["", "首轮", "次轮", "分区决赛", "总决赛"];
   const staminaStatus = getStaminaStatus(G.player.stamina);
+  const simBusy = !!G._simulatingDay;
   const container = $('homeActionContainer') || $('gamePage');
   if (container) container.innerHTML = `
   <div style="background:linear-gradient(90deg, rgba(80,20,20,0.9), rgba(40,10,10,0.9)); border:1px solid var(--danger); border-radius:6px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
@@ -1705,24 +3189,27 @@ function renderPlayoffGame() {
       🏆 季后赛 ${roundNames[G.playoffs.round]} | 🏀 VS <span class="t-gold fw-b">${opp.z}</span> | 总比分: <span id="playoff-my-wins" class="t-cyan fw-b">${s.myWins}</span> - <span id="playoff-opp-wins" class="t-danger fw-b">${s.oppWins}</span>
     </div>
     <div style="display:flex; align-items:center; gap:8px;">
-      <select id="playoffEffort" class="input-sm" style="padding:4px; height:28px; background:#222; color:#fff; border:1px solid #555; border-radius:4px" onchange="G._effortMode=this.value">
+      <select id="playoffEffort" class="input-sm" style="padding:4px; height:28px; background:#222; color:#fff; border:1px solid #555; border-radius:4px" ${simBusy ? 'disabled' : ''} onchange="G._effortMode=this.value">
         <option value="slack" ${(G._effortMode==='slack')?'selected':''}>划水</option>
         <option value="normal" ${(!G._effortMode||G._effortMode==='normal')?'selected':''}>正常</option>
         <option value="hard" ${(G._effortMode==='hard')?'selected':''}>拼命</option>
       </select>
-      <button class="btn btn-danger btn-sm" style="padding:4px 12px; height:28px; border-radius:4px; font-weight:bold;" onclick="G._effortMode=$('playoffEffort').value; doPlayoffGame()">▶ 比赛并生成剧情</button>
+      <button class="btn btn-danger btn-sm" style="padding:4px 12px; height:28px; border-radius:4px; font-weight:bold;" ${simBusy ? 'disabled' : ''} onclick="G._effortMode=$('playoffEffort').value; doPlayoffGame()">${simBusy ? '处理中...' : '▶ 比赛并生成剧情'}</button>
     </div>
   </div>
   <div id="playoffResult" style="display:none;"></div>`;
 }
 
-function doPlayoffGame() {
-  const res = playPlayoffGame();
-  const status = checkSeriesEnd();
-  // 后台非阻塞生成推文
-  if (typeof generateDailySocialTweets === 'function') {
+async function doPlayoffGame() {
+  if (G._simulatingDay) return;
+  G._simulatingDay = true;
+  renderPlayoffGame();
+  let nextRenderer = () => renderPlayoffGame();
+  try {
+    const res = playPlayoffGame();
+    const status = checkSeriesEnd();
     const socialDay = parseNum(G.dayNum, 0) + 1000 + parseNum(G.playoffs.round, 0) * 10 + parseNum(res.myWins + res.oppWins, 0);
-    generateDailySocialTweetsSmart({
+    const socialPayload = {
       day: socialDay,
       date: `${G.year}季后赛R${parseNum(G.playoffs.round, 0)}G${parseNum(res.myWins + res.oppWins, 0)}`,
       isGame: true,
@@ -1735,32 +3222,29 @@ function doPlayoffGame() {
         grade: res.grade,
         flow: res.flow || null
       }
-    }, { force: true }).then(() => {
-      if ($('phonePage').classList.contains('active')) renderPhone();
-    }).catch(() => { });
-  }
-  // 实时更新比分板
-  if ($('playoff-my-wins')) $('playoff-my-wins').textContent = res.myWins;
-  if ($('playoff-opp-wins')) $('playoff-opp-wins').textContent = res.oppWins;
+    };
 
-  if (typeof generateDailyStoryByLLM === 'function') {
-    // 强制追加季后赛上下文
-    res.isPlayoffs = true;
-    res.playoffRoundName = ['','首轮','次轮','分区决赛','总决赛'][G.playoffs.round];
-    generateDailyStoryByLLM({
-      isGame: true,
-      gameResult: res,
-      type: 'playoffGame'
-    }).then(() => {
-      if (status === 'continue' || status === 'advance') {
-        renderPlayoffGame();
-      } else {
-        renderSeasonEnd();
-      }
-    });
-  } else {
-    // 降级时立即刷新
-    if (status === 'continue' || status === 'advance') renderPlayoffGame(); else renderSeasonEnd();
+    if (typeof generateDailyStoryByLLM === 'function') {
+      res.isPlayoffs = true;
+      res.playoffRoundName = ['', '首轮', '次轮', '分区决赛', '总决赛'][G.playoffs.round];
+      await generateDailyStoryByLLM({
+        isGame: true,
+        gameResult: res,
+        type: 'playoffGame'
+      }, { deferRender: true });
+    }
+    if (typeof generateDailySocialTweetsSmart === 'function') {
+      await generateDailySocialTweetsSmart(socialPayload, { force: true });
+    }
+
+    nextRenderer = (status === 'continue' || status === 'advance')
+      ? () => renderPlayoffGame()
+      : () => renderSeasonEnd();
+  } finally {
+    G._simulatingDay = false;
+    updateHeader();
+    nextRenderer();
+    if ($('phonePage').classList.contains('active')) renderPhone();
   }
 }
 
@@ -1880,7 +3364,7 @@ function showFAInviteModal(affordable, fullPool) {
   showModal(`
     <div class="modal-hd"><h3>📋 自由球员邀约</h3><button class="modal-x" onclick="selectFAInvite(-1)">✕</button></div>
     <div class="mb-16 t-2">作为当家球星，你可以向管理层推荐一名自由球员。</div>
-    <div class="mb-16 t-2 fs-sm">薪资空间: $${formatSalaryM(LEAGUE_SALARY_CAP_M * 1.18 - teamPayrollMillion(G.teamId))}M</div>
+    <div class="mb-16 t-2 fs-sm">薪资空间: $${formatSalaryM(getSalaryCap() * 1.18 - teamPayrollMillion(G.teamId))}M</div>
     ${affordable.map((p, i) => {
     const posText = posLabel(p.pos) + (parseNum(p.pos2, 0) ? '/' + posLabel(p.pos2) : '');
     const rating = parseNum(p.rating, 70);
@@ -2152,6 +3636,13 @@ function renderStats() {
   </div>`;
 }
 
+function changeStatsTeamView() {
+  const sel = $('statsTeamSelect');
+  if (!sel) return;
+  G._statsTeamView = parseNum(sel.value, G.teamId);
+  renderStats();
+}
+
 // ============ MATCH CENTER PAGE ============
 function matchCenterResultBadge(game, teamId = 0) {
   if (!game) return '<span class="badge b-no">-</span>';
@@ -2206,6 +3697,47 @@ function changeMatchCenterPhaseFilter() {
   G._matchCenterRoundView = 0;
   renderMatchCenter();
 }
+
+function changeMatchPreviewHomeTeam() {
+  const sel = $('customMatchHome');
+  if (!sel) return;
+  G._matchPreviewHomeTeamId = parseNum(sel.value, G.teamId);
+}
+
+function changeMatchPreviewAwayTeam() {
+  const sel = $('customMatchAway');
+  if (!sel) return;
+  G._matchPreviewAwayTeamId = parseNum(sel.value, G.teamId);
+}
+
+function previewCustomMatchup() {
+  const homeSel = $('customMatchHome');
+  const awaySel = $('customMatchAway');
+  if (!homeSel || !awaySel) return;
+  const homeTeamId = parseNum(homeSel.value, 0);
+  const awayTeamId = parseNum(awaySel.value, 0);
+  if (!homeTeamId || !awayTeamId || homeTeamId === awayTeamId) {
+    alert('请选择两支不同的球队。');
+    return;
+  }
+  G._matchPreviewHomeTeamId = homeTeamId;
+  G._matchPreviewAwayTeamId = awayTeamId;
+  const phase = G._matchCenterPhaseView === 'playoff' ? 'playoff' : 'regular';
+  const roundView = parseNum(G._matchCenterRoundView, 0);
+  const detail = previewLeagueMatchup(homeTeamId, awayTeamId, {
+    roundIndex: roundView > 0 ? roundView - 1 : G.gameNum,
+    season: G.season,
+    year: G.year,
+    phase,
+    userTeamId: 0
+  });
+  if (!detail) {
+    alert('这场对阵无法模拟。');
+    return;
+  }
+  showLeagueMatchupPreviewModal(detail);
+}
+
 function renderMatchCenter() {
   const page = $('matchesPage');
   if (!page) return;
@@ -2223,6 +3755,14 @@ function renderMatchCenter() {
   if (roundView < 0 || roundView > maxRound) roundView = 0;
   G._matchCenterTeamView = teamView;
   G._matchCenterRoundView = roundView;
+  let previewHomeTeamId = parseNum(G._matchPreviewHomeTeamId, G.teamId);
+  if (previewHomeTeamId < 1 || previewHomeTeamId > 30 || !getTeam(previewHomeTeamId)) previewHomeTeamId = parseNum(G.teamId, 1);
+  let previewAwayTeamId = parseNum(G._matchPreviewAwayTeamId, 0);
+  if (previewAwayTeamId < 1 || previewAwayTeamId > 30 || !getTeam(previewAwayTeamId) || previewAwayTeamId === previewHomeTeamId) {
+    previewAwayTeamId = TEAMS.find(t => t.id !== previewHomeTeamId)?.id || (previewHomeTeamId % 30) + 1;
+  }
+  G._matchPreviewHomeTeamId = previewHomeTeamId;
+  G._matchPreviewAwayTeamId = previewAwayTeamId;
 
   const sortedAll = [...allGames].sort((a, b) =>
     parseNum(b.round, 0) - parseNum(a.round, 0) ||
@@ -2281,7 +3821,7 @@ function renderMatchCenter() {
         </select>
       </div>
     </div>
-    <div class="t-2 fs-sm mb-16">${phaseView === 'playoff' ? '可在此查看季后赛盒分；若尚未打季后赛会显示空列表。' : '点击“双方数据”可查看该场比赛完整盒分。'}</div>
+    <div class="t-2 fs-sm mb-16">${phaseView === 'playoff' ? '可在此查看季后赛盒分；若尚未打季后赛会显示空列表。' : '点击"双方数据"可查看该场比赛完整盒分。'}</div>
     <div class="tbl" style="max-height:520px;overflow:auto"><table><thead><tr>
       <th>#</th><th>轮次</th><th>对阵</th><th>比分</th><th>结果</th><th>标记</th><th>详情</th>
     </tr></thead><tbody>
@@ -2311,10 +3851,52 @@ function renderRoster() {
   const rotationSet = new Set(rotation.map(r => String(r.id)));
   const injuryMap = new Map();
   roster.forEach(p => { if (p.injury?.active) injuryMap.set(String(p.id || (p.isSelf ? 'USER_SELF' : '')), p.injury); });
+
+  // 队内关系
+  const teamRelationState = typeof ensureTeamRelationsState === 'function'
+    ? ensureTeamRelationsState()
+    : { chemistry: { overall: 50, lockerRoomMood: 50, dramaLevel: 0 }, events: [] };
+  const teamChemistry = teamRelationState.chemistry || { overall: 50, lockerRoomMood: 50, dramaLevel: 0 };
+  const teamEvents = typeof getRecentTeamRelationEvents === 'function'
+    ? getRecentTeamRelationEvents(4, G.teamId)
+    : (Array.isArray(teamRelationState.events) ? teamRelationState.events.slice(0, 4) : []);
+
   function injBadge(id, isSelf) {
     const inj = injuryMap.get(String(id)) || (isSelf ? injuryMap.get('USER_SELF') : null);
     return inj ? `<span class="badge b-no">🩹 ${inj.type} 缺${inj.games}场</span>` : '';
   }
+
+  function getTeammateRelationInfo(pl) {
+    if (pl.isSelf) return { favor: 50, usageSatisfaction: 0, attitude: null, entry: null };
+    const entry = typeof getTeammateRelationEntry === 'function' ? getTeammateRelationEntry(pl.id, G.teamId) : null;
+    const favor = typeof getTeammateFavorability === 'function' ? getTeammateFavorability(pl.id, G.teamId) : 50;
+    const usageSatisfaction = parseNum(entry?.usageSatisfaction, 0);
+    const attitude = typeof getTeammateAttitudeLabel === 'function' ? getTeammateAttitudeLabel(favor, usageSatisfaction) : null;
+    return { favor, usageSatisfaction, attitude, entry };
+  }
+
+  // 获取队友态度标签
+  function getTeammateAttitudeBadge(pl) {
+    if (pl.isSelf) return '';
+    const { favor, attitude } = getTeammateRelationInfo(pl);
+    if (!attitude || favor >= 45 && favor <= 55) return '';
+    return `<span class="badge ${favor >= 65 ? 'b-gold' : favor >= 45 ? 'b-pri' : 'b-war'}" title="${attitude.hint}">${attitude.icon} ${attitude.label}</span>`;
+  }
+
+  function renderTeammateFavorability(pl) {
+    if (pl.isSelf) return '<div class="t-2 fs-xs">自己</div>';
+    const { favor, usageSatisfaction, attitude } = getTeammateRelationInfo(pl);
+    const usageTone = usageSatisfaction >= 0 ? `+${usageSatisfaction}` : `${usageSatisfaction}`;
+    return `
+      <div style="min-width:110px">
+        <div class="fw-b">${favor}/100</div>
+        <div class="home-mini-track" style="margin-top:4px"><span style="width:${clamp(favor, 0, 100)}%"></span></div>
+        <div class="t-2 fs-xs mt-8">${attitude ? `${attitude.icon} ${attitude.label}` : '普通'}</div>
+        <div class="t-2 fs-xs">${usageTone} 球权感受</div>
+      </div>
+    `;
+  }
+
   const usageContext = typeof buildTeamUsageContext === 'function'
     ? buildTeamUsageContext(G.teamId, roster, rotation)
     : null;
@@ -2401,8 +3983,41 @@ function renderRoster() {
   </div>` : ''}
 
   <div class="card">
+    <div class="card-title">🤝 更衣室化学反应</div>
+    <div class="grid g2" style="gap:12px">
+      <div>
+        <div class="home-bar-row"><span class="home-bar-label">总体化学反应</span><span class="home-bar-value">${Math.round(parseNum(teamChemistry.overall, 50))}</span></div>
+        <div class="home-mini-track"><span style="width:${clamp(parseNum(teamChemistry.overall, 50), 0, 100)}%"></span></div>
+      </div>
+      <div>
+        <div class="home-bar-row"><span class="home-bar-label">更衣室氛围</span><span class="home-bar-value">${parseNum(teamChemistry.lockerRoomMood, 50)}</span></div>
+        <div class="home-mini-track"><span style="width:${clamp(parseNum(teamChemistry.lockerRoomMood, 50), 0, 100)}%"></span></div>
+      </div>
+    </div>
+    <div class="t-2 fs-sm mt-12">
+      ${teamChemistry.dramaLevel > 0 ? `⚠️ 存在 ${teamChemistry.dramaLevel} 个内部矛盾，可能影响防守配合和关键时刻表现。` : '✅ 更衣室氛围良好，无明显矛盾。'}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🧩 最近更衣室动态</div>
+    ${teamEvents.length ? teamEvents.map(evt => `
+      <div class="ev ${evt.type === 'neg' ? 'neg' : evt.type === 'pos' ? 'pos' : 'neu'}">
+        <div class="fw-b">${evt.title || '更衣室动态'}</div>
+        <div class="t-2 fs-sm mt-8">${evt.detail || '最近队内关系有新的变化。'}</div>
+        <div class="t-2 fs-xs mt-8">
+          第${parseNum(evt.day, 0) + 1}天
+          ${evt.playerName ? ` · ${evt.playerName}` : ''}
+          ${parseNum(evt.favorDelta, 0) ? ` · 好感${parseNum(evt.favorDelta, 0) > 0 ? '+' : ''}${parseNum(evt.favorDelta, 0)}` : ''}
+          ${parseNum(evt.usageDelta, 0) ? ` · 球权感受${parseNum(evt.usageDelta, 0) > 0 ? '+' : ''}${parseNum(evt.usageDelta, 0)}` : ''}
+        </div>
+      </div>
+    `).join('') : '<div class="t-2">最近更衣室比较平稳，还没有新的关系波动。</div>'}
+  </div>
+
+  <div class="card">
     <div class="card-title">球队轮换（点击球员查看详情）</div>
-    ${rotation.length ? `<div class="tbl"><table><thead><tr><th>轮换</th><th>球员</th><th>位置</th><th>评分</th><th>分钟</th><th>球权</th><th>照片</th></tr></thead><tbody>
+    ${rotation.length ? `<div class="tbl"><table><thead><tr><th>轮换</th><th>球员</th><th>位置</th><th>评分</th><th>分钟</th><th>球权</th><th>好感</th><th>照片</th></tr></thead><tbody>
       ${rotation.map((rp, i) => `<tr>
         <td>${i + 1}</td>
         <td>
@@ -2414,6 +4029,7 @@ function renderRoster() {
         <td>${rp.rating}</td>
         <td>${rp.minutes}</td>
         <td><span class="badge b-cyan">${getPlayerUsageLabel(rp)}</span></td>
+        <td>${renderTeammateFavorability(rp)}</td>
         <td><img src="${getPlayerPhotoSrc(rp)}" style="width:34px;height:34px;border-radius:6px;object-fit:contain;background:rgba(0,0,0,.25)" onerror="if(!this.dataset.fb){this.dataset.fb='1';this.src='${getPlayerPhotoPath(0)}';}else{this.style.opacity=.2}"></td>
       </tr>`).join('')}
     </tbody></table></div>`: '<div class="t-2">未加载到真实数据，当前使用默认模拟。</div>'}
@@ -2423,7 +4039,7 @@ function renderRoster() {
     <div class="card-title">全队球员数据与属性（点击球员查看详情）</div>
     ${roster.length ? `<div class="tbl"><table><thead><tr>
       <th>#</th><th>球员</th><th>位置</th><th>OVR</th><th>POT</th><th>年龄</th><th>球权</th>
-      <th>传球</th><th>内线</th><th>三分</th><th>罚球</th><th>体能</th><th>盖帽</th><th>篮板</th><th>抢断</th><th>照片</th>
+      <th>好感</th><th>传球</th><th>内线</th><th>三分</th><th>罚球</th><th>体能</th><th>盖帽</th><th>篮板</th><th>抢断</th><th>照片</th>
     </tr></thead><tbody>
       ${roster.map((pl, i) => `<tr class="${pl.isSelf ? 'self-row' : (rotationSet.has(String(pl.id)) ? 'hl-row' : '')}">
         <td>${i + 1}</td>
@@ -2432,12 +4048,14 @@ function renderRoster() {
           ${pl.rookie ? '<span class="badge b-cyan">新秀</span>' : ''}
           ${rotationSet.has(String(pl.id)) ? '<span class="badge b-pri">轮换</span>' : ''}
           ${pl.injury?.active ? `<span class="badge b-no">🩹 ${pl.injury.type} 缺${pl.injury.games}场</span>` : ''}
+          ${getTeammateAttitudeBadge(pl)}
         </td>
         <td>${posLabel(pl.pos)}${pl.pos2 ? `/${posLabel(pl.pos2)}` : ''}</td>
         <td>${pl.rating}</td>
         <td>${pl.potential}</td>
         <td>${pl.age}</td>
         <td><span class="badge b-cyan fs-xs">${getPlayerUsageLabel(pl)}</span></td>
+        <td>${renderTeammateFavorability(pl)}</td>
         <td>${pl.attrs?.pass ?? 0}</td>
         <td>${pl.attrs?.shotInt ?? 0}</td>
         <td>${pl.attrs?.shotExt ?? 0}</td>
@@ -2640,7 +4258,7 @@ function renderUserTradeProposalModal(proposal) {
   const theirSalaryNum = normalizeSalaryMillion(parseNum(proposal.incomingSalary, incoming.reduce((s, a) => s + normalizeSalaryMillion(a?.salary), 0)));
   const mySalary = mySalaryNum.toFixed(2);
   const theirSalary = theirSalaryNum.toFixed(2);
-  const cap = parseNum(typeof LEAGUE_SALARY_CAP_M === 'number' ? LEAGUE_SALARY_CAP_M : 170, 170);
+  const cap = parseNum(typeof getSalaryCap === 'function' ? getSalaryCap() : (typeof LEAGUE_SALARY_CAP_M === 'number' ? LEAGUE_SALARY_CAP_M : 170), 170);
   const myPayrollBase = (typeof teamPayrollMillion === 'function' ? teamPayrollMillion(G.teamId) : 0) + normalizeSalaryMillion(G.player.salary);
   const theirPayrollBase = (typeof teamPayrollMillion === 'function' ? teamPayrollMillion(parseNum(proposal.team?.id, 0)) : 0);
   const myPayrollAfter = +(myPayrollBase - mySalaryNum + theirSalaryNum).toFixed(2);
@@ -2810,7 +4428,7 @@ function renderAwards() {
         ${hof.eligible ? '<span class="badge b-gold">达到门槛</span>' : '<span class="badge b-pri">尚未达标</span>'}
       </div>
       <div class="t-2 fs-sm mb-16">
-        MVP ${hof.counts.mvp} | FMVP ${hof.counts.fmvp} | 一阵 ${hof.counts.allNba1} | 二阵 ${hof.counts.allNba2} | 三阵 ${hof.counts.allNba3} | DPOY ${hof.counts.dpoy} | 总冠军 ${hof.counts.rings}
+        MVP ${hof.counter.mvp} | FMVP ${hof.counter.fmvp} | 一阵 ${hof.counter.allNba1} | 二阵 ${hof.counter.allNba2} | 三阵 ${hof.counter.allNba3} | DPOY ${hof.counter.dpoy} | 总冠军 ${hof.counter.rings}
       </div>
     ` : '<div class="t-2">暂未生成名人堂数据</div>'}
     <div class="fw-b mb-12">入选列表</div>
@@ -3005,6 +4623,7 @@ function renderSocialPostVisual(post = {}) {
 function renderPhoneFeedTab() {
   const timeline = typeof getSocialTimeline === 'function' ? getSocialTimeline(50) : [];
   const relationView = typeof buildSocialRelationshipFeedView === 'function' ? buildSocialRelationshipFeedView(4) : null;
+  const rivalInfo = typeof getUpcomingRivalMatchupInfo === 'function' ? getUpcomingRivalMatchupInfo() : null;
   const feedStatus = G._phoneFeedResult ? `<div class="ev ${G._phoneFeedResult.ok ? 'pos' : 'neg'}" style="margin:0">${G._phoneFeedResult.message}</div>` : '';
   const feedTools = `
     <div class="card" style="margin-bottom:10px">
@@ -3021,6 +4640,16 @@ function renderPhoneFeedTab() {
     <div class="card" style="margin-bottom:10px">
       <div class="card-title">球星关系网</div>
       <div class="t-2 fs-sm">朋友 ${parseNum(relationView.friendCount, 0)} / 宿敌 ${parseNum(relationView.rivalCount, 0)} / 尊重 ${parseNum(relationView.respectCount, 0)}</div>
+      ${rivalInfo?.profile ? `
+        <div class="ev neg mt-12" style="margin-bottom:10px">
+          <div class="fw-b">头号宿敌：${rivalInfo.profile.name} <span class="t-2 fs-sm">(${rivalInfo.profile.teamAbbr || rivalInfo.profile.teamName || '--'})</span></div>
+          <div class="t-2 fs-sm mt-8">火药味 ${parseNum(rivalInfo.link?.heat, 0)} / 尊重 ${parseNum(rivalInfo.link?.respect, 0)} / 关系 ${parseNum(rivalInfo.link?.affinity, 0)}</div>
+          <div class="t-2 fs-sm mt-8">
+            ${rivalInfo.gameIndex >= 0
+              ? `下一次对位：第 ${rivalInfo.gameIndex + 1} 场${Number.isFinite(rivalInfo.daysUntil) ? ` · ${rivalInfo.daysUntil === 0 ? '今天' : `${rivalInfo.daysUntil} 天后`}` : ''} · ${rivalInfo.home ? '主场' : '客场'}`
+              : '当前赛程里还没有下一次直接碰面'}
+          </div>
+        </div>` : ''}
       <div class="mt-12" style="display:grid;gap:8px">
         ${Array.isArray(relationView.list) && relationView.list.length ? relationView.list.map(item => `
           <div style="padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04)">
@@ -4249,7 +5878,6 @@ function renderSettings() {
   const pg = $('settingsPage');
   const llm = G.social?.llm || {};
   const models = Array.isArray(G.social?.llmModels) ? G.social.llmModels : [];
-  const saveDir = G._saveHandle?.name || '未绑定';
   const status = llm.enabled ? '在线' : '关闭';
   const textModel = String(llm.model || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
   const imageModel = String(llm.imageModel || '').trim() || '未设置';
@@ -4280,7 +5908,6 @@ function renderSettings() {
           ${statCard('AI 终端', status)}
           ${statCard('文字模型', textModel)}
           ${statCard('图片模型', imageModel)}
-          ${statCard('存档目录', saveDir)}
         </div>
       </section>
       <div class="terminal-shell">
@@ -4380,248 +6007,76 @@ function getSaveFilename() {
 
 function renderSave() {
   const lastSaveTime = G._lastSaveTime ? new Date(G._lastSaveTime).toLocaleString('zh-CN') : '暂无';
-  let saveListHtml = '<div class="tc t-2 fs-sm">正在读取存档列表...</div>';
-
-  if (G._saveHandle) {
-    // If handle exists, list files
-    if (!G._saveFiles) {
-      refreshSaveFiles(); // Trigger async refresh
-    } else if (G._saveFiles.length === 0) {
-      saveListHtml = '<div class="tc t-2 fs-sm">该文件夹下没有 .json 存档</div>';
-    } else {
-      saveListHtml = G._saveFiles.map(f => `
-         <div class="save-item flex-row justify-between align-center p-8 bg-black-2 mb-4 rounded border-1 border-white-1">
-           <div class="flex-1 tl mr-10" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-             <div class="t-1 fs-sm">${f.name}</div>
-             <div class="t-3 fs-xs">${new Date(f.lastModified).toLocaleString()}</div>
-           </div>
-           <button class="btn btn-sm btn-pri" onclick="loadSaveDirect('${f.name}')">读取</button>
-         </div>
-       `).join('');
-    }
-  }
 
   $('savePage').innerHTML = `
   <div class="card">
     <div class="card-title">💾 存档管理</div>
     <div class="tc p-16">
-      <div class="mb-16">当前进度: ${G.year}赛季 第${G.season}年 | ${G.player.name} | 第${G.dayNum + 1}天</div>
-      
-      <!-- Auto Save Folder UI -->
-      <div class="mb-16 p-12 bg-black-3 rounded border-1 border-gold-2">
-        <div class="flex-row justify-between align-center mb-8">
-            <div class="t-1 fw-bold">📂 自动存档目录</div>
-             <button class="btn btn-sm btn-gold" onclick="bindSaveDirectory()">
-               ${G._saveHandle ? '切换目录' : '📁 绑定 "Save" 文件夹'}
-             </button>
-        </div>
-        ${G._saveHandle
-      ? `<div class="t-2 fs-xs mb-8">已绑定: ${G._saveHandle.name} <span class="t-green">(点击保存直接写入)</span></div>`
-      : '<div class="t-3 fs-xs mb-8">绑定后可一键保存/读取，无需每次选择文件。建议绑定根目录下的 Save 文件夹。</div>'}
-        
-        ${G._saveHandle ? `<div class="save-list" style="max-height:200px;overflow-y:auto;border:1px solid #333;padding:4px">${saveListHtml}</div>` : ''}
+      <div class="mb-16">当前进度: ${G.year - 1}-${G.year}赛季 第${G.season}年 | ${G.player.name} | 第${G.dayNum + 1}天</div>
+
+      <div class="save-slot-grid">
+        ${[1,2,3,4,5].map(slot => {
+          const info = getSaveSlotInfo(slot);
+          const timeStr = info?.saveTime ? new Date(info.saveTime).toLocaleString('zh-CN') : '';
+          return `
+            <div class="save-slot-item ${info && !info.error ? 'has-save' : ''}">
+              <div class="save-slot-header">
+                <span class="save-slot-num">槽位 ${slot}</span>
+                ${info && !info.error ? `<span class="save-slot-time">${timeStr}</span>` : '<span class="save-slot-empty">空</span>'}
+              </div>
+              ${info && !info.error ? `
+                <div class="save-slot-info">
+                  <span class="save-slot-name">${info.playerName}</span>
+                  <span class="save-slot-detail">${info.year}赛季 S${info.season} 第${info.dayNum + 1}天</span>
+                </div>
+              ` : ''}
+              <div class="save-slot-actions">
+                <button class="btn btn-sm btn-gold" onclick="saveGame(${slot})">保存</button>
+                ${info && !info.error ? `
+                  <button class="btn btn-sm btn-pri" onclick="loadGame(${slot})">读取</button>
+                  <button class="btn btn-sm btn-red" onclick="deleteSave(${slot})">删除</button>
+                ` : ''}
+              </div>
+            </div>
+          `;
+        }).join('')}
       </div>
 
-      <div class="t-2 fs-sm mb-16">上次保存: ${lastSaveTime}</div>
-      <div class="grid g2" style="gap:12px;max-width:500px;margin:0 auto">
-        <button class="btn btn-gold" onclick="autoSaveToFile()" style="padding:14px 20px;font-size:16px">💾 保存存档</button>
-        <div style="position:relative">
-          <button class="btn btn-pri" style="padding:14px 20px;font-size:16px;width:100%">📂 读取本地文件</button>
-          <input type="file" accept=".json" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer" onchange="loadSaveFromFile(this)">
+      <div class="t-2 fs-sm mt-16 mb-8">上次保存: ${lastSaveTime}</div>
+
+      <div class="save-import-export mt-16">
+        <div class="grid g2" style="gap:12px;max-width:400px;margin:0 auto">
+          <div class="main-menu-file btn btn-cyan" style="padding:12px 20px">
+            📥 导入存档
+            <input type="file" accept=".json" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer" onchange="importSave(this)">
+          </div>
+          <button class="btn btn-pri" style="padding:12px 20px" onclick="exportSave()">📤 导出存档</button>
         </div>
       </div>
-    </div>
-  </div>
-  <div class="card">
-    <div class="card-title">⚡ 快速操作</div>
-    <div class="tc p-16">
-      <button class="btn btn-cyan" onclick="quickSaveLocalStorage()" style="padding:10px 20px">💾 临时存档（浏览器缓存）</button>
-      <button class="btn btn-pri mt-12" onclick="quickLoadLocalStorage()" style="padding:10px 20px">📂 读取临时存档</button>
     </div>
   </div>`;
 
-  // Try to load handle on first render if missing
-  if (!G._saveHandleChecked) {
-    G._saveHandleChecked = true;
-    loadSavedHandle().then(h => {
-      if (h) {
-        G._saveHandle = h;
-        refreshSaveFiles();
-      }
-    });
+  // 添加样式
+  if (!$('saveSlotStyles')) {
+    const style = document.createElement('style');
+    style.id = 'saveSlotStyles';
+    style.textContent = `
+      .save-slot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; max-width: 800px; margin: 0 auto; }
+      .save-slot-item { background: rgba(0,0,0,0.3); border: 1px solid #333; border-radius: 8px; padding: 12px; transition: all 0.2s; }
+      .save-slot-item.has-save { border-color: #28a745; background: rgba(40,167,69,0.1); }
+      .save-slot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+      .save-slot-num { font-weight: bold; color: #fdb927; }
+      .save-slot-time { font-size: 11px; color: #888; }
+      .save-slot-empty { font-size: 12px; color: #666; }
+      .save-slot-info { margin-bottom: 8px; }
+      .save-slot-name { font-weight: bold; color: #fff; margin-right: 8px; }
+      .save-slot-detail { font-size: 12px; color: #aaa; }
+      .save-slot-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+      .main-menu-file { position: relative; overflow: hidden; cursor: pointer; }
+      .main-menu-file input[type="file"] { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+    `;
+    document.head.appendChild(style);
   }
-}
-
-// === Save Folder Automation ===
-const DB_SAVE_CFG = { name: 'nba_save_db', store: 'config', key: 'save_handle' }; // Separate DB for safety
-async function openSaveDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_SAVE_CFG.name, 1);
-    req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(DB_SAVE_CFG.store)) req.result.createObjectStore(DB_SAVE_CFG.store); };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function loadSavedHandle() {
-  try {
-    const db = await openSaveDB();
-    return await new Promise(resolve => {
-      const tx = db.transaction(DB_SAVE_CFG.store, 'readonly');
-      const req = tx.objectStore(DB_SAVE_CFG.store).get(DB_SAVE_CFG.key);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => resolve(null);
-    });
-  } catch (e) { return null; }
-}
-
-async function bindSaveDirectory() {
-  try {
-    const handle = await window.showDirectoryPicker({ id: 'nba_save_dir', mode: 'readwrite' });
-    if (handle) {
-      // Verify permission
-      if ((await handle.queryPermission({ mode: 'readwrite' })) !== 'granted') {
-        if ((await handle.requestPermission({ mode: 'readwrite' })) !== 'granted') return;
-      }
-      G._saveHandle = handle;
-      // Save to DB
-      const db = await openSaveDB();
-      const tx = db.transaction(DB_SAVE_CFG.store, 'readwrite');
-      tx.objectStore(DB_SAVE_CFG.store).put(handle, DB_SAVE_CFG.key);
-
-      refreshSaveFiles();
-    }
-  } catch (e) {
-    if (e.name !== 'AbortError') alert('绑定失败: ' + e.message);
-  }
-}
-
-async function refreshSaveFiles() {
-  if (!G._saveHandle) return;
-  try {
-    const files = [];
-    for await (const entry of G._saveHandle.values()) {
-      if (entry.kind === 'file' && entry.name.endsWith('.json')) {
-        const file = await entry.getFile();
-        files.push({ name: entry.name, lastModified: file.lastModified, handle: entry });
-      }
-    }
-    // Sort by time desc
-    files.sort((a, b) => b.lastModified - a.lastModified);
-    G._saveFiles = files;
-    if ($('savePage').classList.contains('active')) renderSave();
-  } catch (e) {
-    console.warn('Listing failed', e);
-    // Maybe permission lost?
-    G._saveHandle = null;
-    renderSave();
-  }
-}
-
-async function loadSaveDirect(filename) {
-  if (!G._saveFiles) return;
-  const target = G._saveFiles.find(f => f.name === filename);
-  if (!target) return;
-  try {
-    const file = await target.handle.getFile();
-    const text = await file.text();
-    const data = JSON.parse(text);
-    applySaveData(data);
-    alert('读取成功: ' + filename);
-  } catch (e) {
-    alert('读取失败: ' + e.message);
-  }
-}
-
-async function autoSaveToFile() {
-  try {
-    const saveObj = buildSaveObj();
-    const json = JSON.stringify(saveObj, null, 2);
-    const filename = getSaveFilename();
-
-    if (G._saveHandle) {
-      // Direct Write Mode
-      try {
-        // Check permission
-        if ((await G._saveHandle.queryPermission({ mode: 'readwrite' })) !== 'granted') {
-          if ((await G._saveHandle.requestPermission({ mode: 'readwrite' })) !== 'granted') throw new Error('Permission denied');
-        }
-        const fileHandle = await G._saveHandle.getFileHandle(filename, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(json);
-        await writable.close();
-        G._lastSaveTime = Date.now();
-        try { localStorage.setItem('nba_save_auto', json); } catch (e) { }
-        alert(`存档已保存到: ${G._saveHandle.name}/${filename}`);
-        refreshSaveFiles(); // Update list
-        if ($('savePage').classList.contains('active')) renderSave();
-        return;
-      } catch (e) {
-        console.warn('Direct save failed, falling back', e);
-      }
-    }
-
-    if (window.showSaveFilePicker) {
-      try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: filename,
-          startIn: 'documents',
-          types: [{
-            description: 'JSON Save File',
-            accept: { 'application/json': ['.json'] },
-          }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(json);
-        await writable.close();
-        G._lastSaveTime = Date.now();
-        // 同时备份到 localStorage
-        try { localStorage.setItem('nba_save_auto', json); } catch (e) { }
-        if ($('savePage').classList.contains('active')) renderSave();
-        alert('存档已保存！');
-        return;
-      } catch (err) {
-        if (err.name === 'AbortError') return;
-        console.warn('File System Access API failed, falling back:', err);
-      }
-    }
-
-    // 降级：下载方式
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    G._lastSaveTime = Date.now();
-    try { localStorage.setItem('nba_save_auto', json); } catch (e) { }
-    if ($('savePage').classList.contains('active')) renderSave();
-    alert('存档已导出（浏览器下载）！');
-  } catch (e) {
-    console.error(e);
-    alert('保存失败: ' + e.message);
-  }
-}
-
-function loadSaveFromFile(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = function (e) {
-    try {
-      const data = JSON.parse(e.target.result);
-      if (!data.player || !data.year) throw new Error("无效的存档文件");
-      applySaveData(data);
-      alert('存档读取成功！');
-    } catch (err) {
-      console.error(err);
-      alert('读取失败: 存档文件损坏或格式错误');
-    }
-  };
-  reader.readAsText(file);
 }
 
 function applySaveData(data) {
@@ -4704,52 +6159,77 @@ function applySaveData(data) {
   navTo('home');
 }
 
-function quickSaveLocalStorage() {
+function saveGame(slot) {
   try {
     const saveObj = buildSaveObj();
-    localStorage.setItem('nba_save_auto', JSON.stringify(saveObj));
+    saveObj._saveTime = Date.now();
+    saveObj._saveSlot = slot;
+    localStorage.setItem('nba_save_slot_' + slot, JSON.stringify(saveObj));
     G._lastSaveTime = Date.now();
-    renderSave();
-    alert('临时存档已保存！');
+    renderSave(); // 刷新存档页面
+    alert(`存档 ${slot} 保存成功！`);
   } catch (e) {
     if (e.name === 'QuotaExceededError') {
-      alert('浏览器存储空间不足！请使用文件保存。');
+      alert('浏览器存储空间不足！请清理旧存档。');
     } else {
       alert('保存失败: ' + e.message);
     }
   }
 }
 
-function quickLoadLocalStorage() {
-  const d = localStorage.getItem('nba_save_auto');
-  if (!d) { alert('没有找到临时存档！'); return; }
+function loadGame(slot) {
+  const d = localStorage.getItem('nba_save_slot_' + slot);
+  if (!d) { alert(`存档 ${slot} 为空！`); return; }
   try {
     const data = JSON.parse(d);
     applySaveData(data);
-    alert('临时存档已读取！');
+    alert(`存档 ${slot} 读取成功！`);
   } catch (e) {
     console.error('Load failed', e);
     alert('读取失败: ' + e.message);
   }
 }
 
-function saveGame(slot) {
-  // 兼容旧代码调用，自动保存到localStorage
-  quickSaveLocalStorage();
+function deleteSave(slot) {
+  const d = localStorage.getItem('nba_save_slot_' + slot);
+  if (!d) { alert(`存档 ${slot} 为空，无需删除！`); return; }
+  if (confirm(`确定要删除存档 ${slot} 吗？此操作不可恢复！`)) {
+    localStorage.removeItem('nba_save_slot_' + slot);
+    alert(`存档 ${slot} 已删除！`);
+    // 刷新当前页面
+    if ($('mainMenuPage').classList.contains('active')) {
+      renderMainMenu();
+    } else if ($('savePage').classList.contains('active')) {
+      renderSave();
+    }
+  }
 }
 
-function loadGame(slot) {
-  const d = localStorage.getItem('nba_save_' + slot);
-  if (!d) { quickLoadLocalStorage(); return; }
+function getSaveSlotInfo(slot) {
+  const d = localStorage.getItem('nba_save_slot_' + slot);
+  if (!d) return null;
   try {
     const data = JSON.parse(d);
-    applySaveData(data);
-  } catch (e) { console.error('Load failed', e); }
+    return {
+      slot: slot,
+      playerName: data.player?.name || '未知',
+      season: data.season || 1,
+      year: data.year || 2025,
+      dayNum: data.dayNum || 0,
+      teamId: data.teamId || '',
+      saveTime: data._saveTime || null
+    };
+  } catch (e) {
+    return { slot: slot, error: true };
+  }
 }
 
-function deleteSave(slot) {
-  localStorage.removeItem('nba_save_' + slot);
-  renderSave();
+function getAllSaveSlots() {
+  const slots = [];
+  for (let i = 1; i <= 5; i++) {
+    slots.push(getSaveSlotInfo(i));
+  }
+  return slots;
 }
 
 // ============ NAVIGATION ============
@@ -4761,6 +6241,7 @@ function setMainNavigationVisible(visible) {
 }
 
 function navTo(page) {
+  if (G._simulatingDay) return;
   setMainNavigationVisible(true);
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -4910,174 +6391,738 @@ function renderMainMenu() {
     presets: presetView
   };
   const modelOptions = Array.isArray(G.social?.llmModels) ? G.social.llmModels : [];
-  const llmResult = G._mainMenuLLMResult ? `<div class="ev ${G._mainMenuLLMResult.ok ? 'pos' : 'neg'} mt-12">${G._mainMenuLLMResult.message}</div>` : '';
+  const llmResult = G._mainMenuLLMResult ? `<div class="nba-llm-result ${G._mainMenuLLMResult.ok ? 'success' : 'error'}">${G._mainMenuLLMResult.message}</div>` : '';
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   setMainNavigationVisible(false);
   $('mainMenuPage').classList.add('active');
 
+  // 存档槽位HTML
+  const saveSlotsHtml = [1,2,3,4,5].map(slot => {
+    const info = getSaveSlotInfo(slot);
+    const timeStr = info?.saveTime ? new Date(info.saveTime).toLocaleString('zh-CN') : '';
+    if (info && !info.error) {
+      return `
+        <div class="nba-save-slot filled" onclick="loadGame(${slot})">
+          <div class="nba-slot-bg"></div>
+          <div class="nba-slot-content">
+            <div class="nba-slot-number">${slot}</div>
+            <div class="nba-slot-info">
+              <div class="nba-slot-name">${info.playerName}</div>
+              <div class="nba-slot-meta">${info.year}赛季 · S${info.season} · 第${info.dayNum + 1}天</div>
+              <div class="nba-slot-time">${timeStr}</div>
+            </div>
+            <div class="nba-slot-actions">
+              <button class="nba-btn-mini primary" onclick="event.stopPropagation();loadGame(${slot})">读取</button>
+              <button class="nba-btn-mini danger" onclick="event.stopPropagation();deleteSave(${slot})">删除</button>
+            </div>
+          </div>
+        </div>
+      `;
+    } else {
+      return `
+        <div class="nba-save-slot empty">
+          <div class="nba-slot-content">
+            <div class="nba-slot-number">${slot}</div>
+            <div class="nba-slot-info">
+              <div class="nba-slot-empty-text">空槽位</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+  }).join('');
+
   const menuHtml = `
-    <div class="main-menu-page">
-      <div class="main-menu-shell">
-        <section class="card main-menu-panel main-menu-hero">
-          <div class="main-menu-brand">
-            <div class="main-menu-mark">🏀</div>
-            <div>
-              <div class="main-menu-kicker">Career Launcher</div>
-              <div class="main-menu-title">NBA Career Sim</div>
-              <div class="main-menu-subtitle">从训练馆到镁光灯，打造你的篮球生涯。这里是新秀入口，也是你每次回归的更衣室。</div>
+    <div class="nba-main-menu">
+      <!-- 左侧主区域 -->
+      <div class="nba-hero-section">
+        <div class="nba-hero-bg">
+          <div class="nba-court-lines"></div>
+          <div class="nba-glow-orb"></div>
+        </div>
+        <div class="nba-hero-content">
+          <div class="nba-logo-area">
+            <div class="nba-logo-ball">
+              <svg viewBox="0 0 100 100" class="nba-ball-svg">
+                <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" stroke-width="2"/>
+                <path d="M50 5 Q50 50 50 95" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M5 50 Q50 50 95 50" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M15 20 Q50 35 85 20" fill="none" stroke="currentColor" stroke-width="1"/>
+                <path d="M15 80 Q50 65 85 80" fill="none" stroke="currentColor" stroke-width="1"/>
+              </svg>
             </div>
-          </div>
-          <div class="main-menu-pills">
-            <span class="main-menu-pill gold">选秀夜入口</span>
-            <span class="main-menu-pill cyan">赛季叙事驱动</span>
-            <span class="main-menu-pill purple">商业成长线</span>
-          </div>
-          <div class="main-menu-actions">
-            <button class="btn btn-gold main-menu-primary" onclick="startNewGame()">开始新生涯</button>
-            <div class="main-menu-file btn btn-pri">
-              读取存档
-              <input type="file" id="saveFileInput" accept=".json" onchange="importSave(this)">
+            <div class="nba-title-group">
+              <div class="nba-kicker">CAREER MODE</div>
+              <div class="nba-title">NBA CAREER SIM</div>
+              <div class="nba-subtitle">从新秀到传奇，书写你的篮球人生</div>
             </div>
-          </div>
-          <div class="main-menu-tagline">版本 v1.3.0 | Local Save | 建议先完成右侧模型配置后再开档</div>
-          <div class="main-menu-stat-grid">
-            <div class="main-menu-stat">
-              <div class="main-menu-stat-label">模式</div>
-              <div class="main-menu-stat-value">生涯叙事</div>
-              <div class="main-menu-stat-note">从新秀到全明星的完整剧本</div>
-            </div>
-            <div class="main-menu-stat">
-              <div class="main-menu-stat-label">节奏</div>
-              <div class="main-menu-stat-value">赛季推进</div>
-              <div class="main-menu-stat-note">日程、交易、奖项全流程</div>
-            </div>
-            <div class="main-menu-stat">
-              <div class="main-menu-stat-label">加成</div>
-              <div class="main-menu-stat-value">商业系统</div>
-              <div class="main-menu-stat-note">代言、奢侈品与签名鞋</div>
-            </div>
-          </div>
-          <div class="main-menu-feature-grid">
-            <div class="main-menu-feature gold">
-              <div class="main-menu-feature-title">选秀夜剧情</div>
-              <div class="main-menu-feature-copy">基于年份与球探报告生成分位与生涯起点。</div>
-            </div>
-            <div class="main-menu-feature cyan">
-              <div class="main-menu-feature-title">球员成长</div>
-              <div class="main-menu-feature-copy">属性、潜力与 X-Factor 推动长期进化。</div>
-            </div>
-            <div class="main-menu-feature purple">
-              <div class="main-menu-feature-title">社媒动态</div>
-              <div class="main-menu-feature-copy">赛季舆论与城市故事持续刷新。</div>
-            </div>
-            <div class="main-menu-feature red">
-              <div class="main-menu-feature-title">商业兑现</div>
-              <div class="main-menu-feature-copy">代言和签名鞋带来成长加成与现金流。</div>
-            </div>
-          </div>
-          <div class="main-menu-footer">
-            <span class="badge b-gold">本地存档</span>
-            <span class="badge b-cyan">可自定义模型</span>
-            <span class="badge b-purple">生成式叙事</span>
-          </div>
-        </section>
-
-        <section class="card main-menu-panel main-menu-console">
-          <div class="card-title">🤖 大模型配置（主页）</div>
-          <div class="t-2 fs-sm">用于选秀前球探报道与赛季社媒生成。建议在开始新生涯前先配置。</div>
-          <div class="main-menu-console-grid mt-12">
-            <div>
-              <label class="t-2 fs-sm">启用</label>
-              <select id="menuLlmEnabled" class="form-control" onchange="persistMainMenuLLMDraft()">
-                <option value="1" ${llmView.enabled ? 'selected' : ''}>启用</option>
-                <option value="0" ${!llmView.enabled ? 'selected' : ''}>关闭</option>
-              </select>
-            </div>
-            <div>
-              <label class="t-2 fs-sm">Model</label>
-              <input id="menuLlmModel" class="form-control" list="menuLlmModelList" value="${llmView.model || 'gpt-4.1-mini'}" oninput="persistMainMenuLLMDraft()" />
-              <datalist id="menuLlmModelList">
-                ${modelOptions.map(m => `<option value="${m}"></option>`).join('')}
-              </datalist>
-            </div>
-          </div>
-          <label class="t-2 fs-sm mt-12">Base URL</label>
-          <input id="menuLlmBase" class="form-control" value="${llmView.baseUrl || 'https://api.openai.com/v1'}" oninput="persistMainMenuLLMDraft()" />
-          <label class="t-2 fs-sm mt-12">图片模型</label>
-          <input id="menuLlmImageModel" class="form-control" value="${llmView.imageModel || ''}" placeholder="gpt-image-1 / gemini-3.1-flash-image-preview" oninput="persistMainMenuLLMDraft()" />
-          <label class="t-2 fs-sm mt-12">API Key</label>
-          <input id="menuLlmKey" class="form-control" type="password" value="${llmView.apiKey || ''}" placeholder="sk-... / AIza..." oninput="persistMainMenuLLMDraft()" />
-          <label class="flex ai-c gap-8 pointer mt-12">
-            <input type="checkbox" id="menuTweetImagesEnabled" ${llmView.tweetImagesEnabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-            <span>开启 AI 推文配图</span>
-          </label>
-          <div class="main-menu-console-actions">
-            <button class="btn btn-pri" onclick="doMainMenuSaveLLMSettings()">保存设置</button>
-            <button class="btn btn-cyan" onclick="doMainMenuTestLLMConnectivity()">测试连通性并读取模型</button>
-          </div>
-          <div class="main-menu-status">
-            ${llmResult}
-            ${G.social?.lastLLMError ? `<div class="t-2 fs-sm mt-12">最近错误: ${G.social.lastLLMError}</div>` : ''}
           </div>
 
-          <details class="main-menu-advanced">
-            <summary>TGbreak 预设参数</summary>
-            <div class="main-menu-advanced-body">
-              <div class="main-menu-advanced-note">参考 TGbreak V1.0.7，把防抢话、文风和比赛互动拆成可开关的预设。</div>
-              <label class="flex ai-c gap-8 pointer">
-                <input type="checkbox" id="menuLlmPresetEnabled" ${presetView.enabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-                <span>启用预设参数</span>
+          <div class="nba-main-actions">
+            <button class="nba-btn-hero" onclick="startNewGame()">
+              <span class="nba-btn-icon">🏀</span>
+              <span class="nba-btn-text">开始新生涯</span>
+              <span class="nba-btn-arrow">→</span>
+            </button>
+          </div>
+
+          <div class="nba-save-section">
+            <div class="nba-section-header">
+              <span class="nba-section-icon">💾</span>
+              <span class="nba-section-title">存档</span>
+            </div>
+            <div class="nba-save-grid">
+              ${saveSlotsHtml}
+            </div>
+            <div class="nba-save-footer">
+              <label class="nba-import-btn">
+                <span>📥 导入存档</span>
+                <input type="file" accept=".json" onchange="importSave(this)" style="display:none">
               </label>
-              <div class="main-menu-advanced-grid mt-12">
-                <label class="flex ai-c gap-8 pointer">
-                  <input type="checkbox" id="menuLlmPresetAntiTalk" ${presetView.antiTalk ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-                  <span>防抢话</span>
-                </label>
-                <label class="flex ai-c gap-8 pointer">
-                  <input type="checkbox" id="menuLlmPresetStrictTurnTaking" ${presetView.strictTurnTaking ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-                  <span>超级防抢话</span>
-                </label>
-                <label class="flex ai-c gap-8 pointer">
-                  <input type="checkbox" id="menuLlmPresetStyleEnabled" ${presetView.styleEnabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-                  <span>启用文风</span>
-                </label>
-                <label class="flex ai-c gap-8 pointer">
-                  <input type="checkbox" id="menuLlmPresetGameInteraction" ${presetView.gameInteraction ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-                  <span>比赛互动</span>
-                </label>
-                <label class="flex ai-c gap-8 pointer">
-                  <input type="checkbox" id="menuLlmPresetDataFirst" ${presetView.dataFirst ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-                  <span>双方数据优先</span>
-                </label>
-                <label class="flex ai-c gap-8 pointer">
-                  <input type="checkbox" id="menuLlmPresetAntiOmniscience" ${presetView.antiOmniscience ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-                  <span>防全知</span>
-                </label>
-                <label class="flex ai-c gap-8 pointer">
-                  <input type="checkbox" id="menuLlmPresetAntiVariable" ${presetView.antiVariable ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-                  <span>防变量出错</span>
-                </label>
-                <label class="flex ai-c gap-8 pointer">
-                  <input type="checkbox" id="menuLlmPresetEmotionControl" ${presetView.emotionControl ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-                  <span>防极端情绪</span>
-                </label>
-                <label class="flex ai-c gap-8 pointer">
-                  <input type="checkbox" id="menuLlmPresetRoleHope" ${presetView.roleHope ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-                  <span>角色防绝望</span>
-                </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧配置区 -->
+      <div class="nba-config-section">
+        <div class="nba-config-header">
+          <div class="nba-config-title">⚙️ AI 配置</div>
+          <div class="nba-config-status ${llmView.enabled ? 'active' : ''}">${llmView.enabled ? '● 已启用' : '○ 未启用'}</div>
+        </div>
+
+        <div class="nba-config-body">
+          <div class="nba-config-row">
+            <label>AI 模型</label>
+            <select id="menuLlmEnabled" class="nba-select" onchange="persistMainMenuLLMDraft()">
+              <option value="1" ${llmView.enabled ? 'selected' : ''}>启用</option>
+              <option value="0" ${!llmView.enabled ? 'selected' : ''}>关闭</option>
+            </select>
+          </div>
+
+          <div class="nba-config-row">
+            <label>Model</label>
+            <input id="menuLlmModel" class="nba-input" list="menuLlmModelList" value="${llmView.model || 'gpt-4.1-mini'}" oninput="persistMainMenuLLMDraft()" />
+            <datalist id="menuLlmModelList">${modelOptions.map(m => `<option value="${m}"></option>`).join('')}</datalist>
+          </div>
+
+          <div class="nba-config-row">
+            <label>Base URL</label>
+            <input id="menuLlmBase" class="nba-input" value="${llmView.baseUrl || 'https://api.openai.com/v1'}" oninput="persistMainMenuLLMDraft()" />
+          </div>
+
+          <div class="nba-config-row">
+            <label>图片模型</label>
+            <input id="menuLlmImageModel" class="nba-input" value="${llmView.imageModel || ''}" placeholder="可选" oninput="persistMainMenuLLMDraft()" />
+          </div>
+
+          <div class="nba-config-row">
+            <label>API Key</label>
+            <input id="menuLlmKey" class="nba-input" type="password" value="${llmView.apiKey || ''}" placeholder="sk-..." oninput="persistMainMenuLLMDraft()" />
+          </div>
+
+          <label class="nba-checkbox-row">
+            <input type="checkbox" id="menuTweetImagesEnabled" ${llmView.tweetImagesEnabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+            <span class="nba-checkbox-label">AI 推文配图</span>
+          </label>
+
+          <div class="nba-config-actions">
+            <button class="nba-btn secondary" onclick="doMainMenuSaveLLMSettings()">保存设置</button>
+            <button class="nba-btn outline" onclick="doMainMenuTestLLMConnectivity()">测试连接</button>
+          </div>
+
+          ${llmResult}
+
+          <details class="nba-advanced">
+            <summary>TGbreak 预设</summary>
+            <div class="nba-advanced-body">
+              <label class="nba-checkbox-row">
+                <input type="checkbox" id="menuLlmPresetEnabled" ${presetView.enabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
+                <span>启用预设</span>
+              </label>
+              <div class="nba-preset-grid">
+                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetAntiTalk" ${presetView.antiTalk ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>防抢话</span></label>
+                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetStrictTurnTaking" ${presetView.strictTurnTaking ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>超级防抢话</span></label>
+                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetStyleEnabled" ${presetView.styleEnabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>启用文风</span></label>
+                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetGameInteraction" ${presetView.gameInteraction ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>比赛互动</span></label>
+                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetDataFirst" ${presetView.dataFirst ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>数据优先</span></label>
+                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetAntiOmniscience" ${presetView.antiOmniscience ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>防全知</span></label>
+                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetAntiVariable" ${presetView.antiVariable ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>防变量出错</span></label>
+                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetEmotionControl" ${presetView.emotionControl ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>防极端情绪</span></label>
+                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetRoleHope" ${presetView.roleHope ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>角色防绝望</span></label>
               </div>
-              <label class="t-2 fs-sm mt-12">文风</label>
-              <select id="menuLlmPresetStyle" class="form-control main-menu-select" onchange="persistMainMenuLLMDraft()">
-                ${presetStyleOptions.map(style => `<option value="${style}" ${presetView.style === style ? 'selected' : ''}>${style}</option>`).join('')}
-              </select>
-              <div class="t-2 fs-sm mt-8">文风会作为系统提示注入；关闭“启用文风”后，只保留事实类预设。</div>
+              <div class="nba-config-row mt-8">
+                <label>文风</label>
+                <select id="menuLlmPresetStyle" class="nba-select" onchange="persistMainMenuLLMDraft()">
+                  ${presetStyleOptions.map(style => `<option value="${style}" ${presetView.style === style ? 'selected' : ''}>${style}</option>`).join('')}
+                </select>
+              </div>
             </div>
           </details>
-        </section>
+        </div>
+
+        <div class="nba-version">v1.3.0 · Local Save</div>
       </div>
     </div>
   `;
-  $('mainMenuPage').innerHTML = typeof stripUndefinedTokens === 'function' ? stripUndefinedTokens(menuHtml) : menuHtml;
+
+  // 添加样式
+  if (!$('nbaMenuStyles')) {
+    const style = document.createElement('style');
+    style.id = 'nbaMenuStyles';
+    style.textContent = `
+      .nba-main-menu {
+        display: flex;
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #0f0f1a 100%);
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        color: #fff;
+        position: relative;
+        overflow: hidden;
+      }
+
+      /* 左侧主区域 */
+      .nba-hero-section {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 40px 60px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .nba-hero-bg {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+      }
+
+      .nba-court-lines {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(90deg, transparent 49.5%, rgba(251,191,39,0.03) 49.5%, rgba(251,191,39,0.03) 50.5%, transparent 50.5%),
+          linear-gradient(0deg, transparent 49.5%, rgba(251,191,39,0.03) 49.5%, rgba(251,191,39,0.03) 50.5%, transparent 50.5%);
+        opacity: 0.5;
+      }
+
+      .nba-glow-orb {
+        position: absolute;
+        width: 600px;
+        height: 600px;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: radial-gradient(circle, rgba(251,191,39,0.15) 0%, transparent 70%);
+        animation: pulse 4s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
+        50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.1); }
+      }
+
+      .nba-hero-content {
+        position: relative;
+        z-index: 2;
+      }
+
+      /* Logo区域 */
+      .nba-logo-area {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        margin-bottom: 48px;
+      }
+
+      .nba-logo-ball {
+        width: 80px;
+        height: 80px;
+        color: #fbbf27;
+        filter: drop-shadow(0 0 20px rgba(251,191,39,0.5));
+        animation: float 3s ease-in-out infinite;
+      }
+
+      @keyframes float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-10px); }
+      }
+
+      .nba-ball-svg {
+        width: 100%;
+        height: 100%;
+      }
+
+      .nba-title-group {
+        flex: 1;
+      }
+
+      .nba-kicker {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 4px;
+        color: #fbbf27;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+      }
+
+      .nba-title {
+        font-size: 48px;
+        font-weight: 900;
+        letter-spacing: 2px;
+        background: linear-gradient(135deg, #fff 0%, #fbbf27 50%, #f59e0b 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        text-shadow: 0 0 60px rgba(251,191,39,0.3);
+      }
+
+      .nba-subtitle {
+        font-size: 14px;
+        color: #888;
+        margin-top: 8px;
+        letter-spacing: 1px;
+      }
+
+      /* 主按钮 */
+      .nba-main-actions {
+        margin-bottom: 48px;
+      }
+
+      .nba-btn-hero {
+        display: inline-flex;
+        align-items: center;
+        gap: 16px;
+        padding: 20px 48px;
+        background: linear-gradient(135deg, #fbbf27 0%, #f59e0b 100%);
+        border: none;
+        border-radius: 4px;
+        color: #000;
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 30px rgba(251,191,39,0.4);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .nba-btn-hero::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
+        transform: translateX(-100%);
+        transition: transform 0.5s ease;
+      }
+
+      .nba-btn-hero:hover::before {
+        transform: translateX(100%);
+      }
+
+      .nba-btn-hero:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 40px rgba(251,191,39,0.6);
+      }
+
+      .nba-btn-icon {
+        font-size: 24px;
+      }
+
+      .nba-btn-arrow {
+        font-size: 20px;
+        transition: transform 0.3s ease;
+      }
+
+      .nba-btn-hero:hover .nba-btn-arrow {
+        transform: translateX(8px);
+      }
+
+      /* 存档区域 */
+      .nba-save-section {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 24px;
+        backdrop-filter: blur(10px);
+      }
+
+      .nba-section-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+
+      .nba-section-icon {
+        font-size: 20px;
+      }
+
+      .nba-section-title {
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: #aaa;
+      }
+
+      .nba-save-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+      }
+
+      .nba-save-slot {
+        position: relative;
+        border-radius: 8px;
+        overflow: hidden;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        min-height: 100px;
+      }
+
+      .nba-save-slot.empty {
+        background: rgba(255,255,255,0.02);
+        border: 1px dashed rgba(255,255,255,0.1);
+      }
+
+      .nba-save-slot.filled {
+        background: linear-gradient(135deg, rgba(251,191,39,0.1) 0%, rgba(245,158,11,0.05) 100%);
+        border: 1px solid rgba(251,191,39,0.3);
+      }
+
+      .nba-save-slot.filled:hover {
+        border-color: rgba(251,191,39,0.6);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 30px rgba(251,191,39,0.2);
+      }
+
+      .nba-slot-bg {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(135deg, transparent 0%, rgba(251,191,39,0.05) 100%);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+
+      .nba-save-slot.filled:hover .nba-slot-bg {
+        opacity: 1;
+      }
+
+      .nba-slot-content {
+        position: relative;
+        z-index: 1;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .nba-slot-number {
+        position: absolute;
+        top: 8px;
+        right: 12px;
+        font-size: 32px;
+        font-weight: 900;
+        color: rgba(251,191,39,0.15);
+        line-height: 1;
+      }
+
+      .nba-slot-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: #fff;
+      }
+
+      .nba-slot-meta {
+        font-size: 11px;
+        color: #888;
+      }
+
+      .nba-slot-time {
+        font-size: 10px;
+        color: #666;
+      }
+
+      .nba-slot-empty-text {
+        font-size: 12px;
+        color: #444;
+        text-align: center;
+        padding: 20px 0;
+      }
+
+      .nba-slot-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .nba-btn-mini {
+        padding: 6px 12px;
+        font-size: 11px;
+        font-weight: 600;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .nba-btn-mini.primary {
+        background: #fbbf27;
+        color: #000;
+      }
+
+      .nba-btn-mini.danger {
+        background: rgba(239,68,68,0.2);
+        color: #ef4444;
+        border: 1px solid rgba(239,68,68,0.3);
+      }
+
+      .nba-btn-mini:hover {
+        transform: scale(1.05);
+      }
+
+      .nba-save-footer {
+        margin-top: 16px;
+        padding-top: 16px;
+        border-top: 1px solid rgba(255,255,255,0.05);
+      }
+
+      .nba-import-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 20px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 6px;
+        color: #888;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .nba-import-btn:hover {
+        background: rgba(255,255,255,0.1);
+        color: #fff;
+      }
+
+      /* 右侧配置区 */
+      .nba-config-section {
+        width: 380px;
+        background: rgba(0,0,0,0.4);
+        border-left: 1px solid rgba(255,255,255,0.05);
+        padding: 32px 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        overflow-y: auto;
+        max-height: 100vh;
+      }
+
+      .nba-config-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .nba-config-title {
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        color: #aaa;
+      }
+
+      .nba-config-status {
+        font-size: 11px;
+        padding: 4px 10px;
+        border-radius: 20px;
+        background: rgba(255,255,255,0.05);
+        color: #666;
+      }
+
+      .nba-config-status.active {
+        background: rgba(34,197,94,0.2);
+        color: #22c55e;
+      }
+
+      .nba-config-body {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .nba-config-row {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .nba-config-row label {
+        font-size: 11px;
+        font-weight: 500;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      .nba-input, .nba-select {
+        width: 100%;
+        padding: 10px 14px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 6px;
+        color: #fff;
+        font-size: 13px;
+        transition: all 0.2s ease;
+      }
+
+      .nba-input:focus, .nba-select:focus {
+        outline: none;
+        border-color: rgba(251,191,39,0.5);
+        background: rgba(255,255,255,0.08);
+      }
+
+      .nba-input::placeholder {
+        color: #444;
+      }
+
+      .nba-checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        cursor: pointer;
+        font-size: 13px;
+        color: #aaa;
+      }
+
+      .nba-checkbox-row.mini {
+        font-size: 11px;
+        color: #888;
+      }
+
+      .nba-checkbox-row input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        accent-color: #fbbf27;
+      }
+
+      .nba-config-actions {
+        display: flex;
+        gap: 12px;
+      }
+
+      .nba-btn {
+        flex: 1;
+        padding: 12px 20px;
+        font-size: 13px;
+        font-weight: 600;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .nba-btn.secondary {
+        background: #fbbf27;
+        color: #000;
+      }
+
+      .nba-btn.outline {
+        background: transparent;
+        border: 1px solid rgba(255,255,255,0.2);
+        color: #888;
+      }
+
+      .nba-btn:hover {
+        transform: translateY(-1px);
+      }
+
+      .nba-llm-result {
+        padding: 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        text-align: center;
+      }
+
+      .nba-llm-result.success {
+        background: rgba(34,197,94,0.1);
+        color: #22c55e;
+        border: 1px solid rgba(34,197,94,0.2);
+      }
+
+      .nba-llm-result.error {
+        background: rgba(239,68,68,0.1);
+        color: #ef4444;
+        border: 1px solid rgba(239,68,68,0.2);
+      }
+
+      .nba-advanced {
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .nba-advanced summary {
+        padding: 12px 16px;
+        font-size: 12px;
+        color: #666;
+        cursor: pointer;
+        background: rgba(255,255,255,0.02);
+      }
+
+      .nba-advanced summary:hover {
+        background: rgba(255,255,255,0.05);
+      }
+
+      .nba-advanced-body {
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .nba-preset-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .nba-version {
+        text-align: center;
+        font-size: 11px;
+        color: #444;
+        padding-top: 20px;
+        border-top: 1px solid rgba(255,255,255,0.05);
+        margin-top: auto;
+      }
+
+      /* 响应式 */
+      @media (max-width: 900px) {
+        .nba-main-menu {
+          flex-direction: column;
+        }
+        .nba-hero-section {
+          padding: 30px 20px;
+        }
+        .nba-title {
+          font-size: 32px;
+        }
+        .nba-config-section {
+          width: 100%;
+          max-height: none;
+          border-left: none;
+          border-top: 1px solid rgba(255,255,255,0.05);
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  $('mainMenuPage').innerHTML = menuHtml;
 }
 function doMainMenuSaveLLMSettings() {
   if (typeof saveSocialLLMSettings !== 'function') return;
@@ -5099,20 +7144,45 @@ async function doMainMenuTestLLMConnectivity() {
 }
 
 async function exportSave() {
-  // 初次使用引导绑定本地真实文件夹，实现丝滑直接保存
-  if (!G._saveHandle && window.showDirectoryPicker) {
-    if (confirm('为了实现【直接保存】且不再弹出烦人的下载框，强烈建议您先绑定一个游戏专属的存档目录（建议在游戏所在目录下新建一个叫做 Save 的文件夹并选中它）。\\n\\n点击确定进行绑定，之后的所有存档都将自动覆盖或创建在该目录下！')) {
-      await bindSaveDirectory();
-      if (!G._saveHandle) return; // 用户取消了绑定
-    }
+  try {
+    const saveObj = buildSaveObj();
+    const json = JSON.stringify(saveObj, null, 2);
+    const filename = getSaveFilename();
+
+    // 下载方式
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    alert('存档已导出！');
+  } catch (e) {
+    console.error(e);
+    alert('导出失败: ' + e.message);
   }
-  // 统一使用 autoSaveToFile
-  await autoSaveToFile();
 }
 
 function importSave(input) {
-  // 统一使用 loadSaveFromFile
-  loadSaveFromFile(input);
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.player || !data.year) throw new Error("无效的存档文件");
+      applySaveData(data);
+      alert('存档导入成功！');
+    } catch (err) {
+      console.error(err);
+      alert('导入失败: 存档文件损坏或格式错误');
+    }
+  };
+  reader.readAsText(file);
+  input.value = ''; // 重置以便再次选择同一文件
 }
 
 // Start the game
@@ -5259,7 +7329,7 @@ async function forceRetire() {
     let honorsText = (G.awards || []).join('、');
     if (!honorsText) honorsText = "无";
     
-    const sysPrompt = `你是一个体育媒体的 AI 故事引擎。玩家即将退役，请根据玩家的生涯数据、荣誉、拥有的奢侈品属性等，生成一份“退役总结报告”。
+    const sysPrompt = `你是一个体育媒体的 AI 故事引擎。玩家即将退役，请根据玩家的生涯数据、荣誉、拥有的奢侈品属性等，生成一份"退役总结报告"。
 要求必须返回合法的 JSON 格式。包含四个视角的锐评以及总分：
 {
   "media": "媒体视角的评价(客观带点夸张)...",

@@ -789,6 +789,8 @@ function simulateDraft() {
     rating: ovr(G.player.attrs),
     potential: G.player.potential,
     age: G.player.age,
+    attrs: { ...G.player.attrs },
+    photo: G.player.avatar || G.player.photo || '',
     scoutScore: scoutScoreProspect({
       pos: G.player.pos,
       rating: ovr(G.player.attrs),
@@ -975,8 +977,8 @@ function fallbackDraftScoutingReport(context) {
     }` : '';
 
   return {
-    title: `${c.team?.name || '--'} 选秀球探快报`,
-    summary: `${c.draftYear} 届选秀（${c.draftTier}）中，球队用${pickTag}拿下 ${c.player?.name || '新秀'}。`,
+    title: `${c.draftYear} 选秀前瞻 · 球探快报`,
+    summary: `${c.draftYear} 届选秀（${c.draftTier}）即将开始，${c.player?.name || '新秀'}是本届备受关注的新秀之一。`,
     projection: projection + xfProjection,
     strengths,
     weaknesses,
@@ -1025,7 +1027,7 @@ function parseDraftScoutReportFromRaw(raw, context, sourceOverride = '') {
   return normalizeDraftScoutingReport(parsed, context, sourceOverride);
 }
 function draftScoutSystemPrompt() {
-  return '你是NBA球队球探总监和故事编剧。请只输出JSON对象，包含字段: title (字符串), summary (字符串), projection (字符串), strengths (字符串数组), weaknesses (字符串数组), comparable (字符串), story (字符串)。优点和缺点(strengths/weaknesses)必须是简短的要点数组。并在 story 字段写出一段生动的选秀夜或选修前的戏剧性文字剧情（包含主角的一些背景和潜力讨论，约150字）。全部使用简体中文，语气专业而生动。不得提及 OVR/POT等游戏数值词。严格基于输入信息。';
+  return '你是NBA选秀分析专家和体育故事编剧。请只输出JSON对象，包含字段: title (字符串), summary (字符串), projection (字符串), strengths (字符串数组), weaknesses (字符串数组), comparable (字符串), story (字符串)。优点和缺点(strengths/weaknesses)必须是简短的要点数组。在 story 字段写一段选秀前的戏剧性场景（约200字），描写选秀前夜的紧张气氛、专家和球迷的讨论、主角的心情等。以"选秀前夜"为背景，不要透露最终选秀结果和具体顺位，要营造悬念和不确定性。全部使用简体中文，语气专业而生动。不得提及 OVR/POT等游戏数值词。严格基于输入信息。';
 }
 async function generateDraftScoutingReportByGeminiNative(baseUrl, apiKey, model, context) {
   const modelName = normalizeModelNameForGemini(model || 'gemini-2.0-flash');
@@ -1337,14 +1339,15 @@ async function generateMatchRecapByLLM(result, { force = false } = {}) {
   }
 }
 
-async function generateDailyStoryByLLM(result) {
+async function generateDailyStoryByLLM(result, opts = {}) {
   ensureSocialState();
+  const deferRender = !!opts?.deferRender;
   const llm = G.social.llm || {};
   if (!llm.enabled || !llm.apiKey) {
     if (typeof appendStoryToBoard === 'function') {
-      appendStoryToBoard('⚠️ 系统大模型未配置 API Key，无法推演具体剧情，只能机械地流逝光阴。请在主页或设置配置参数。', '#dc3545', false);
+      appendStoryToBoard('⚠️ 系统大模型未配置 API Key，无法推演具体剧情，只能机械地流逝光阴。请在主页或设置配置参数。', '#dc3545', false, { skipDom: deferRender });
     }
-    return;
+    return { ok: false, skipped: true };
   }
   
   const baseUrl = normalizeLLMBaseUrl(llm.baseUrl);
@@ -1420,7 +1423,7 @@ JSON 格式要求如下：
         contents: [{ role: 'user', parts: [{ text: promptContext }] }],
         generationConfig: { temperature: 0.7, responseMimeType: 'application/json' }
       };
-      if (typeof appendStoryToBoard === 'function') appendStoryToBoard('⏳ 正在推演今日事件...', '#888', false);
+      if (!deferRender && typeof appendStoryToBoard === 'function') appendStoryToBoard('⏳ 正在推演今日事件...', '#888', false);
       const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
       const data = await readJSONResponseSafe(res, '故事生成');
       raw = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text).join('') || '';
@@ -1436,7 +1439,7 @@ JSON 格式要求如下：
       };
       const endpoint = `${baseUrl}/chat/completions`;
       const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
-      if (typeof appendStoryToBoard === 'function') appendStoryToBoard('⏳ 正在推演今日事件...', '#888', false);
+      if (!deferRender && typeof appendStoryToBoard === 'function') appendStoryToBoard('⏳ 正在推演今日事件...', '#888', false);
       const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
       const data = await readJSONResponseSafe(res, '故事生成');
       raw = data?.choices?.[0]?.message?.content || '';
@@ -1458,13 +1461,13 @@ JSON 格式要求如下：
       throw new Error(`LLM 格式化失败。原始返回: ${raw.slice(0, 150)}...`);
     }
 
+    let finalStory = sanitizeImmersiveStoryText(parsed.story);
+    if (typeof applySillyTavernRegex === 'function') {
+      finalStory = applySillyTavernRegex(finalStory, false);
+    }
+    finalStory = sanitizeImmersiveStoryText(finalStory);
     if (typeof appendStoryToBoard === 'function') {
-      let finalStory = sanitizeImmersiveStoryText(parsed.story);
-      if (typeof applySillyTavernRegex === 'function') {
-        finalStory = applySillyTavernRegex(finalStory, false);
-      }
-      finalStory = sanitizeImmersiveStoryText(finalStory);
-      appendStoryToBoard(finalStory, '#fff', true);
+      appendStoryToBoard(finalStory, '#fff', !deferRender, { skipDom: deferRender });
     }
     
     if (parsed.changes) {
@@ -1472,14 +1475,17 @@ JSON 格式要求如下：
       if (parsed.changes.cash) G.player.cash += parsed.changes.cash;
       if (parsed.changes.fame) G.player.fame += parsed.changes.fame;
     }
+    return { ok: true, story: finalStory, changes: parsed.changes || null };
   } catch(e) {
     console.error('Daily LLM Engine err:', e);
     if (G.storyLog && G.storyLog.length > 0 && G.storyLog[G.storyLog.length - 1].includes('正在推演今日事件')) {
       G.storyLog.pop();
     }
+    const errorMessage = `⚠️ 剧情引擎受干扰，记录受损 (${String(e.message || e)})`;
     if (typeof appendStoryToBoard === 'function') {
-      appendStoryToBoard(`⚠️ 剧情引擎受干扰，记录受损 (${String(e.message || e)})`, '#dc3545', false);
+      appendStoryToBoard(errorMessage, '#dc3545', false, { skipDom: deferRender });
     }
+    return { ok: false, message: errorMessage };
   }
 }
 
@@ -1809,7 +1815,7 @@ function getUserShotPctCap(type, player = G.player) {
   if (type === 'in') return baseShotInt >= 99 ? 90 : 80;
   if (type === 'do') return baseShotMid >= 99 ? 70 : 60;
   if (type === 'ex') return baseShotExt >= 99 ? 55 : 48;
-  if (type === 'fr') return baseShotFree >= 99 ? 95 : 95;
+  if (type === 'fr') return baseShotFree >= 95 ? 95 : baseShotFree >= 85 ? 90 : baseShotFree >= 70 ? 82 : 72;
   return 99;
 }
 
@@ -2076,7 +2082,7 @@ function initLeagueSeasonState() {
   if (G.player && parseNum(G.teamId, 0) > 0) {
     playerStats[leaguePlayerKey(G.teamId, 'USER_SELF', true)] = emptySeasonLine(G.teamId, 'USER_SELF', G.player.name, G.player.pos, true);
   }
-  G.leagueSeason = { round: 0, teamRecords, playerStats, roundSchedule: [], teamGameLogs, gameDetails: [] };
+  G.leagueSeason = { round: 0, teamRecords, playerStats, roundSchedule: [], roundMatchups: [], teamGameLogs, gameDetails: [] };
   return G.leagueSeason;
 }
 
@@ -2358,6 +2364,19 @@ function buildSingleGamePlayerModifier(player, {
     efficiencyShift -= 0.018;
     astMult *= 0.97;
     notes.push(pos >= 4 ? '对位护框压迫较强' : '对位外线压迫感很强');
+  }
+
+  const rivalryFx = typeof buildRivalryGameModifier === 'function'
+    ? buildRivalryGameModifier(player, { teamId, oppProfile })
+    : null;
+  if (rivalryFx) {
+    minuteMult *= parseNum(rivalryFx.minuteMult, 1);
+    usageMult *= parseNum(rivalryFx.usageMult, 1);
+    efficiencyShift += parseNum(rivalryFx.efficiencyShift, 0);
+    astMult *= parseNum(rivalryFx.astMult, 1);
+    rebMult *= parseNum(rivalryFx.rebMult, 1);
+    stocksMult *= parseNum(rivalryFx.stocksMult, 1);
+    if (rivalryFx.note) notes.push(String(rivalryFx.note).trim());
   }
 
   const foulRisk = clamp(
@@ -2826,8 +2845,6 @@ function buildTeamGameBoxScore(teamId, teamPts, oppRating, { home = false, inclu
   }));
   if (typeof normalizeRotationMinutes === 'function') normalizeRotationMinutes(liveRotation, 240);
   applySingleGameMinuteCaps(liveRotation, gameMods);
-  if (typeof normalizeRotationMinutes === 'function') normalizeRotationMinutes(liveRotation, 240);
-  applySingleGameMinuteCaps(liveRotation, gameMods);
   const usageContext = buildTeamUsageContext(teamId, simPlayers, simPlayers);
 
   const weights = liveRotation.map((p, i) => {
@@ -3168,17 +3185,225 @@ function simulateLeagueMatchup(homeTeamId, awayTeamId, opts = {}) {
   return detail;
 }
 
+// ============ 比赛解释器系统 ============
+function ensureMatchInterpreterState() {
+  if (!G.matchInterpreter || typeof G.matchInterpreter !== 'object') {
+    G.matchInterpreter = { lastGame: { gameId: null, explanations: [], factors: {} } };
+  }
+  return G.matchInterpreter;
+}
+
+function analyzeGamePerformance(gameResult) {
+  const state = ensureMatchInterpreterState();
+  state.lastGame = { gameId: gameResult?.gameId, explanations: [], factors: {} };
+
+  if (!gameResult || gameResult.injured) {
+    return state.lastGame;
+  }
+
+  const stats = gameResult.st || gameResult;
+  const mins = parseNum(stats?.mins, 0);
+  const pts = parseNum(stats?.pts, 0);
+  const pf = parseNum(stats?.pf, 0);
+  const fga = parseNum(stats?.fga, 0);
+  const fgm = parseNum(stats?.fgm, 0);
+  const fgPct = fga > 0 ? fgm / fga : 0;
+
+  // 1. 犯规麻烦
+  if (pf >= 5 && mins < 28) {
+    state.lastGame.factors.foulTrouble = { active: true, fouls: pf, minsLost: clamp(32 - mins, 0, 15), label: '犯规麻烦', severity: pf >= 6 ? 'high' : 'medium' };
+    state.lastGame.explanations.push({ type: 'foulTrouble', icon: '🚨', label: '犯规麻烦', text: `本场${pf}次犯规严重限制了出场时间，仅出战${mins}分钟。`, impact: `预计损失${Math.round((32 - mins) * 0.8)}分` });
+  }
+
+  // 2. 背靠背疲劳
+  const fatigueCtx = gameResult.gameEvent?.fatigueContext || null;
+  if (fatigueCtx?.backToBack || parseNum(fatigueCtx?.gamesIn5Days, 0) >= 4) {
+    const staminaBefore = parseNum(G.player?.stamina, 100);
+    const fatiguePenalty = staminaBefore < 70 ? 15 : staminaBefore < 85 ? 8 : 0;
+    if (fatiguePenalty > 0) {
+      state.lastGame.factors.backToBack = { active: true, fatiguePenalty, gamesIn5Days: fatigueCtx?.gamesIn5Days || 2, label: '背靠背疲劳', severity: fatiguePenalty >= 12 ? 'high' : 'medium' };
+      state.lastGame.explanations.push({ type: 'backToBack', icon: '🔋', label: '体能透支', text: fatigueCtx?.backToBack ? '背靠背第二场，体能储备不足影响了表现。' : `5天内第${fatigueCtx?.gamesIn5Days}战，累计疲劳开始显现。`, impact: `命中率约-${Math.round(fatiguePenalty)}%` });
+    }
+  }
+
+  // 3. 教练体系错配
+  const coachTreatment = typeof getUserCoachTreatmentProfile === 'function' ? getUserCoachTreatmentProfile(G.player) : null;
+  if (coachTreatment && coachTreatment.fitScore < 50) {
+    state.lastGame.factors.systemMismatch = { active: true, mismatchScore: 50 - coachTreatment.fitScore, systemId: coachTreatment.fitLabel, label: '体系错配', severity: coachTreatment.fitScore < 35 ? 'high' : 'medium' };
+    state.lastGame.explanations.push({ type: 'systemMismatch', icon: '⚙️', label: '体系不适', text: `${coachTreatment.fitLabel}的战术体系与你的技术特点存在错配，球权分配受限。`, impact: `使用率约${coachTreatment.usageDelta >= 0 ? '+' : ''}${Math.round(coachTreatment.usageDelta * 100)}%` });
+  }
+
+  // 4. 教练好感度偏低
+  const coachFavor = typeof getCoachFavorability === 'function' ? getCoachFavorability() : 50;
+  if (coachFavor < 35 && mins < 25) {
+    state.lastGame.factors.coachTrust = { active: true, favorability: coachFavor, label: '教练信任度低', severity: coachFavor < 25 ? 'high' : 'medium' };
+    state.lastGame.explanations.push({ type: 'coachTrust', icon: '👔', label: '信任危机', text: `教练当前信任度仅${coachFavor}，关键时刻没有让你留在场上。`, impact: `出场时间约-${32 - mins}分钟` });
+  }
+
+  // 5. 轻伤限时
+  const injury = G.player?.injury;
+  if (injury?.active && mins > 0 && mins < 25) {
+    state.lastGame.factors.injuryLimit = { active: true, injuryType: injury.type || '轻伤', minsCap: mins, label: '伤病保护', severity: 'medium' };
+    state.lastGame.explanations.push({ type: 'injuryLimit', icon: '🩹', label: '带伤出战', text: `带${injury.type || '伤'}出战，教练执行${mins}分钟限时保护。`, impact: '状态受限，效率打折' });
+  }
+
+  // 6. 对位被压制
+  if (pts < 12 && fgPct < 0.38 && fga >= 8) {
+    state.lastGame.factors.matchupDominated = { active: true, label: '对位压制', severity: fgPct < 0.32 ? 'high' : 'medium' };
+    state.lastGame.explanations.push({ type: 'matchupDominated', icon: '🔒', label: '被锁死', text: `对位防守让你很难找到节奏，命中率仅${(fgPct * 100).toFixed(0)}%。`, impact: '进攻效率严重下滑' });
+  }
+
+  // 7. 体力问题
+  const staminaBeforeGame = parseNum(G.player?.stamina, 100) + parseNum(gameResult.staminaLoss, 0);
+  if (staminaBeforeGame < 60 && mins < 28) {
+    state.lastGame.factors.staminaIssue = { active: true, staminaBefore: staminaBeforeGame, label: '体力不足', severity: staminaBeforeGame < 40 ? 'high' : 'medium' };
+    state.lastGame.explanations.push({ type: 'staminaIssue', icon: '😵', label: '体能报警', text: `赛前体力仅${Math.round(staminaBeforeGame)}%，无法支撑正常出场时间。`, impact: '建议赛后休息恢复' });
+  }
+
+  // 8. 球队士气影响
+  const teamMorale = parseNum(G.teamMorale, 50);
+  if (teamMorale < 35 && !gameResult.win) {
+    state.lastGame.factors.moraleEffect = { active: true, teamMorale, label: '士气低落', severity: 'medium' };
+    state.lastGame.explanations.push({ type: 'moraleEffect', icon: '😞', label: '氛围影响', text: `球队士气仅${teamMorale}，更衣室氛围影响了全队表现。`, impact: '团队配合效率下降' });
+  }
+
+  return state.lastGame;
+}
+
+function getMatchExplanationSummary() {
+  const state = ensureMatchInterpreterState();
+  const explanations = state.lastGame?.explanations || [];
+
+  if (explanations.length === 0) {
+    return { hasIssues: false, summary: '本场比赛表现正常，无明显异常因素。', explanations: [] };
+  }
+
+  const highSeverity = explanations.filter(e => e.severity === 'high');
+  const summary = highSeverity.length > 0
+    ? `主要问题：${highSeverity.map(e => e.label).join('、')}。`
+    : `存在${explanations.length}个影响因素：${explanations.map(e => e.label).join('、')}。`;
+
+  return { hasIssues: true, summary, explanations };
+}
+
+// ============ 赛季目标系统 ============
+function ensureSeasonGoalsState() {
+  if (!G.seasonGoals || typeof G.seasonGoals !== 'object') {
+    G.seasonGoals = { active: { streaks: { doubleFigures: { active: true, current: 0, best: 0 }, over20: { active: true, current: 0, best: 0 }, winStreak: { current: 0, best: 0 } }, season: {}, milestones: {} }, completed: [], claimed: [] };
+  }
+  return G.seasonGoals;
+}
+
+function initializeSeasonGoals() {
+  const state = ensureSeasonGoalsState();
+  const rating = parseNum(G.player?.rating, 70);
+
+  state.active.streaks = { doubleFigures: { active: true, current: 0, best: 0 }, over20: { active: true, current: 0, best: 0 }, winStreak: { current: 0, best: 0 } };
+  state.active.milestones = {
+    allStar: { target: rating >= 80, progress: 0, label: '入选全明星', status: rating >= 80 ? 'in_progress' : 'locked' },
+    playoffs: { target: true, progress: 0, label: '带队进季后赛', status: 'in_progress' },
+    mostImproved: { target: rating < 80, label: '进步最快球员', status: rating < 80 ? 'in_progress' : 'locked' }
+  };
+  state.completed = [];
+  state.claimed = [];
+
+  return state;
+}
+
+function updateStreakGoals(gameStats, isWin) {
+  const state = ensureSeasonGoalsState();
+  const streaks = state.active.streaks || { doubleFigures: { current: 0, best: 0 }, over20: { current: 0, best: 0 }, winStreak: { current: 0, best: 0 } };
+  const updates = [];
+
+  // 连续得分上双
+  if (parseNum(gameStats.pts, 0) >= 10) {
+    streaks.doubleFigures.current = parseNum(streaks.doubleFigures.current, 0) + 1;
+    streaks.doubleFigures.best = Math.max(parseNum(streaks.doubleFigures.best, 0), streaks.doubleFigures.current);
+    if (streaks.doubleFigures.current >= 10 && streaks.doubleFigures.current === streaks.doubleFigures.best) {
+      updates.push({ type: 'streak', label: `连续${streaks.doubleFigures.current}场上双！`, reward: { xp: 5, fame: 1 } });
+    }
+  } else {
+    streaks.doubleFigures.current = 0;
+  }
+
+  // 连续20+
+  if (parseNum(gameStats.pts, 0) >= 20) {
+    streaks.over20.current = parseNum(streaks.over20.current, 0) + 1;
+    streaks.over20.best = Math.max(parseNum(streaks.over20.best, 0), streaks.over20.current);
+  } else {
+    streaks.over20.current = 0;
+  }
+
+  // 连胜
+  if (isWin) {
+    streaks.winStreak.current = parseNum(streaks.winStreak.current, 0) + 1;
+    streaks.winStreak.best = Math.max(parseNum(streaks.winStreak.best, 0), streaks.winStreak.current);
+  } else {
+    streaks.winStreak.current = 0;
+  }
+
+  state.active.streaks = streaks;
+
+  updates.forEach(u => {
+    if (u.reward?.xp && typeof addPlayerXP === 'function') addPlayerXP(u.reward.xp);
+    if (u.reward?.fame) G.player.fame = clamp(parseNum(G.player.fame, 10) + u.reward.fame, 0, 100);
+  });
+
+  return updates;
+}
+
+function getGoalsProgressView() {
+  const state = ensureSeasonGoalsState();
+  const stats = G.seasonStats || {};
+  const gp = Math.max(1, parseNum(stats.gp, 0));
+
+  return {
+    streaks: state.active.streaks || { doubleFigures: { current: 0, best: 0 }, over20: { current: 0, best: 0 }, winStreak: { current: 0, best: 0 } },
+    averages: { ppg: parseNum(stats.pts, 0) / gp, rpg: parseNum(stats.reb, 0) / gp, apg: parseNum(stats.ast, 0) / gp },
+    milestones: state.active.milestones || {},
+    pendingClaims: (state.completed || []).filter(g => !(state.claimed || []).includes(g.id))
+  };
+}
+
 function playGame(gameNum) {
   const sched = Array.isArray(G.schedule) ? G.schedule : [];
   const idx = clamp(Math.floor(parseNum(gameNum, G.gameNum)), 0, Math.max(0, sched.length - 1));
   const game = sched[idx] || null;
   const userTeamId = parseNum(G.teamId, 0);
-  const oppTeamId = parseNum(game?.opp, 0) || TEAMS.find(t => t.id !== userTeamId)?.id || 0;
-  const userHome = game ? !!game.home : true;
+  const roundMatchups = ensureLeagueRoundMatchups();
+  const round = roundMatchups[idx] || null;
+  const roundGames = Array.isArray(round?.games) ? round.games : [];
+  backfillMissingLeagueRounds(idx);
+  const userGame = roundGames.find(item => item && item.isUserGame) || game || null;
+  const oppTeamId = parseNum(userGame?.opp, 0) || parseNum(game?.opp, 0) || TEAMS.find(t => t.id !== userTeamId)?.id || 0;
+  const userHome = userGame ? !!userGame.home : game ? !!game.home : true;
   const homeTeamId = userHome ? userTeamId : oppTeamId;
   const awayTeamId = userHome ? oppTeamId : userTeamId;
-  const detail = simulateLeagueMatchup(homeTeamId, awayTeamId, { roundIndex: idx, season: G.season, year: G.year, phase: 'regular', userTeamId });
+  const rivalPreview = typeof maybeQueueRivalGamePreview === 'function'
+    ? maybeQueueRivalGamePreview(oppTeamId, `${parseNum(G.season, 1)}_${idx + 1}_${oppTeamId}`)
+    : null;
+  let detail = null;
+  if (roundGames.length) {
+    for (const matchup of roundGames) {
+      const homeId = parseNum(matchup?.homeTeamId, 0);
+      const awayId = parseNum(matchup?.awayTeamId, 0);
+      if (!homeId || !awayId || homeId === awayId) continue;
+      const simDetail = simulateLeagueMatchup(homeId, awayId, { roundIndex: idx, season: G.season, year: G.year, phase: 'regular', userTeamId });
+      if (!simDetail) continue;
+      if (matchup?.isUserGame || (homeId === homeTeamId && awayId === awayTeamId)) {
+        detail = simDetail;
+      }
+    }
+    tickLeagueInjuries();
+  } else {
+    detail = simulateLeagueMatchup(homeTeamId, awayTeamId, { roundIndex: idx, season: G.season, year: G.year, phase: 'regular', userTeamId });
+    tickLeagueInjuries();
+  }
+  if (!detail) {
+    detail = findLeagueGameDetail({ teamId: userTeamId, oppId: oppTeamId, round: idx + 1, season: G.season, year: G.year, phase: 'regular' });
+  }
   if (!detail) return null;
+  const leagueGameCount = roundGames.length || 1;
 
   const userScore = userHome ? detail.homeScore : detail.awayScore;
   const oppScore = userHome ? detail.awayScore : detail.homeScore;
@@ -3240,8 +3465,10 @@ function playGame(gameNum) {
     awayScore: detail.awayScore,
     homeRows: detail.homeRows,
     awayRows: detail.awayRows,
-    gameEvent: G._gameEventResult || null
+    gameEvent: G._gameEventResult || null,
+    leagueGameCount
   };
+  if (rivalPreview) result.events.push(`🔥 ${rivalPreview.title}：${rivalPreview.detail}`);
   if (userFatigue?.summary) result.events.push(`🧭 赛程负荷：${userFatigue.summary}`);
   selfGameNotes.forEach(note => result.events.push(`🎯 ${note}`));
 
@@ -3281,6 +3508,31 @@ function playGame(gameNum) {
   G.gameNum = idx + 1;
   updateTeamMorale(result.win);
   updateCoachFavorabilityAfterGame(result);
+  if (!injured && typeof syncTeammateRelationsAfterGame === 'function') {
+    syncTeammateRelationsAfterGame(result);
+  }
+  if (typeof applyRivalryAfterGame === 'function') {
+    applyRivalryAfterGame(result);
+  }
+
+  // 比赛解释器分析
+  if (!injured) {
+    analyzeGamePerformance(result);
+    const explanation = getMatchExplanationSummary();
+    if (explanation.hasIssues) {
+      result.explanation = explanation;
+      result.events.push(`📊 ${explanation.summary}`);
+    }
+  }
+
+  // 赛季目标检查
+  if (!injured) {
+    const streakUpdates = updateStreakGoals(st, result.win);
+    if (streakUpdates.length > 0) {
+      streakUpdates.forEach(u => result.events.push(`🔥 ${u.label}`));
+    }
+  }
+
   return result;
 }
 
@@ -3329,12 +3581,12 @@ function simulatePreDraftSeason() {
       });
     });
   }
-  G.leagueSeason = { round: 0, teamRecords, playerStats, roundSchedule: [], teamGameLogs: {}, gameDetails: [] };
+  G.leagueSeason = { round: 0, teamRecords, playerStats, roundSchedule: [], roundMatchups: [], teamGameLogs: {}, gameDetails: [] };
   TEAMS.forEach(t => { G.leagueSeason.teamGameLogs[t.id] = []; });
 
-  // 2. 生成NPC-only比赛配对（82轮）— 只模拟比赛数据，不做增量成长
+  // 2. 生成NPC-only比赛配对 — 只模拟比赛数据，不做增量成长
   const teamIds = TEAMS.map(t => t.id);
-  const totalRounds = 82;
+  const totalRounds = getSeasonGameCount();
 
   for (let round = 0; round < totalRounds; round++) {
     const shuffled = [...teamIds].sort(() => Math.random() - 0.5);
@@ -3410,12 +3662,111 @@ function getMoraleMult() {
   return 1 + (parseNum(G.teamMorale, 50) - 50) * 0.001;
 }
 
+function getSeasonGameCount() {
+  const scheduled = Array.isArray(G.schedule) && G.schedule.length ? G.schedule.length : 0;
+  const leagueRounds = Array.isArray(G.leagueSeason?.roundMatchups) ? G.leagueSeason.roundMatchups.length : 0;
+  const total = parseNum(G.totalGames, scheduled || leagueRounds || 82);
+  return Math.max(1, Math.floor(total));
+}
+
+function shuffleTeamIds(teamIds = []) {
+  const out = Array.isArray(teamIds) ? [...teamIds] : [];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = rng(0, i);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function buildLeagueRoundMatchups(userSchedule = [], userTeamId = G.teamId) {
+  const tid = parseNum(userTeamId, 0);
+  const allTeamIds = TEAMS.map(t => parseNum(t.id, 0)).filter(id => id > 0);
+  const opponentIds = allTeamIds.filter(id => id !== tid);
+  if (!tid || !Array.isArray(userSchedule) || !userSchedule.length || !opponentIds.length) return [];
+
+  return userSchedule.map((game, idx) => {
+    const rawOpp = parseNum(game?.opp, 0);
+    const oppId = opponentIds.includes(rawOpp) ? rawOpp : opponentIds[idx % opponentIds.length];
+    const userHome = !!game?.home;
+    const userGame = {
+      seq: 1,
+      isUserGame: true,
+      homeTeamId: userHome ? tid : oppId,
+      awayTeamId: userHome ? oppId : tid,
+      home: userHome,
+      opp: oppId
+    };
+    const roundGames = [userGame];
+    const restTeamIds = shuffleTeamIds(opponentIds.filter(id => id !== oppId));
+    for (let i = 0; i + 1 < restTeamIds.length; i += 2) {
+      const a = restTeamIds[i];
+      const b = restTeamIds[i + 1];
+      const homeFirst = rng(0, 1) === 1;
+      roundGames.push({
+        seq: roundGames.length + 1,
+        isUserGame: false,
+        homeTeamId: homeFirst ? a : b,
+        awayTeamId: homeFirst ? b : a,
+        home: homeFirst
+      });
+    }
+    return { round: idx + 1, userGame, games: roundGames };
+  });
+}
+
+function ensureLeagueRoundMatchups() {
+  ensureLeagueStateShape();
+  const sched = Array.isArray(G.schedule) ? G.schedule : [];
+  if (!sched.length) {
+    G.leagueSeason.roundMatchups = [];
+    return G.leagueSeason.roundMatchups;
+  }
+  const current = Array.isArray(G.leagueSeason.roundMatchups) ? G.leagueSeason.roundMatchups : [];
+  if (current.length === sched.length) return current;
+  G.leagueSeason.roundMatchups = buildLeagueRoundMatchups(sched, G.teamId);
+  return G.leagueSeason.roundMatchups;
+}
+
+function backfillMissingLeagueRounds(targetRound = G.gameNum) {
+  ensureLeagueStateShape();
+  const roundMatchups = ensureLeagueRoundMatchups();
+  if (!roundMatchups.length) return 0;
+
+  const limit = clamp(Math.floor(parseNum(targetRound, 0)), 0, roundMatchups.length);
+  const start = clamp(Math.floor(parseNum(G.leagueSeason._backfilledUpTo, 0)), 0, limit);
+  if (start >= limit) return 0;
+
+  const userTeamId = parseNum(G.teamId, 0);
+  let simulated = 0;
+  for (let roundIndex = start; roundIndex < limit; roundIndex++) {
+    const round = roundMatchups[roundIndex];
+    if (!round || !Array.isArray(round.games)) continue;
+    for (const matchup of round.games) {
+      if (!matchup || matchup.isUserGame) continue;
+      const homeId = parseNum(matchup?.homeTeamId, 0);
+      const awayId = parseNum(matchup?.awayTeamId, 0);
+      if (!homeId || !awayId || homeId === awayId) continue;
+      const exists = findLeagueGameDetail({ teamId: homeId, oppId: awayId, round: roundIndex + 1, season: G.season, year: G.year, phase: 'regular' });
+      if (exists) continue;
+      simulateLeagueMatchup(homeId, awayId, { roundIndex, season: G.season, year: G.year, phase: 'regular', userTeamId });
+      simulated++;
+    }
+    tickLeagueInjuries();
+  }
+  G.leagueSeason._backfilledUpTo = limit;
+  return simulated;
+}
+
 function generateSchedule() {
   G.schedule = []; G.results = []; G.gameNum = 0;
   G.dayNum = 0;
   G.gameDays = [];
   G._latestDayResult = null;
   G.teamMorale = 50; G.winStreak = 0;
+  // Reset playoffs & all-star state for new season
+  G.playoffs = defaultPlayoffState();
+  if (!G.allStar || typeof G.allStar !== 'object') G.allStar = {};
+  G.allStar.held = false; G.allStar.mvp = null; G.allStar.userSelected = false;
   if (G.social && typeof G.social === 'object') {
     G.social.lastGeneratedDay = -1;
     G.social.pendingRequiredDay = -1;
@@ -3428,11 +3779,13 @@ function generateSchedule() {
     sched.push({ opp: t.id, home: false });
     if (t.c === G.team.c) sched.push({ opp: t.id, home: Math.random() > 0.5 });
   });
-  while (sched.length < 82) sched.push({ opp: others[rng(0, others.length - 1)].id, home: Math.random() > 0.5 });
-  sched = sched.slice(0, 82);
+  const totalGames = getSeasonGameCount();
+  while (sched.length < totalGames) sched.push({ opp: others[rng(0, others.length - 1)].id, home: Math.random() > 0.5 });
+  sched = sched.slice(0, totalGames);
   for (let i = sched.length - 1; i > 0; i--) { const j = rng(0, i);[sched[i], sched[j]] = [sched[j], sched[i]]; }
-  G.schedule = sched; G.totalGames = 82;
+  G.schedule = sched; G.totalGames = totalGames;
   initLeagueSeasonState();
+  G.leagueSeason.roundMatchups = buildLeagueRoundMatchups(G.schedule, G.teamId);
 }
 
 function makeTeamRecord() {
@@ -3514,6 +3867,24 @@ function getLeaguePlayerSeasonRows() {
     row.tpPct = tpa > 0 ? +(tpm / tpa * 100).toFixed(1) : 0;
     row.ftPct = fta > 0 ? +(ftm / fta * 100).toFixed(1) : 0;
     return row;
+  });
+}
+function getRookieLeaderboard() {
+  const allRows = getLeaguePlayerSeasonRows().filter(r => parseNum(r.gp, 0) > 0);
+  // Collect rookie player IDs from league teams
+  const rookieIds = new Set();
+  if (LEAGUE.loaded && LEAGUE.teams) {
+    Object.values(LEAGUE.teams).forEach(t => {
+      (t.players || []).forEach(p => {
+        if (parseNum(p.yearsLeague, 0) === 0) rookieIds.add(String(p.id));
+      });
+    });
+  }
+  // User is a rookie in season 1
+  const userIsRookie = parseNum(G.player?.yearsLeague, 0) === 0 || !!G.player?.rookie;
+  return allRows.filter(r => {
+    if (r.isSelf) return userIsRookie;
+    return rookieIds.has(String(r.playerId));
   });
 }
 function rookieContractByPick(pickNo) {
@@ -3628,7 +3999,7 @@ function buildUserTradeProposal(targetId) {
   const packages = buildTradePackagesForTeam(teamId, targetValue);
   if (!packages.length) return null;
   const selected = packages[0];
-  const capRoom = LEAGUE_SALARY_CAP_M * 1.18 - teamPayrollMillion(teamId);
+  const capRoom = getSalaryCap() * 1.18 - teamPayrollMillion(teamId);
   const valueFit = clamp(1 - Math.abs(parseNum(selected.totalValue, 0) - targetValue) / 38, 0, 1);
   const capPenalty = parseNum(selected.totalSalary, 0) > capRoom ? 0.08 : 0;
   const acceptChance = clamp(0.24 + valueFit * 0.34 + need.needScore * 0.16 + pressure.acceptBonus - capPenalty + (selected.players.length === 1 ? 0.04 : 0), 0.08, 0.92);
@@ -3720,7 +4091,7 @@ function evaluateUserOfferForTeam(teamId, profile) {
   const team = typeof getTeam === 'function' ? getTeam(teamId) : null;
   if (!team) return null;
   const need = evaluateTeamNeedForPosition(teamId, parseNum(G.player.pos, 3));
-  const capRoom = LEAGUE_SALARY_CAP_M * 1.18 - teamPayrollMillion(teamId);
+  const capRoom = getSalaryCap() * 1.18 - teamPayrollMillion(teamId);
   if (capRoom <= 0.8) return null;
   const strength = typeof getTeamStrength === 'function' ? getTeamStrength(teamId) : 75;
   const coach = typeof getTeamCoach === 'function' ? getTeamCoach(teamId) : null;
@@ -3871,7 +4242,7 @@ function getCoachCandidateQuality(coach, teamId = 0) {
   return clamp(Math.round(score), 28, 94);
 }
 function buildCoachHireScore(teamId, coach) {
-  const systemId = String(coach?.systemId || resolveCoachSystemIdByName(coach?.name) || 'balance').trim() || 'balance';
+  const systemId = String(coach?.systemId || resolveCoachSystemIdByName(coach?.name, coach) || 'balance').trim() || 'balance';
   const style = buildTeamCoachStyleProfile(teamId);
   let fit = 0;
   if (systemId === 'defense') fit = style.defense * 0.45 + style.rebounding * 0.18;
@@ -3976,7 +4347,7 @@ function runOffseasonCoachCarousel() {
     coach.teamId = teamId;
     coach.age = Math.max(35, parseNum(coach.age, 45) + 1);
     coach.yearsContract = Math.max(0, parseNum(coach.yearsContract, 2) - 1);
-    coach.systemId = String(coach.systemId || resolveCoachSystemIdByName(coach.name) || pickCoachSystemForTeam(teamId, 'balance')).trim() || 'balance';
+    coach.systemId = String(coach.systemId || resolveCoachSystemIdByName(coach.name, coach) || pickCoachSystemForTeam(teamId, 'balance')).trim() || 'balance';
     const systemProfile = typeof getCoachSystemProfile === 'function' ? getCoachSystemProfile(coach.systemId) : { label: '均衡体系', secondaryLean: '按阵容灵活分配球权' };
     coach.systemLabel = systemProfile.label;
     coach.secondaryLean = systemProfile.secondaryLean;
@@ -4096,6 +4467,583 @@ function updateCoachFavorabilityAfterGame(result) {
   });
   return { before, after: next, delta: next - before };
 }
+
+function getUserTeamGameRows(result) {
+  const game = result?.gameResult || result || {};
+  const userTeamId = parseNum(G.teamId, 0);
+  const isHome = parseNum(game.homeTeamId, 0) === userTeamId;
+  const rows = isHome ? game.homeRows : game.awayRows;
+  return Array.isArray(rows) ? rows : [];
+}
+
+function getRecentTeamResultStreak(expectedWin = true, limit = 8) {
+  const want = !!expectedWin;
+  const max = Math.max(1, parseNum(limit, 8));
+  let streak = 0;
+  for (let i = (G.results || []).length - 1; i >= 0 && streak < max; i--) {
+    const res = G.results[i];
+    if (!res || !res.userGame) continue;
+    if (!!res.win !== want) break;
+    streak++;
+  }
+  return streak;
+}
+
+function syncTeammateRelationsAfterGame(result) {
+  if (!result || !result.userGame || typeof ensureTeamRelationsState !== 'function') return null;
+  if (typeof initTeamRelationsForCurrentTeam === 'function') initTeamRelationsForCurrentTeam();
+  const state = ensureTeamRelationsState();
+  const chemistryBefore = { ...(state.chemistry || {}) };
+  const rosterById = new Map((getTeamPlayers(parseNum(G.teamId, 0)) || []).map(player => [String(player?.id), player]));
+  const teammateRows = getUserTeamGameRows(result).filter(row => !row?.isSelf && !row?.status);
+  if (!teammateRows.length) return null;
+
+  const winStreak = getRecentTeamResultStreak(true);
+  const lossStreak = getRecentTeamResultStreak(false);
+  const shareGame = parseNum(result?.ast, 0) >= 7;
+  const ballDominance = parseNum(result?.fga, 0) >= 20 && parseNum(result?.ast, 0) <= 4;
+  const carryGame = ['S+', 'S', 'A'].includes(String(result?.grade || '').trim()) || parseNum(result?.pts, 0) >= 28;
+
+  let bestPositive = null;
+  let bestNegative = null;
+  let changedCount = 0;
+
+  teammateRows.forEach(row => {
+    const player = rosterById.get(String(row.playerId)) || row;
+    const entry = typeof ensureTeammateRelation === 'function' ? ensureTeammateRelation(player, G.teamId) : null;
+    if (!entry) return;
+
+    let favorDelta = result.win ? 1 : -1;
+    let usageDelta = result.win ? 1 : -1;
+    let veteranDelta = 0;
+
+    const minutes = parseNum(row?.mins, 0);
+    const pts = parseNum(row?.pts, 0);
+    const ast = parseNum(row?.ast, 0);
+    const usage = parseNum(row?.fga, 0) + parseNum(row?.fta, 0) * 0.44;
+
+    if (shareGame) {
+      favorDelta += pts >= 10 ? 1 : 0;
+      usageDelta += pts >= 8 ? 2 : 1;
+      if (entry.isRookie && pts >= 8) favorDelta += 1;
+    }
+    if (ballDominance && minutes >= 18) {
+      favorDelta -= minutes >= 24 ? 1 : 0;
+      usageDelta -= usage <= 8 ? 5 : 3;
+    }
+    if (!result.win && minutes >= 24 && pts <= 8) {
+      favorDelta -= 1;
+      usageDelta -= 2;
+    }
+    if (result.win && pts >= 18) {
+      favorDelta += 1;
+      if (entry.isVeteran) veteranDelta += 1;
+    }
+    if (ast >= 5 && carryGame) favorDelta += 1;
+    if (entry.isVeteran) {
+      if (result.win && shareGame) veteranDelta += 1;
+      if (!result.win && ballDominance) veteranDelta -= 1;
+    }
+    if (winStreak >= 3 && result.win) favorDelta += 1;
+    if (lossStreak >= 3 && !result.win) favorDelta -= 1;
+
+    const oldFavor = parseNum(entry.favorability, 50);
+    const oldUsage = parseNum(entry.usageSatisfaction, 0);
+    const oldVeteran = parseNum(entry.veteranEndorsement, 0);
+    const usageDrift = oldUsage > 0 ? -1 : (oldUsage < 0 ? 1 : 0);
+
+    entry.favorability = clamp(Math.round(oldFavor + favorDelta), 0, 100);
+    entry.usageSatisfaction = clamp(Math.round(oldUsage + usageDelta + usageDrift), -40, 40);
+    entry.veteranEndorsement = clamp(Math.round(oldVeteran + veteranDelta), -20, 20);
+    entry.interactions = (entry.interactions || 0) + 1;
+    entry.lastInteractionDay = parseNum(G.dayNum, 0);
+    entry.lastSource = result.win ? '比赛胜利反馈' : '比赛失利反馈';
+
+    const score = favorDelta + usageDelta * 0.35 + veteranDelta * 0.75;
+    const impact = Math.abs(favorDelta) + Math.abs(usageDelta) * 0.45 + Math.abs(veteranDelta) * 0.8;
+    if (impact >= 2) changedCount++;
+
+    if (!bestPositive || score > bestPositive.score) {
+      bestPositive = { entry, score, favorDelta, usageDelta, veteranDelta, row };
+    }
+    if (!bestNegative || score < bestNegative.score) {
+      bestNegative = { entry, score, favorDelta, usageDelta, veteranDelta, row };
+    }
+  });
+
+  const chemistryAfter = typeof recalculateTeamChemistry === 'function'
+    ? recalculateTeamChemistry()
+    : (state.chemistry || chemistryBefore);
+
+  let feature = null;
+  if (shareGame && bestPositive && bestPositive.score >= 2.4) {
+    feature = {
+      playerId: bestPositive.entry.playerId,
+      playerName: bestPositive.entry.name,
+      title: `${bestPositive.entry.name} 更愿意跟你打配合了`,
+      detail: `${bestPositive.entry.name} 觉得你今天把比赛节奏带得很顺，传导和分享球让他更买账。`,
+      favorDelta: bestPositive.favorDelta,
+      usageDelta: bestPositive.usageDelta,
+      type: 'pos',
+      source: '赛后更衣室反馈'
+    };
+  } else if (ballDominance && bestNegative && bestNegative.score <= -2.4) {
+    feature = {
+      playerId: bestNegative.entry.playerId,
+      playerName: bestNegative.entry.name,
+      title: `${bestNegative.entry.name} 对出手分配有意见`,
+      detail: `${bestNegative.entry.name} 觉得这场你把回合掐得太死，输球夜里这种感觉会被放大。`,
+      favorDelta: bestNegative.favorDelta,
+      usageDelta: bestNegative.usageDelta,
+      type: 'neg',
+      source: '赛后更衣室反馈'
+    };
+  } else if (!result.win && lossStreak >= 3 && parseNum(chemistryAfter?.dramaLevel, 0) > 0) {
+    feature = {
+      title: '连败让更衣室开始变紧',
+      detail: `球队已经 ${lossStreak} 连败，抱怨和小情绪开始变多，化学反应下降到 ${Math.round(parseNum(chemistryAfter?.overall, 50))}。`,
+      type: 'neg',
+      source: '连败压力'
+    };
+  }
+
+  if (feature && typeof pushTeamRelationEvent === 'function') {
+    pushTeamRelationEvent(feature);
+    if (Array.isArray(result.events)) result.events.push(`🤝 ${feature.title}：${feature.detail}`);
+  }
+
+  const summary = {
+    changedCount,
+    chemistryBefore,
+    chemistryAfter,
+    shareGame,
+    ballDominance,
+    winStreak,
+    lossStreak,
+    feature
+  };
+  result.teamRelationSummary = summary;
+  return summary;
+}
+
+function buildTeamRelationshipPrompt(result) {
+  if (!result || typeof ensureTeamRelationsState !== 'function') return null;
+  const state = ensureTeamRelationsState();
+  if (parseNum(state.lastPromptDay, -99) === parseNum(result?.day, -100)) return null;
+  if (parseNum(result?.day, 0) - parseNum(state.lastPromptDay, -99) < 2) return null;
+
+  const chemistry = state.chemistry || {};
+  const game = result?.gameResult || result || {};
+  const roster = getTeamPlayers(parseNum(G.teamId, 0)) || [];
+  const rows = getUserTeamGameRows(game).filter(row => !row?.isSelf && !row?.status);
+  const lossStreak = getRecentTeamResultStreak(false);
+
+  if (result.isGame && parseNum(game?.ast, 0) >= 7 && rows.length && Math.random() < 0.7) {
+    const target = rows
+      .slice()
+      .sort((a, b) => parseNum(b?.pts, 0) - parseNum(a?.pts, 0) || parseNum(b?.mins, 0) - parseNum(a?.mins, 0))[0];
+    if (target) {
+      return {
+        type: 'teammate_ball_movement',
+        summaryMode: 'team',
+        title: `${target.name} 在更衣室叫住了你`,
+        desc: `赢球后，${target.name} 说今天大家都吃到了舒服的回合，想听听你怎么总结这场球。`,
+        targetPlayerId: target.playerId,
+        choices: [
+          { id: 'share_credit', title: '把功劳分给队友', detail: '更衣室会更舒服，队友更愿意继续跟你打分享球。', badge: '目标好感↑ / 全队氛围↑' },
+          { id: 'praise_grit', title: '重点夸防守和跑位', detail: '老将会更买账，你会显得更像一个带队的人。', badge: '老将认可↑ / 化学反应↑' },
+          { id: 'claim_control', title: '顺势强调球该在你手里', detail: '你会更像核心，但容易让队友觉得你在抢话。', badge: '目标好感↓ / 球权积怨↑' }
+        ]
+      };
+    }
+  }
+
+  if (result.isGame && parseNum(game?.fga, 0) >= 20 && parseNum(game?.ast, 0) <= 4 && rows.length && Math.random() < 0.8) {
+    const target = rows
+      .filter(row => parseNum(row?.mins, 0) >= 20)
+      .sort((a, b) => parseNum(b?.mins, 0) - parseNum(a?.mins, 0) || parseNum(a?.pts, 0) - parseNum(b?.pts, 0))[0] || rows[0];
+    if (target) {
+      return {
+        type: 'teammate_shot_tension',
+        summaryMode: 'team',
+        title: `${target.name} 对这场的回合分配不太满意`,
+        desc: `输球后的更衣室里，${target.name} 直说这场很多回合打得太闷，大家没怎么摸到球。`,
+        targetPlayerId: target.playerId,
+        choices: [
+          { id: 'own_it', title: '认下来，表示下场会多分享', detail: '能快速止血，但你下场要真把球动起来。', badge: '目标好感↑ / 球权积怨↓' },
+          { id: 'watch_tape', title: '拉他一起看录像拆问题', detail: '不会立刻热络，但至少能把矛盾压回篮球本身。', badge: '目标好感小涨 / 氛围回稳' },
+          { id: 'double_down', title: '坚持关键球就该你来', detail: '你保住姿态，但更衣室会继续记账。', badge: '目标好感↓ / 化学反应↓' }
+        ]
+      };
+    }
+  }
+
+  if (!result.isGame && lossStreak >= 3 && Math.random() < 0.75) {
+    const veteran = roster
+      .filter(player => parseNum(player?.yearsLeague, 0) >= 5)
+      .sort((a, b) => parseNum(b?.rating, 0) - parseNum(a?.rating, 0))[0];
+    if (veteran) {
+      return {
+        type: 'veteran_film_session',
+        summaryMode: 'team',
+        title: `${veteran.name} 组织了球员会议`,
+        desc: `${lossStreak} 连败后，${veteran.name} 把大家叫进录像室，想先把更衣室重新捏紧。`,
+        targetPlayerId: veteran.id,
+        choices: [
+          { id: 'lead_session', title: '提前到场，带头复盘', detail: '老将会更认可你，队内信任也会回暖。', badge: '老将认可↑ / 氛围↑ / XP↑' },
+          { id: 'show_up', title: '到场认真听，但少说', detail: '稳妥处理，不会抢老将的话语权。', badge: '目标好感↑ / 稳定' },
+          { id: 'skip_session', title: '找借口缺席', detail: '会被视为不愿承担，连败期这样很伤。', badge: '目标好感↓ / 老将认可↓' }
+        ]
+      };
+    }
+  }
+
+  if (!result.isGame && parseNum(chemistry?.dramaLevel, 0) >= 2 && Math.random() < 0.55) {
+    const target = roster
+      .map(player => ({ player, rel: typeof getTeammateRelationEntry === 'function' ? getTeammateRelationEntry(player.id, G.teamId) : null }))
+      .filter(item => item.rel && parseNum(item.rel.usageSatisfaction, 0) <= -12)
+      .sort((a, b) => parseNum(a.rel?.usageSatisfaction, 0) - parseNum(b.rel?.usageSatisfaction, 0))[0];
+    if (target?.player) {
+      return {
+        type: 'bench_unit_talk',
+        summaryMode: 'team',
+        title: `${target.player.name} 主动来和你聊第二阵容`,
+        desc: `${target.player.name} 直说替补时间的回合打得太碎了，他希望你带二阵时把节奏理顺。`,
+        targetPlayerId: target.player.id,
+        choices: [
+          { id: 'promise_flow', title: '答应把第二阵容带顺', detail: '角色球员会更愿意跟着你跑。', badge: '目标好感↑ / 球权积怨↓' },
+          { id: 'keep_roles', title: '强调各自先守住角色', detail: '能维持秩序，但不会立刻解决怨气。', badge: '小幅稳定' },
+          { id: 'ignore_complaint', title: '表示这不是你该管的', detail: '会让板凳席对你更冷。', badge: '目标好感↓ / 氛围↓' }
+        ]
+      };
+    }
+  }
+
+  const rookie = roster
+    .filter(player => parseNum(player?.yearsLeague, 0) <= 1)
+    .sort((a, b) => parseNum(b?.potential, 0) - parseNum(a?.potential, 0))[0];
+  if (!result.isGame && rookie && Math.random() < 0.4) {
+    return {
+      type: 'rookie_help_request',
+      summaryMode: 'team',
+      title: `${rookie.name} 想跟你单独加一组训练`,
+      desc: `${rookie.name} 想请你帮他过一遍球队的节奏和跑位，看得出来他在努力找位置。`,
+      targetPlayerId: rookie.id,
+      choices: [
+        { id: 'mentor_rookie', title: '陪他加练一组', detail: '新秀会更服你，也会让大家看到你愿意带人。', badge: '目标好感↑ / 新秀圈好感↑ / XP↑' },
+        { id: 'pass_to_staff', title: '让助教先带他', detail: '不算坏，但也谈不上建立太多连接。', badge: '小幅正面' },
+        { id: 'brush_off_rookie', title: '让他自己先消化', detail: '省事，但容易让新秀觉得你并不想带他。', badge: '目标好感↓' }
+      ]
+    };
+  }
+
+  return null;
+}
+
+function applyTeamDailyPromptChoice(prompt, choiceId, result = null) {
+  if (!prompt || typeof ensureTeamRelationsState !== 'function') return { ok: false, text: '更衣室没有出现额外变化。' };
+  const state = ensureTeamRelationsState();
+  const type = String(prompt?.type || '').trim();
+  const id = String(choiceId || '').trim();
+  const day = parseNum(result?.day, G.dayNum);
+  const roster = getTeamPlayers(parseNum(G.teamId, 0)) || [];
+  const targetPlayerId = parseNum(prompt?.targetPlayerId, 0);
+  const targetPlayer = targetPlayerId ? (findTeamPlayerById(parseNum(G.teamId, 0), targetPlayerId) || roster.find(player => parseNum(player?.id, 0) === targetPlayerId)) : null;
+  const targetEntry = targetPlayer ? ensureTeammateRelation(targetPlayer, G.teamId) : null;
+  const allEntries = roster.map(player => ensureTeammateRelation(player, G.teamId)).filter(Boolean);
+  const rookieEntries = allEntries.filter(entry => entry.isRookie);
+  const veteranEntries = allEntries.filter(entry => entry.isVeteran);
+  state.lastPromptDay = day;
+
+  const touchEntry = (entry, { favor = 0, usage = 0, veteran = 0 } = {}) => {
+    if (!entry) return;
+    entry.favorability = clamp(Math.round(parseNum(entry.favorability, 50) + parseNum(favor, 0)), 0, 100);
+    entry.usageSatisfaction = clamp(Math.round(parseNum(entry.usageSatisfaction, 0) + parseNum(usage, 0)), -40, 40);
+    entry.veteranEndorsement = clamp(Math.round(parseNum(entry.veteranEndorsement, 0) + parseNum(veteran, 0)), -20, 20);
+    entry.interactions = (entry.interactions || 0) + 1;
+    entry.lastInteractionDay = day;
+    entry.lastSource = type;
+  };
+
+  const touchGroup = (entries, effect = {}) => entries.forEach(entry => touchEntry(entry, effect));
+  const finalise = ({ text, title, detail, phoneFrom = '', phone = '', news = '', newsType = 'pos', eventType = 'pos', favorDelta = 0, usageDelta = 0, veteranDelta = 0, xpDelta = 0, moodDelta = 0 } = {}) => {
+    if (xpDelta > 0) addPlayerXP(xpDelta);
+    if (moodDelta) G.player.mood = clamp(parseNum(G.player.mood, 50) + parseNum(moodDelta, 0), 0, 100);
+    const chemistry = typeof recalculateTeamChemistry === 'function' ? recalculateTeamChemistry() : (state.chemistry || {});
+    if (typeof pushTeamRelationEvent === 'function') {
+      pushTeamRelationEvent({
+        day,
+        playerId: targetEntry?.playerId || targetPlayerId,
+        playerName: targetEntry?.name || targetPlayer?.name || '',
+        title,
+        detail,
+        favorDelta,
+        usageDelta,
+        veteranDelta,
+        type: eventType,
+        source: type
+      });
+    }
+    if (Array.isArray(result?.events) && detail) result.events.push(`🤝 ${title}：${detail}`);
+    if (phone) addPhone(phoneFrom || targetEntry?.name || '队友', phone, eventType === 'neg' ? 'warn' : 'info');
+    if (news) addNews(news, newsType);
+    return { ok: true, text, chemistry };
+  };
+
+  if (type === 'teammate_ball_movement') {
+    if (id === 'share_credit') {
+      touchEntry(targetEntry, { favor: 4, usage: 2 });
+      touchGroup(allEntries.filter(entry => entry.playerId !== targetPlayerId), { favor: 1, usage: 1 });
+      return finalise({
+        text: `你把赢球的功劳分给了队友，${targetEntry?.name || '更衣室'} 会更愿意继续跟你打分享球。`,
+        title: `${targetEntry?.name || '队友'} 更愿意跟你打分享球`,
+        detail: '你主动把聚光灯分出去，队友会把这种处理记在心里。',
+        phoneFrom: targetEntry?.name || '队友',
+        phone: '你今天把话留给了大家，这种处理很对味。下次继续这样打，球会自己转起来。',
+        news: `🤝 ${G.player.name} 赛后把赢球功劳分给队友，更衣室对他的分享球态度明显升温。`,
+        newsType: 'pos',
+        eventType: 'pos',
+        favorDelta: 4,
+        usageDelta: 2
+      });
+    }
+    if (id === 'praise_grit') {
+      touchEntry(targetEntry, { favor: 3, usage: 1 });
+      touchGroup(veteranEntries, { favor: 1, veteran: 1 });
+      return finalise({
+        text: '你把重点放在防守、跑位和脏活上，老将会更认可你在队里的位置。',
+        title: '老将开始更买账你的表达',
+        detail: '你没有抢镜，而是把话题拉回执行力和脏活，这种表态通常很稳。',
+        phoneFrom: targetEntry?.name || '队友',
+        phone: '你今天夸的是最该夸的东西，老将们都会听进去。',
+        news: `🧱 ${G.player.name} 赛后重点称赞球队防守与跑位，老将对他的认可度上升。`,
+        newsType: 'pos',
+        eventType: 'pos',
+        favorDelta: 3,
+        veteranDelta: 1
+      });
+    }
+    touchEntry(targetEntry, { favor: -3, usage: -5 });
+    touchGroup(veteranEntries, { favor: -1, veteran: -1 });
+    return finalise({
+      text: '你把话题又拉回自己手里，核心姿态有了，但队友会觉得你在抢回合的定义权。',
+      title: `${targetEntry?.name || '队友'} 觉得你在抢话`,
+      detail: '本来是一次舒服的分享球胜利，你却顺势把话题重新拽回自己的战术地位。',
+      phoneFrom: targetEntry?.name || '队友',
+      phone: '赢球当然好，但如果每次总结都变成“球该在你手里”，队友会慢慢不说话。',
+      news: `📉 ${G.player.name} 在队内交流中继续强调球权控制，部分队友对这种表态感到别扭。`,
+      newsType: 'neg',
+      eventType: 'neg',
+      favorDelta: -3,
+      usageDelta: -5,
+      veteranDelta: -1
+    });
+  }
+
+  if (type === 'teammate_shot_tension') {
+    if (id === 'own_it') {
+      touchEntry(targetEntry, { favor: 3, usage: 5 });
+      touchGroup(allEntries.filter(entry => entry.playerId !== targetPlayerId), { favor: 1, usage: 1 });
+      return finalise({
+        text: '你先把问题认了下来，更衣室的火先灭了一半，接下来要靠比赛兑现。',
+        title: '你主动给更衣室止了血',
+        detail: '你承认这场的回合处理太急，队友至少愿意再给你一次机会。',
+        phoneFrom: targetEntry?.name || '队友',
+        phone: '你能把这话说出来就行。下一场把球动起来，大家自然会跟回来。',
+        news: `🤝 输球后，${G.player.name} 主动承认回合处理过急，球队内部情绪暂时得到缓和。`,
+        newsType: 'pos',
+        eventType: 'pos',
+        favorDelta: 3,
+        usageDelta: 5
+      });
+    }
+    if (id === 'watch_tape') {
+      touchEntry(targetEntry, { favor: 1, usage: 2 });
+      touchGroup(veteranEntries, { favor: 1 });
+      return finalise({
+        text: '你没有硬顶，也没有直接认怂，而是把矛盾拉回录像和执行细节。',
+        title: '矛盾被压回了篮球层面',
+        detail: '这次谈话没有让关系立刻变热，但至少避免了更衣室继续发酵。',
+        phoneFrom: targetEntry?.name || '队友',
+        phone: '先看录像也好，至少说明你没把这事当耳旁风。',
+        eventType: 'neu',
+        favorDelta: 1,
+        usageDelta: 2
+      });
+    }
+    touchEntry(targetEntry, { favor: -5, usage: -6 });
+    touchGroup(veteranEntries, { favor: -1, veteran: -1 });
+    return finalise({
+      text: '你把姿态顶住了，但输球夜里这么说，只会让更衣室继续给你记账。',
+      title: `${targetEntry?.name || '队友'} 记下了这次争执`,
+      detail: '你坚持关键球都该由你来处理，这让队友对后续回合分配更敏感了。',
+      phoneFrom: targetEntry?.name || '队友',
+      phone: '你当然可以硬顶，但下一次别人未必还愿意第一时间把球回给你。',
+      news: `📉 ${G.player.name} 在输球后的队内交流中继续强硬强调球权处理，更衣室气压走低。`,
+      newsType: 'neg',
+      eventType: 'neg',
+      favorDelta: -5,
+      usageDelta: -6,
+      veteranDelta: -1
+    });
+  }
+
+  if (type === 'veteran_film_session') {
+    if (id === 'lead_session') {
+      touchEntry(targetEntry, { favor: 4, usage: 1, veteran: 3 });
+      touchGroup(allEntries.filter(entry => entry.playerId !== targetPlayerId), { favor: 1 });
+      return finalise({
+        text: `你在 ${targetEntry?.name || '老将'} 的球员会议上站出来带头复盘，老将会更愿意替你说话。`,
+        title: `${targetEntry?.name || '老将'} 开始把你当成能一起扛事的人`,
+        detail: '连败期愿意主动扛责，比单场数据更能赢得更衣室尊重。',
+        phoneFrom: targetEntry?.name || '老将',
+        phone: '连败的时候肯进录像室带头说话，这比赛后漂亮话有用得多。',
+        news: `🗂️ ${G.player.name} 在连败期间主动参与球员会议并带头复盘，球队内部评价回暖。`,
+        newsType: 'pos',
+        eventType: 'pos',
+        favorDelta: 4,
+        veteranDelta: 3,
+        xpDelta: 2,
+        moodDelta: -1
+      });
+    }
+    if (id === 'show_up') {
+      touchEntry(targetEntry, { favor: 2, veteran: 1 });
+      touchGroup(veteranEntries.filter(entry => entry.playerId !== targetPlayerId), { favor: 1 });
+      return finalise({
+        text: '你至少到场把会议开完了，这会让老将觉得你愿意共担连败压力。',
+        title: '你没有从连败里躲开',
+        detail: '这不是最强烈的表态，但足够说明你愿意待在队里一起解决问题。',
+        phoneFrom: targetEntry?.name || '老将',
+        phone: '你肯来就行，连败的时候最怕的是更衣室有人先往后退。',
+        eventType: 'neu',
+        favorDelta: 2,
+        veteranDelta: 1
+      });
+    }
+    touchEntry(targetEntry, { favor: -5, veteran: -3 });
+    touchGroup(veteranEntries.filter(entry => entry.playerId !== targetPlayerId), { favor: -1, veteran: -1 });
+    return finalise({
+      text: '你在最需要一起收口的时候缺席了，老将会把这件事记很久。',
+      title: '老将开始质疑你是否愿意承担',
+      detail: '连败期缺席球员会议，会被直接理解成你不想和大家一起扛。',
+      phoneFrom: targetEntry?.name || '老将',
+      phone: '录像室里少一个人，大家都看得到。连败的时候，这种事尤其伤。',
+      news: `📉 ${G.player.name} 缺席球队连败期间的球员会议，队内对其担当的评价下滑。`,
+      newsType: 'neg',
+      eventType: 'neg',
+      favorDelta: -5,
+      veteranDelta: -3,
+      moodDelta: 1
+    });
+  }
+
+  if (type === 'rookie_help_request') {
+    if (id === 'mentor_rookie') {
+      touchEntry(targetEntry, { favor: 4, usage: 1 });
+      touchGroup(rookieEntries.filter(entry => entry.playerId !== targetPlayerId), { favor: 1 });
+      return finalise({
+        text: `你陪 ${targetEntry?.name || '新秀'} 多练了一组，这种带人方式会很快传开。`,
+        title: `${targetEntry?.name || '新秀'} 更愿意跟着你学`,
+        detail: '你愿意花时间带新秀，会让队里把你看成更成熟的那一类人。',
+        phoneFrom: targetEntry?.name || '新秀',
+        phone: '谢了，今天这段加练真的有用。我知道以后该先看哪里了。',
+        news: `🌱 ${G.player.name} 训练后主动带着新秀加练，队内对他的评价多了些“愿意带人”的标签。`,
+        newsType: 'pos',
+        eventType: 'pos',
+        favorDelta: 4,
+        xpDelta: 2
+      });
+    }
+    if (id === 'pass_to_staff') {
+      touchEntry(targetEntry, { favor: 1 });
+      return finalise({
+        text: '你把问题交给助教处理了，不算失礼，但也没真正把关系往前推。',
+        title: '这次互动保持在职业层面',
+        detail: '你没有拒绝，只是没有亲自接下这件事。',
+        eventType: 'neu',
+        favorDelta: 1
+      });
+    }
+    touchEntry(targetEntry, { favor: -4, usage: -1 });
+    return finalise({
+      text: '你把这件事推回给了新秀自己，更衣室不会马上炸，但他会慢慢觉得你不好接近。',
+      title: `${targetEntry?.name || '新秀'} 觉得你不太想带他`,
+      detail: '对新秀来说，谁愿意搭把手，会被记得非常清楚。',
+      phoneFrom: targetEntry?.name || '新秀',
+      phone: '明白了，我自己再多看几遍吧。',
+      eventType: 'neg',
+      favorDelta: -4,
+      usageDelta: -1
+    });
+  }
+
+  if (type === 'bench_unit_talk') {
+    if (id === 'promise_flow') {
+      touchEntry(targetEntry, { favor: 3, usage: 4 });
+      touchGroup(allEntries.filter(entry => entry.playerId !== targetPlayerId && !entry.isVeteran), { favor: 1, usage: 1 });
+      return finalise({
+        text: '你答应把第二阵容的节奏理顺，这会让角色球员更愿意跟着你打。',
+        title: '第二阵容开始重新期待和你搭配',
+        detail: '替补最怕回合碎，你愿意主动带顺他们，氛围会直接变好。',
+        phoneFrom: targetEntry?.name || '队友',
+        phone: '如果你真愿意把二阵带顺，板凳席这边会一直记着你的好。',
+        eventType: 'pos',
+        favorDelta: 3,
+        usageDelta: 4
+      });
+    }
+    if (id === 'keep_roles') {
+      touchEntry(targetEntry, { favor: 1, usage: 1 });
+      return finalise({
+        text: '你把话题压回角色分工，短期不会特别热，但至少没继续失控。',
+        title: '更衣室暂时稳住了节奏',
+        detail: '这不是解法，但至少先把情绪按住了。',
+        eventType: 'neu',
+        favorDelta: 1,
+        usageDelta: 1
+      });
+    }
+    touchEntry(targetEntry, { favor: -4, usage: -4 });
+    touchGroup(allEntries.filter(entry => entry.playerId !== targetPlayerId && !entry.isVeteran), { favor: -1 });
+    return finalise({
+      text: '你把问题推开了，板凳席会觉得你只在乎自己的回合。',
+      title: '第二阵容对你更冷了',
+      detail: '角色球员最在意的是有没有被带进比赛，你直接划清界线会伤关系。',
+      phoneFrom: targetEntry?.name || '队友',
+      phone: '明白了，那二阵这边以后也只能各打各的了。',
+      eventType: 'neg',
+      favorDelta: -4,
+      usageDelta: -4
+    });
+  }
+
+  return { ok: false, text: '更衣室没有出现额外变化。' };
+}
+
+function buildDailyInteractionPrompt(result) {
+  const teamPrompt = typeof buildTeamRelationshipPrompt === 'function' ? buildTeamRelationshipPrompt(result) : null;
+  const coachPrompt = typeof buildCoachDailyPrompt === 'function' ? buildCoachDailyPrompt(result) : null;
+  if (teamPrompt && coachPrompt) {
+    const relationPriority = parseNum(result?.gameResult?.ast, parseNum(result?.ast, 0)) >= 7
+      || parseNum(result?.gameResult?.fga, parseNum(result?.fga, 0)) >= 20
+      || parseNum(ensureTeamRelationsState()?.chemistry?.dramaLevel, 0) > 0;
+    return relationPriority || Math.random() < 0.55 ? teamPrompt : coachPrompt;
+  }
+  return teamPrompt || coachPrompt || null;
+}
+
+function applyDailyInteractionChoice(prompt, choiceId, result = null) {
+  const type = String(prompt?.type || '').trim();
+  if (type === 'coach_conversation') {
+    return typeof applyCoachConversationChoice === 'function' ? applyCoachConversationChoice(choiceId) : null;
+  }
+  if (['teammate_ball_movement', 'teammate_shot_tension', 'veteran_film_session', 'rookie_help_request', 'bench_unit_talk'].includes(type)) {
+    return typeof applyTeamDailyPromptChoice === 'function' ? applyTeamDailyPromptChoice(prompt, choiceId, result) : null;
+  }
+  return typeof applyCoachDailyPromptChoice === 'function' ? applyCoachDailyPromptChoice(prompt, choiceId, result) : null;
+}
+
 function applyCoachRelationshipOutcome({ favorDelta = 0, fameDelta = 0, trustDelta = 0, moodDelta = 0, xpDelta = 0, directives = null, source = '', phone = '', news = '', type = 'info' } = {}) {
   const coach = typeof getTeamCoach === 'function' ? getTeamCoach(parseNum(G.teamId, 0)) : null;
   if (coach && typeof changeCoachFavorability === 'function') {
@@ -4559,11 +5507,12 @@ function emptySeasonLine(teamId, playerId, name, pos, isSelf = false) {
 }
 function ensureLeagueStateShape() {
   if (!G.leagueSeason || typeof G.leagueSeason !== 'object') {
-    G.leagueSeason = { round: 0, teamRecords: {}, playerStats: {}, roundSchedule: [], teamGameLogs: {}, gameDetails: [] };
+    G.leagueSeason = { round: 0, teamRecords: {}, playerStats: {}, roundSchedule: [], roundMatchups: [], teamGameLogs: {}, gameDetails: [] };
   }
   if (!G.leagueSeason.teamRecords) G.leagueSeason.teamRecords = {};
   if (!G.leagueSeason.playerStats) G.leagueSeason.playerStats = {};
   if (!Array.isArray(G.leagueSeason.roundSchedule)) G.leagueSeason.roundSchedule = [];
+  if (!Array.isArray(G.leagueSeason.roundMatchups)) G.leagueSeason.roundMatchups = [];
   if (!G.leagueSeason.teamGameLogs) G.leagueSeason.teamGameLogs = {};
   if (!Array.isArray(G.leagueSeason.gameDetails)) G.leagueSeason.gameDetails = [];
   if (!Number.isFinite(G.leagueSeason.round)) G.leagueSeason.round = 0;
@@ -4571,9 +5520,9 @@ function ensureLeagueStateShape() {
 
 // ============ 天数模拟系统 (APK风格) ============
 function generateGameDays() {
-  // 82场比赛分布在180天，平均每2.2天一场
+  // 将赛季比赛均匀分布在180天内
   const days = [];
-  const total = G.totalGames || 82;
+  const total = getSeasonGameCount();
   const seasonLen = G.seasonDays || 180;
   const gap = seasonLen / total;
   for (let i = 0; i < total; i++) {
@@ -4620,7 +5569,7 @@ function simulateDay() {
   const isGame = isGameDay(G.dayNum);
   const result = { day: G.dayNum, date: getDayDateString(G.dayNum), isGame, events: [] };
 
-  if (isGame && G.gameNum < 82) {
+  if (isGame && G.gameNum < getSeasonGameCount()) {
     // 比赛日
     const gameRes = playGame(G.gameNum);
     result.gameResult = gameRes;
@@ -4628,7 +5577,7 @@ function simulateDay() {
     if (typeof buildMatchupContextForLLM === 'function') {
       result.matchup = buildMatchupContextForLLM(result, { limit: 3 });
     }
-    result.events.push(`⚔️ 进行了第${G.gameNum}场比赛`);
+    result.events.push(`⚔️ 联盟第${G.gameNum}轮已结算（${gameRes?.leagueGameCount || 1}场比赛）`);
     const postRecovery = recoverStamina({ rest: false, ecoFx });
     result.events.push(`🔋 赛后恢复 +${postRecovery}`);
   } else {
@@ -4640,6 +5589,15 @@ function simulateDay() {
       const xp = rng(2, 6);
       addPlayerXP(xp);
       result.events.push(`🏋️ 训练，XP+${xp}`);
+    }
+  }
+
+  // All-Star break check
+  if (typeof checkAllStarBreak === 'function') {
+    const asResult = checkAllStarBreak();
+    if (asResult) {
+      result.events.push(asResult);
+      result.allStar = asResult;
     }
   }
 
@@ -4659,7 +5617,7 @@ function simulateDays(count) {
   const results = [];
   for (let i = 0; i < count; i++) {
     if (G.dayNum >= G.seasonDays) break;
-    if (G.gameNum >= 82) break;
+    if (G.gameNum >= getSeasonGameCount()) break;
     const res = simulateDay();
     results.push(res);
     // 如果有待处理事件，中断
@@ -5626,7 +6584,7 @@ function normalizeSocialComments(rawComments, tone = 'neutral', seed = '', postM
     if (!key || used.has(key)) return;
     used.add(key);
     const author = String(item?.author || '').trim()
-      || SOCIAL_COMMENTERS[(hashStringToInt(`${seedBase}_${idx}`) + idx) % SOCIAL_COMMENTERS.length]
+      || getSocialCommenter(`${seedBase}_${idx}`, true)
       || `@评论${normalized.length + 1}`;
     normalized.push({
       author,
@@ -6011,7 +6969,10 @@ async function enhanceCommercialEventVisualAsync(eventRef, postRef = null) {
   try {
     const res = await generateSignatureShoeImageByLLM(prompt, { model: imageModel, size: '1024x1024' });
     if (!res?.ok || !res.image) return null;
-    const nextImage = String(res.image || '').trim();
+    let nextImage = String(res.image || '').trim();
+    if (nextImage.startsWith('http')) {
+      try { const c = await cacheRemoteImage(nextImage); if (c) nextImage = c; } catch (_) {}
+    }
     eventRef.image = nextImage;
     eventRef.imagePrompt = prompt;
     eventRef.imageModel = String(res.model || imageModel).trim();
@@ -6096,16 +7057,144 @@ function personaHandle(personaKey) {
   if (!seed) return handles[0];
   return pickSeedItem(handles, `${key}_${seed}`) || handles[0];
 }
-const SOCIAL_COMMENTERS = [
-  '@篮圈路人', '@冷静分析', '@主队铁粉', '@客队球迷', '@数字派',
-  '@看热闹不嫌事大', '@理性发言', '@今日话题', '@吃瓜群众甲',
-  '@懂球帝本帝', '@评论区战神', '@我就看看不说话', '@杠就完了',
-  '@前排出售瓜子', '@这也能吵起来', '@纯路人不站队',
-  '@虎扑步行街来的', '@JR代表发言', '@球盲鉴定完毕', '@反转了家人们',
-  '@教练下课吧求你了', '@这球我能吹一年', '@防守端看哭了',
-  '@选秀眼光帝', '@伤病满员出发', '@替补席观察员', '@垃圾时间之王',
-  '@赛后复盘师', '@更衣室消息灵通人士', '@技术统计狂魔'
-];
+// 扩展的评论者用户名池 - 分为多个类别以增加多样性
+const SOCIAL_COMMENTER_POOLS = {
+  // 普通球迷类
+  fans: [
+    '@篮圈路人', '@主队铁粉', '@客队球迷', '@吃瓜群众甲', '@纯路人不站队',
+    '@看球十年老粉', '@新球迷报到', '@铁杆粉丝团', '@死忠看台', '@季票持有者',
+    '@主场气氛组', '@远征军小分队', '@球迷协会会长', '@看台指挥官', '@助威团团长'
+  ],
+  // 虎扑/论坛风格
+  hupu: [
+    '@虎扑步行街来的', '@JR代表发言', '@步行街扛把子', '@虎扑老哥', '@街薪百万',
+    '@亮了亮了', '@这贴必火', '@前排留名', '@JR日常', '@虎扑签到党',
+    '@步行街观察员', '@热评专业户', '@高亮回复', '@被亮次数多', '@虎扑老司机'
+  ],
+  // 搞笑/调侃类
+  funny: [
+    '@看热闹不嫌事大', '@前排出售瓜子', '@这也能吵起来', '@杠就完了', '@反转了家人们',
+    '@教练下课吧求你了', '@这球我能吹一年', '@防守端看哭了', '@垃圾时间之王', '@血压已拉满',
+    '@笑死在评论区', '@这波操作绝了', '@笑看风云淡', '@吃瓜不嫌事大', '@围观群众乙'
+  ],
+  // 分析/数据类
+  analysts: [
+    '@冷静分析', '@理性发言', '@数字派', '@懂球帝本帝', '@技术统计狂魔',
+    '@赛后复盘师', '@战术板搬运工', '@数据党', '@高阶分析师', '@回合拆解达人',
+    '@效率值观察', '@正负值狂魔', '@进阶数据控', '@比赛阅读者', '@战术观察室'
+  ],
+  // 情绪化球迷
+  emotional: [
+    '@赢球蜜输球黑', '@心态已崩', '@看球气到住院', '@血压已经220了', '@又在骂裁判了',
+    '@爱之深责之切', '@恨铁不成钢', '@每场都看每场都喷', '@真香预警', '@打脸预定',
+    '@先抑后扬党', '@情绪过山车', '@看球费烟', '@心脏病预备役', '@绝杀专业户'
+  ],
+  // 段子手/吐槽类
+  comedians: [
+    '@今日话题', '@评论区战神', '@我就看看不说话', '@选秀眼光帝', '@伤病满员出发',
+    '@替补席观察员', '@更衣室消息灵通人士', '@键盘总经理', '@云教练', '@纸上谈兵大师',
+    '@交易建议专家', '@首发调整狂', '@轮换方案设计师', '@战术发明家', '@临场指挥家'
+  ],
+  // 老球迷/怀旧类
+  oldheads: [
+    '@看球二十年了', '@老球迷日常', '@当年那支队', '@怀念老时代', '@以前不是这样的',
+    '@乔丹时代过来人', '@科比门徒', '@老派篮球信徒', '@硬汉时代遗民', '@防守至上主义者',
+    '@那个年代的球迷', '@老球迷茶馆', '@回忆杀专业户', '@经典比赛收藏家', '@历史地位鉴定师'
+  ],
+  // 新球迷/萌新类
+  newbies: [
+    '@刚看NBA三天', '@女朋友让我看球', '@隔壁老王聊球', '@上班摸鱼看比分', '@啥也不懂但我爱看',
+    '@萌新提问', '@求科普', '@刚入坑', '@跟着朋友看球', '@被安利来的',
+    '@新球迷报到', '@学习中', '@认真看球中', '@慢慢懂了', '@入坑真香'
+  ],
+  // 球队相关
+  teamFans: [
+    '@湖人死忠', '@凯尔特人老粉', '@勇士王朝见证者', '@热火文化拥趸', '@马刺系球迷',
+    '@公牛老粉', '@尼克斯铁杆', '@快船新贵', '@独行侠拥趸', '@76人死忠',
+    '@掘金高原战士', '@雄鹿鹿角', '@太阳光芒', '@灰熊磨砺者', '@骑士守护者'
+  ],
+  // 球星粉丝
+  starFans: [
+    '@詹密报到', '@库密日常', '@杜密视角', '@字密观察', '@卡密在此',
+    '@哈登粉丝团', '@欧文控球粉', '@东契奇死忠', '@塔图姆铁粉', '@布克粉丝',
+    '@老科密转粉', '@麦迪老粉', '@艾弗森死忠', '@邓肯门徒', '@奥尼尔时代过来的'
+  ]
+};
+
+// 扁平化的完整列表（向后兼容）
+const SOCIAL_COMMENTERS = Object.values(SOCIAL_COMMENTER_POOLS).flat();
+
+// 记录最近使用的用户名，避免短期内重复
+const _recentlyUsedCommenters = [];
+const _recentCommentersMaxSize = 50;
+
+// 生成动态用户名
+function generateDynamicCommenter(seed = '') {
+  const prefixes = ['篮球', 'NBA', '球场', '看台', '篮圈', '三分', '禁区', '快攻', '挡拆', '防守'];
+  const suffixes = ['达人', '爱好者', '观察员', '分析师', '老粉', '新粉', '路人', '铁杆', '死忠', '萌新'];
+  const numbers = ['', '', '', '23', '24', '30', '11', '13', '21', '3'];
+  const verbs = ['看球', '聊球', '评球', '懂球', '爱球', '追球', '打球', '迷球'];
+  const nouns = ['少年', '大叔', '小哥', '老哥', '兄弟', '朋友', '同学', '邻居'];
+
+  const seedNum = hashStringToInt(String(seed || Date.now()));
+  const type = seedNum % 4;
+
+  let name = '';
+  if (type === 0) {
+    name = prefixes[seedNum % prefixes.length] + suffixes[(seedNum >> 2) % suffixes.length];
+  } else if (type === 1) {
+    name = verbs[seedNum % verbs.length] + nouns[(seedNum >> 2) % nouns.length];
+  } else if (type === 2) {
+    name = prefixes[seedNum % prefixes.length] + numbers[(seedNum >> 2) % numbers.length];
+  } else {
+    const cities = ['洛杉矶', '纽约', '芝加哥', '迈阿密', '旧金山', '波士顿', '达拉斯', '休斯顿', '费城', '凤凰城'];
+    name = cities[seedNum % cities.length] + nouns[(seedNum >> 2) % nouns.length];
+  }
+
+  // 添加随机数字后缀增加唯一性
+  const numSuffix = (seedNum % 1000);
+  return `@${name}${numSuffix}`;
+}
+
+// 获取评论者用户名（改进版，减少重复）
+function getSocialCommenter(seed = '', avoidRecent = true) {
+  const seedStr = String(seed || Date.now());
+  const seedNum = hashStringToInt(seedStr);
+
+  // 优先从不同类别中混合选择，增加多样性
+  const poolKeys = Object.keys(SOCIAL_COMMENTER_POOLS);
+  const selectedPool = SOCIAL_COMMENTER_POOLS[poolKeys[seedNum % poolKeys.length]];
+
+  // 尝试找到一个未使用的用户名
+  let attempts = 0;
+  let selected = null;
+
+  while (attempts < 10) {
+    const idx = (seedNum + attempts * 17) % selectedPool.length;
+    const candidate = selectedPool[idx];
+
+    if (!avoidRecent || !_recentlyUsedCommenters.includes(candidate)) {
+      selected = candidate;
+      break;
+    }
+    attempts++;
+  }
+
+  // 如果所有常用名都用过了，生成动态用户名
+  if (!selected) {
+    selected = generateDynamicCommenter(seedStr);
+  }
+
+  // 记录使用过的用户名
+  if (avoidRecent) {
+    _recentlyUsedCommenters.push(selected);
+    if (_recentlyUsedCommenters.length > _recentCommentersMaxSize) {
+      _recentlyUsedCommenters.shift();
+    }
+  }
+
+  return selected;
+}
 
 function detectSocialCommentTopic(text = '', postMeta = null) {
   const sample = [text, postMeta?.author, postMeta?.persona, postMeta?.sourceType].filter(Boolean).join(' ');
@@ -6172,7 +7261,7 @@ function makeFallbackComments(text, tone = 'neutral', count = 3, postMeta = null
   const used = new Set();
   const comments = [];
   for (let i = 0; comments.length < safeCount && i < Math.max(8, safeCount * 10); i++) {
-    const author = SOCIAL_COMMENTERS[(hashStringToInt(`${seedBase}_author_${i}`) + i) % SOCIAL_COMMENTERS.length] || `@评论${comments.length + 1}`;
+    const author = getSocialCommenter(`${seedBase}_author_${i}`, true) || `@评论${comments.length + 1}`;
     const candidate = cleanSocialText(String(pickSeedItem(combinedPool, `${seedBase}_text`, i) || '').trim()).slice(0, 32);
     const key = candidate.replace(/\s+/g, '').toLowerCase();
     if (!candidate || used.has(key)) continue;
@@ -6194,7 +7283,7 @@ function normalizeCommercialCommentList(rawComments, tone = 'neutral', seed = ''
     .map((item, idx) => {
       const text = cleanSocialText(String(item?.text || item?.comment || '').trim()).slice(0, 26);
       if (!text) return null;
-      const author = String(item?.author || '').trim() || SOCIAL_COMMENTERS[(hashStringToInt(`${seed}_${idx}`) + idx) % SOCIAL_COMMENTERS.length] || `@评论${idx + 1}`;
+      const author = String(item?.author || '').trim() || getSocialCommenter(`${seed}_${idx}`, true) || `@评论${idx + 1}`;
       return {
         author,
         text,
@@ -6380,12 +7469,313 @@ function resolveSocialLinkStatus(link = null) {
   if (heat >= 18 || affinity <= -10) return SOCIAL_LINK_STATUS.tense;
   return SOCIAL_LINK_STATUS.neutral;
 }
+function ensureRivalryState() {
+  ensureSocialState();
+  if (!G.social.rivalry || typeof G.social.rivalry !== 'object') {
+    G.social.rivalry = { lastPreviewGameKey: '', lastResultGameKey: '' };
+  }
+  if (typeof G.social.rivalry.lastPreviewGameKey !== 'string') G.social.rivalry.lastPreviewGameKey = '';
+  if (typeof G.social.rivalry.lastResultGameKey !== 'string') G.social.rivalry.lastResultGameKey = '';
+  return G.social.rivalry;
+}
+function getPrimaryRivalRelationship() {
+  ensureSocialState();
+  const rivalLink = Object.values(G.social.playerLinks || {})
+    .filter(link => resolveSocialLinkStatus(link).id === 'rival')
+    .sort((a, b) =>
+      parseNum(b.heat, 0) - parseNum(a.heat, 0) ||
+      parseNum(a.affinity, 0) - parseNum(b.affinity, 0) ||
+      parseNum(b.respect, 0) - parseNum(a.respect, 0)
+    )[0] || null;
+  if (!rivalLink) return null;
+  const profile = getSocialStarProfileByRef(rivalLink);
+  if (!profile) return null;
+  return {
+    link: rivalLink,
+    profile,
+    status: resolveSocialLinkStatus(rivalLink)
+  };
+}
+function getUpcomingRivalMatchupInfo() {
+  const rival = getPrimaryRivalRelationship();
+  if (!rival?.profile) return null;
+  const schedule = Array.isArray(G.schedule) ? G.schedule : [];
+  const startIdx = Math.max(0, parseNum(G.gameNum, 0));
+  for (let i = startIdx; i < schedule.length; i++) {
+    const game = schedule[i];
+    if (parseNum(game?.opp, 0) !== parseNum(rival.profile.teamId, 0)) continue;
+    const gameDay = Array.isArray(G.gameDays) ? parseNum(G.gameDays[i], NaN) : NaN;
+    return {
+      ...rival,
+      gameIndex: i,
+      gameDay: Number.isFinite(gameDay) ? gameDay : null,
+      daysUntil: Number.isFinite(gameDay) ? Math.max(0, gameDay - parseNum(G.dayNum, 0)) : null,
+      home: !!game?.home,
+      opponent: getTeam(parseNum(game?.opp, 0)) || null
+    };
+  }
+  return {
+    ...rival,
+    gameIndex: -1,
+    gameDay: null,
+    daysUntil: null,
+    home: false,
+    opponent: getTeam(parseNum(rival.profile.teamId, 0)) || null
+  };
+}
 function syncPrimaryRivalFromSocialLinks() {
   ensureSocialState();
   const rivals = Object.values(G.social.playerLinks || {})
     .filter(link => resolveSocialLinkStatus(link).id === 'rival')
     .sort((a, b) => parseNum(b.heat, 0) - parseNum(a.heat, 0) || parseNum(a.affinity, 0) - parseNum(b.affinity, 0));
   G.player.rivalId = rivals.length ? parseNum(rivals[0].playerId, 0) : 0;
+}
+function syncTeammateRelationFromSocialLink(profile = {}, { affinityDelta = 0, respectDelta = 0, heatDelta = 0, source = '' } = {}) {
+  const teamId = parseNum(profile?.teamId, 0);
+  const playerId = parseNum(profile?.playerId, 0);
+  const currentTeamId = parseNum(G.teamId, 0);
+  if (!teamId || !playerId || teamId !== currentTeamId) return null;
+  if (typeof ensureTeammateRelation !== 'function' || typeof recalculateTeamChemistry !== 'function') return null;
+
+  const teammate = typeof findTeamPlayerById === 'function'
+    ? findTeamPlayerById(teamId, playerId)
+    : ((getTeamPlayers(teamId) || []).find(player => parseNum(player?.id, 0) === playerId) || null);
+  if (!teammate) return null;
+
+  const entry = ensureTeammateRelation(teammate, teamId);
+  if (!entry) return null;
+
+  const affinity = parseNum(affinityDelta, 0);
+  const respect = parseNum(respectDelta, 0);
+  const heat = parseNum(heatDelta, 0);
+  let favorDelta = affinity * 0.28 + respect * 0.14;
+  if (affinity < 0) favorDelta -= heat * 0.12;
+  else if (affinity > 0 && respect > 0) favorDelta += Math.min(1.2, heat * 0.04);
+
+  let usageDelta = 0;
+  if (affinity >= 8 || respect >= 8) usageDelta += 1;
+  if (affinity <= -8) usageDelta -= 2;
+  else if (heat >= 14 && affinity <= 0) usageDelta -= 1;
+
+  let veteranDelta = 0;
+  if (entry.isVeteran && respect >= 10) veteranDelta += 1;
+  if (entry.isVeteran && affinity <= -8) veteranDelta -= 1;
+
+  favorDelta = Math.round(favorDelta);
+  usageDelta = Math.round(usageDelta);
+  veteranDelta = Math.round(veteranDelta);
+  if (!favorDelta && !usageDelta && !veteranDelta) return null;
+
+  const oldFavor = parseNum(entry.favorability, 50);
+  const oldUsage = parseNum(entry.usageSatisfaction, 0);
+  const oldVeteran = parseNum(entry.veteranEndorsement, 0);
+  entry.favorability = clamp(oldFavor + favorDelta, 0, 100);
+  entry.usageSatisfaction = clamp(oldUsage + usageDelta, -40, 40);
+  entry.veteranEndorsement = clamp(oldVeteran + veteranDelta, -20, 20);
+  entry.interactions = parseNum(entry.interactions, 0) + 1;
+  entry.lastInteractionDay = parseNum(G.dayNum, 0);
+  entry.lastSource = String(source || '社媒互动').trim();
+  const chemistry = recalculateTeamChemistry();
+
+  if (typeof pushTeamRelationEvent === 'function' && (Math.abs(favorDelta) >= 2 || usageDelta !== 0)) {
+    const positive = favorDelta + usageDelta >= 0;
+    const sourceLabel = String(source || '').includes('回复') ? '社媒回复' : '社媒互动';
+    pushTeamRelationEvent({
+      playerId,
+      playerName: entry.name,
+      title: `${entry.name} ${positive ? '注意到了你的互动' : '对你的互动有点意见'}`,
+      detail: positive
+        ? `你在手机上的 ${sourceLabel} 让 ${entry.name} 对你的观感有所回暖。`
+        : `你在手机上的 ${sourceLabel} 让 ${entry.name} 觉得你有点呛，队内观感下降。`,
+      favorDelta,
+      usageDelta,
+      veteranDelta,
+      type: positive ? 'pos' : 'neg',
+      source: sourceLabel
+    });
+  }
+
+  return {
+    playerId,
+    playerName: entry.name,
+    favorDelta,
+    usageDelta,
+    veteranDelta,
+    chemistry
+  };
+}
+function buildRivalryGameModifier(player, { teamId = 0, oppProfile = null } = {}) {
+  const rival = getPrimaryRivalRelationship();
+  if (!rival?.profile || !rival?.link) return null;
+  const rivalTeamId = parseNum(rival.profile.teamId, 0);
+  const rivalPlayerId = parseNum(rival.profile.playerId, 0);
+  const currentTeamId = parseNum(teamId, 0);
+  const opponentTeamId = parseNum(oppProfile?.teamId, 0);
+  const playerId = parseNum(player?.id, 0);
+  const isSelf = !!player?.isSelf || String(player?.id || '') === 'USER_SELF';
+  const heat = clamp(parseNum(rival.link.heat, 0), 0, 100);
+  const respect = clamp(parseNum(rival.link.respect, 0), 0, 100);
+  const tension = clamp((heat * 0.75 + respect * 0.35) / 100, 0.18, 0.92);
+
+  if (isSelf && rivalTeamId === opponentTeamId) {
+    const swing = rng(-2, 3) / 100;
+    return {
+      usageMult: 1 + tension * 0.05,
+      astMult: 1 + tension * 0.03,
+      stocksMult: 1 + tension * 0.05,
+      efficiencyShift: 0.008 + swing,
+      note: `${rival.profile.name} 在对面，宿敌对位让你的比赛强度被拉高`,
+      tag: 'rival_user'
+    };
+  }
+  if (!isSelf && currentTeamId === rivalTeamId && opponentTeamId === parseNum(G.teamId, 0) && playerId === rivalPlayerId) {
+    const swing = rng(-3, 2) / 100;
+    return {
+      usageMult: 1 + tension * 0.06,
+      stocksMult: 1 + tension * 0.04,
+      efficiencyShift: 0.004 + swing,
+      note: `宿敌对位，这场 ${rival.profile.name} 明显更想在你面前证明自己`,
+      tag: 'rival_opponent'
+    };
+  }
+  return null;
+}
+function maybeQueueRivalGamePreview(oppTeamId = 0, gameKey = '') {
+  const rival = getPrimaryRivalRelationship();
+  if (!rival?.profile) return null;
+  if (parseNum(oppTeamId, 0) !== parseNum(rival.profile.teamId, 0)) return null;
+  const state = ensureRivalryState();
+  const key = String(gameKey || `${parseNum(G.season, 1)}_${parseNum(G.dayNum, 0)}_${parseNum(oppTeamId, 0)}_${parseNum(rival.profile.playerId, 0)}`).trim();
+  if (state.lastPreviewGameKey === key) return null;
+  state.lastPreviewGameKey = key;
+  const heat = parseNum(rival.link?.heat, 0);
+  const taunts = heat >= 55
+    ? [
+      `${rival.profile.name} 在手机上放话：今晚别想着轻松过关，我会把每个回合都打在你脸上。`,
+      `${rival.profile.name} 传来一句话：热度够了，晚上见真章。`,
+      `${rival.profile.name} 赛前已经开口了：你今晚每一次拿球，我都会记住。`
+    ]
+    : [
+      `${rival.profile.name} 提醒你：下一次对位到了，别让这条线掉下去。`,
+      `${rival.profile.name} 赛前有动静：今晚这场，他显然已经准备好了。`,
+      `${rival.profile.name} 的名字又出现在手机里，火药味在升。`
+    ];
+  const phoneText = pick(taunts);
+  addPhone('宿敌动态', phoneText, 'warn');
+  addNews(`🔥 今晚将对位宿敌 ${rival.profile.name}，这场比赛的舆论热度正在抬升。`, 'neg');
+  return {
+    rival,
+    phoneText,
+    title: `今晚对位宿敌 ${rival.profile.name}`,
+    detail: heat >= 55 ? '双方的火药味已经拉满，这场不会只是普通常规赛。' : '这条宿敌线又推进了一步，手机和舆论都会盯着这场球。'
+  };
+}
+function applyRivalryAfterGame(result) {
+  const rival = getPrimaryRivalRelationship();
+  if (!result || !rival?.profile) return null;
+  const opponentTeamId = parseNum(result?.opp, 0);
+  if (!opponentTeamId || parseNum(rival.profile.teamId, 0) !== opponentTeamId) return null;
+
+  const rivalRows = parseNum(result.homeTeamId, 0) === parseNum(G.teamId, 0) ? result.awayRows : result.homeRows;
+  const rivalRow = (Array.isArray(rivalRows) ? rivalRows : []).find(row => parseNum(row?.playerId, 0) === parseNum(rival.profile.playerId, 0) && !row?.status) || null;
+  if (!rivalRow) return null;
+
+  const rivalryState = ensureRivalryState();
+  const resultKey = String(result?.gameId || `${parseNum(G.season, 1)}_${parseNum(result?.game, 0)}_${parseNum(rival.profile.playerId, 0)}`).trim();
+  if (rivalryState.lastResultGameKey === resultKey) return null;
+  rivalryState.lastResultGameKey = resultKey;
+
+  const playerScore =
+    parseNum(result.pts, 0) * 1.2 +
+    parseNum(result.ast, 0) * 1.0 +
+    parseNum(result.reb, 0) * 0.8 +
+    parseNum(result.stl, 0) * 1.7 +
+    parseNum(result.blk, 0) * 1.6 -
+    parseNum(result.tov, 0) * 0.7 +
+    (result.win ? 5 : 0);
+  const rivalScore =
+    parseNum(rivalRow.pts, 0) * 1.2 +
+    parseNum(rivalRow.ast, 0) * 1.0 +
+    parseNum(rivalRow.reb, 0) * 0.8 +
+    parseNum(rivalRow.stl, 0) * 1.7 +
+    parseNum(rivalRow.blk, 0) * 1.6 -
+    parseNum(rivalRow.tov, 0) * 0.7 +
+    (!result.win ? 5 : 0);
+  const duelDiff = +(playerScore - rivalScore).toFixed(1);
+
+  let affinityDelta = -1;
+  let respectDelta = 1;
+  let heatDelta = 4;
+  let fameDelta = 0;
+  let trustDelta = 0;
+  let moodDelta = 0;
+  let title = `你和 ${rival.profile.name} 这场打成了拉锯战`;
+  let detail = `你拿到 ${parseNum(result.pts, 0)} 分 ${parseNum(result.ast, 0)} 助，对方回了 ${parseNum(rivalRow.pts, 0)} 分 ${parseNum(rivalRow.ast, 0)} 助，宿敌线继续升温。`;
+  let phoneText = `${rival.profile.name} 的这场对位已经被手机和舆论记下了，这条线还会继续。`;
+  let newsType = 'neu';
+
+  if (duelDiff >= 8 && result.win) {
+    affinityDelta = -3;
+    respectDelta = 3;
+    heatDelta = 8;
+    fameDelta = 1;
+    trustDelta = 1;
+    moodDelta = -1;
+    title = `你在宿敌对位里压过了 ${rival.profile.name}`;
+    detail = `这场你赢球也赢了对位，${rival.profile.name} 只会更想在下一次把账收回来。`;
+    phoneText = `${rival.profile.name} 赛后传话：这场你拿了，但别把它当结束。下一次我会把对位强度再往上拉。`;
+    newsType = 'pos';
+  } else if (duelDiff >= 3) {
+    affinityDelta = -2;
+    respectDelta = 2;
+    heatDelta = 6;
+    title = `你在和 ${rival.profile.name} 的对位里稍占上风`;
+    detail = `对位层面你更稳一点，宿敌热度顺势又往上推了一截。`;
+    phoneText = `${rival.profile.name} 对这场不太服气，手机上的火药味只会更重。`;
+  } else if (duelDiff <= -8) {
+    affinityDelta = -4;
+    respectDelta = 2;
+    heatDelta = 9;
+    trustDelta = result.win ? 0 : -1;
+    moodDelta = 1;
+    title = `${rival.profile.name} 在这场宿敌对位里压住了你`;
+    detail = `这场对位明显被对方抢了风头，下一次碰面前，外界会一直拿这场来压你。`;
+    phoneText = `${rival.profile.name} 赛后放话：今晚这笔账我先收下了。下一次碰面，别再给我这么轻松。`;
+    newsType = 'neg';
+  } else if (duelDiff <= -3) {
+    affinityDelta = -3;
+    respectDelta = 1;
+    heatDelta = 7;
+    moodDelta = 1;
+    title = `${rival.profile.name} 在关键回合里压了你一头`;
+    detail = `虽然差距不算大，但这场宿敌对位最后的话题更多落到了对面。`;
+    phoneText = `${rival.profile.name} 这场把话题拿走了，下一次见面前你都得带着这口气。`;
+    newsType = 'neg';
+  }
+
+  const relation = applySocialPlayerLinkDelta(rival.profile, {
+    affinityDelta,
+    respectDelta,
+    heatDelta,
+    source: '宿敌对位'
+  });
+  if (fameDelta || trustDelta) applyReputationDelta({ fame: fameDelta, trust: trustDelta, source: '宿敌对位' });
+  if (moodDelta) G.player.mood = clamp(parseNum(G.player.mood, 50) + moodDelta, 0, 100);
+
+  addPhone('宿敌动态', phoneText, duelDiff >= 0 ? 'info' : 'warn');
+  addNews(`🔥 宿敌对位更新：${title}`, newsType);
+
+  const summary = {
+    rival: rival.profile,
+    rivalRow,
+    duelDiff,
+    title,
+    detail,
+    relation
+  };
+  result.rivalrySummary = summary;
+  if (Array.isArray(result.events)) result.events.push(`🔥 ${title}：${detail}`);
+  return summary;
 }
 function applySocialPlayerLinkDelta(ref = {}, { affinityDelta = 0, respectDelta = 0, heatDelta = 0, source = '' } = {}) {
   ensureSocialState();
@@ -6425,6 +7815,7 @@ function applySocialPlayerLinkDelta(ref = {}, { affinityDelta = 0, respectDelta 
   link.lastDay = parseNum(G.dayNum, 0);
   link.lastSource = String(source || '').trim();
   const newStatus = resolveSocialLinkStatus(link);
+  const teamSync = syncTeammateRelationFromSocialLink(profile, { affinityDelta, respectDelta, heatDelta, source });
   syncPrimaryRivalFromSocialLinks();
   if (oldStatus.id !== newStatus.id) {
     if (newStatus.id === 'friend') {
@@ -6437,7 +7828,7 @@ function applySocialPlayerLinkDelta(ref = {}, { affinityDelta = 0, respectDelta 
       addPhone('社媒关系', `${profile.name} 开始正面评价你，你在球星圈里拿到了一层尊重。`, 'info');
     }
   }
-  return { link, profile, oldStatus, newStatus };
+  return { link, profile, oldStatus, newStatus, teamSync };
 }
 function getTrackedSocialRelationships(limit = 6) {
   ensureSocialState();
@@ -7185,11 +8576,14 @@ function ensureSocialState() {
   if (!G.social.playerPostsByDay || typeof G.social.playerPostsByDay !== 'object') G.social.playerPostsByDay = {};
   if (!Array.isArray(G.social.playerStatementLog)) G.social.playerStatementLog = [];
   if (!G.social.playerLinks || typeof G.social.playerLinks !== 'object') G.social.playerLinks = {};
+  if (!G.social.rivalry || typeof G.social.rivalry !== 'object') G.social.rivalry = { lastPreviewGameKey: '', lastResultGameKey: '' };
   if (!G.social.starProfiles || typeof G.social.starProfiles !== 'object') G.social.starProfiles = {};
   if (!Array.isArray(G.social.commercialEvents)) G.social.commercialEvents = [];
   if (!Number.isFinite(parseNum(G.social.commercialSocialVersion, NaN))) G.social.commercialSocialVersion = 0;
   if (!Array.isArray(G.social.llmModels)) G.social.llmModels = [];
   if (!Number.isFinite(parseNum(G.social.llmModelsFetchedAt, NaN))) G.social.llmModelsFetchedAt = 0;
+  if (typeof G.social.rivalry.lastPreviewGameKey !== 'string') G.social.rivalry.lastPreviewGameKey = '';
+  if (typeof G.social.rivalry.lastResultGameKey !== 'string') G.social.rivalry.lastResultGameKey = '';
   if (!G.social.lastLLMTest || typeof G.social.lastLLMTest !== 'object') G.social.lastLLMTest = { ok: false, message: '', at: 0 };
   if (!G.social._leaguePlayerPoolCache || typeof G.social._leaguePlayerPoolCache !== 'object') G.social._leaguePlayerPoolCache = { key: '', pool: [] };
   if (typeof G.social.tweetImagesEnabled !== 'boolean') G.social.tweetImagesEnabled = false;
@@ -7849,7 +9243,11 @@ async function attachGeneratedImagesToSocialPosts(posts = [], dayResult = {}, co
     try {
       const res = await generateSignatureShoeImageByLLM(prompt, { model: imageModel, size: '1024x1024' });
       if (res?.ok && res.image) {
-        post.image = String(res.image || '').trim();
+        let img = String(res.image || '').trim();
+        if (img.startsWith('http')) {
+          try { const c = await cacheRemoteImage(img); if (c) img = c; } catch (_) {}
+        }
+        post.image = img;
         post.imagePrompt = prompt;
         post.imageModel = String(res.model || imageModel).trim();
         post.imageStatus = 'llm';
@@ -8270,6 +9668,13 @@ async function maybeCreateStarResponseForReplyAsync(target, cleaned, impact) {
 }
 function finalizePlayerReplyRecord(base, relation = null, { llmUsed = false } = {}) {
   if (!base?.ok) return base || { ok: false, message: '回复失败' };
+  const teamSync = relation?.teamSync || null;
+  const teamSyncText = teamSync
+    ? [
+      teamSync.favorDelta ? `队友好感${teamSync.favorDelta > 0 ? '+' : ''}${teamSync.favorDelta}` : '',
+      teamSync.usageDelta ? `球权感受${teamSync.usageDelta > 0 ? '+' : ''}${teamSync.usageDelta}` : ''
+    ].filter(Boolean).join(' / ')
+    : '';
   appendPlayerStatementLog({
     day: parseNum(base.target.day, G.dayNum),
     season: parseNum(base.target.season, G.season),
@@ -8285,8 +9690,8 @@ function finalizePlayerReplyRecord(base, relation = null, { llmUsed = false } = 
     impact: {
       ...base.impact,
       label: relation?.newStatus?.id && relation.newStatus.id !== 'neutral'
-        ? `${base.impact.label} · ${relation.newStatus.label}`
-        : base.impact.label,
+        ? `${base.impact.label} · ${relation.newStatus.label}${teamSyncText ? ` · ${teamSyncText}` : ''}`
+        : `${base.impact.label}${teamSyncText ? ` · ${teamSyncText}` : ''}`,
       fameDelta: base.rep.fameDelta,
       trustDelta: base.rep.trustDelta
     },
@@ -9176,9 +10581,902 @@ function applyEndorsementAttrBoosts(boosts, direction = 1) {
   });
 }
 
-/* Signature shoe engine moved to assets/js/signature-shoe.js
-const SIGNATURE_SHOE_SLOT_KEYS = ['speed', 'shooting', 'finishing', 'playmaking', 'defense'];
-const SIGNATURE_SHOE_EFFECT_LABELS = {
+// ============ PLAYOFF SYSTEM ============
+
+function defaultPlayoffState() {
+  return { active: false, round: 0, eliminated: false, champion: false, bracket: [], series: { opp: 0, mySeed: 0, oppSeed: 0, myWins: 0, oppWins: 0, games: [] } };
+}
+
+function startPlayoffs() {
+  const records = getLeagueTeamRecordsArray();
+  const userTeamId = parseNum(G.teamId, 0);
+  const east = records.filter(r => r.c === 'East').sort((a, b) => b.w - a.w || (b.pf - b.pa) - (a.pf - a.pa));
+  const west = records.filter(r => r.c === 'West').sort((a, b) => b.w - a.w || (b.pf - b.pa) - (a.pf - a.pa));
+  const east8 = east.slice(0, 8);
+  const west8 = west.slice(0, 8);
+  const userConf = (TEAMS.find(t => t.id === userTeamId) || {}).c || 'East';
+  const userTop8 = userConf === 'East' ? east8 : west8;
+  const userInPlayoffs = userTop8.some(t => t.id === userTeamId);
+
+  // Build bracket: round 1 pairings (1v8, 2v7, 3v6, 4v5)
+  const bracket = [];
+  const pairings = [[0,7],[1,6],[2,5],[3,4]];
+  // Round 1 — East
+  pairings.forEach(([hi, lo]) => {
+    bracket.push({ round: 1, conf: 'East', higherSeed: east8[hi]?.id, lowerSeed: east8[lo]?.id, higherWins: 0, lowerWins: 0, games: [], winner: null });
+  });
+  // Round 1 — West
+  pairings.forEach(([hi, lo]) => {
+    bracket.push({ round: 1, conf: 'West', higherSeed: west8[hi]?.id, lowerSeed: west8[lo]?.id, higherWins: 0, lowerWins: 0, games: [], winner: null });
+  });
+  // Round 2 — placeholders (filled after round 1)
+  bracket.push({ round: 2, conf: 'East', higherSeed: 0, lowerSeed: 0, higherWins: 0, lowerWins: 0, games: [], winner: null });
+  bracket.push({ round: 2, conf: 'East', higherSeed: 0, lowerSeed: 0, higherWins: 0, lowerWins: 0, games: [], winner: null });
+  bracket.push({ round: 2, conf: 'West', higherSeed: 0, lowerSeed: 0, higherWins: 0, lowerWins: 0, games: [], winner: null });
+  bracket.push({ round: 2, conf: 'West', higherSeed: 0, lowerSeed: 0, higherWins: 0, lowerWins: 0, games: [], winner: null });
+  // Conference Finals
+  bracket.push({ round: 3, conf: 'East', higherSeed: 0, lowerSeed: 0, higherWins: 0, lowerWins: 0, games: [], winner: null });
+  bracket.push({ round: 3, conf: 'West', higherSeed: 0, lowerSeed: 0, higherWins: 0, lowerWins: 0, games: [], winner: null });
+  // Finals
+  bracket.push({ round: 4, conf: 'Finals', higherSeed: 0, lowerSeed: 0, higherWins: 0, lowerWins: 0, games: [], winner: null });
+
+  G.playoffs = {
+    active: userInPlayoffs,
+    round: userInPlayoffs ? 1 : 0,
+    eliminated: !userInPlayoffs,
+    champion: false,
+    bracket,
+    series: { opp: 0, mySeed: 0, oppSeed: 0, myWins: 0, oppWins: 0, games: [] }
+  };
+
+  if (userInPlayoffs) {
+    // Find user's first round opponent
+    const userSeed = userTop8.findIndex(t => t.id === userTeamId) + 1;
+    const oppSeed = 9 - userSeed;
+    const oppTeamId = userTop8[oppSeed - 1]?.id || 0;
+    const myTeamIsHigher = userSeed <= 4;
+    G.playoffs.series = {
+      opp: oppTeamId,
+      mySeed: userSeed,
+      oppSeed: oppSeed,
+      myWins: 0,
+      oppWins: 0,
+      games: [],
+      myTeamIsHigher
+    };
+    addNews(`🏆 季后赛开始！你所在的${userConf === 'East' ? '东部' : '西部'}第${userSeed}种子，对阵第${oppSeed}种子${teamNameFallback(oppTeamId)}`, 'pos');
+    return true;
+  } else {
+    addNews(`😔 你的球队未进入季后赛。本赛季结束。`, 'neg');
+    return false;
+  }
+}
+
+function playPlayoffGame() {
+  const s = G.playoffs.series;
+  const userTeamId = parseNum(G.teamId, 0);
+  const oppTeamId = parseNum(s.opp, 0);
+  if (!oppTeamId) return null;
+
+  const gameNum = s.myWins + s.oppWins + 1;
+  // Higher seed gets home court in games 1,2,5,7
+  const userHome = s.myTeamIsHigher ? [1,2,5,7].includes(gameNum) : ![1,2,5,7].includes(gameNum);
+  const homeId = userHome ? userTeamId : oppTeamId;
+  const awayId = userHome ? oppTeamId : userTeamId;
+
+  const detail = simulateLeagueMatchup(homeId, awayId, {
+    season: G.season, year: G.year, phase: 'playoffs', roundIndex: 90 + G.playoffs.round, userTeamId
+  });
+  if (!detail) return null;
+
+  const userScore = userHome ? detail.homeScore : detail.awayScore;
+  const oppScore = userHome ? detail.awayScore : detail.homeScore;
+  const userRows = userHome ? detail.homeRows : detail.awayRows;
+  const selfRow = (userRows || []).find(r => r.isSelf && !r.status) || null;
+  const st = selfRow ? {
+    mins: parseNum(selfRow.mins, 0), pts: parseNum(selfRow.pts, 0), reb: parseNum(selfRow.reb, 0),
+    ast: parseNum(selfRow.ast, 0), stl: parseNum(selfRow.stl, 0), blk: parseNum(selfRow.blk, 0),
+    pf: parseNum(selfRow.pf, 0), tov: parseNum(selfRow.tov, 0), fgm: parseNum(selfRow.fgm, 0),
+    fga: parseNum(selfRow.fga, 0), tpm: parseNum(selfRow.tpm, 0), tpa: parseNum(selfRow.tpa, 0),
+    ftm: parseNum(selfRow.ftm, 0), fta: parseNum(selfRow.fta, 0)
+  } : { mins: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, pf: 0, tov: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0 };
+
+  const win = userScore > oppScore;
+  if (win) s.myWins++; else s.oppWins++;
+  s.games.push({ gameNum, home: userHome, win, teamPts: userScore, oppPts: oppScore });
+
+  // Also simulate other active playoff series in this round
+  simulateOtherPlayoffSeries();
+
+  // Award XP
+  const grade = calcGrade(st);
+  const gradeBonus = { 'S+': 15, 'S': 12, 'A': 8, 'B': 5, 'C': 3, 'D': 1, 'F': 0 }[grade] || 2;
+  const matchXp = 15 + gradeBonus + (win ? 5 : 0);
+  addPlayerXP(matchXp);
+
+  // Stamina loss
+  const staminaLoss = win ? 3 : 4;
+  G.player.stamina = clamp(parseNum(G.player.stamina, 100) - staminaLoss, 0, 100);
+
+  return { win, st, grade, opp: oppTeamId, myWins: s.myWins, oppWins: s.oppWins, flow: detail.flow };
+}
+
+function simulateOtherPlayoffSeries() {
+  const currentRound = G.playoffs.round;
+  const userTeamId = parseNum(G.teamId, 0);
+  const bracket = G.playoffs.bracket;
+  if (!Array.isArray(bracket)) return;
+
+  bracket.forEach(series => {
+    if (series.round !== currentRound) return;
+    if (series.winner) return;
+    const hi = parseNum(series.higherSeed, 0);
+    const lo = parseNum(series.lowerSeed, 0);
+    if (!hi || !lo) return;
+    // Skip user's series
+    if (hi === userTeamId || lo === userTeamId) return;
+    // Simulate one game per call
+    const gameNum = series.higherWins + series.lowerWins + 1;
+    const detail = simulateLeagueMatchup(hi, lo, { season: G.season, year: G.year, phase: 'playoffs', roundIndex: 90 + currentRound });
+    if (!detail) return;
+    if (detail.homeScore >= detail.awayScore) series.higherWins++;
+    else series.lowerWins++;
+    series.games.push({ gameNum, homeScore: detail.homeScore, awayScore: detail.awayScore });
+    // Check if this series ended
+    if (series.higherWins >= 4) series.winner = hi;
+    else if (series.lowerWins >= 4) series.winner = lo;
+  });
+}
+
+function checkSeriesEnd() {
+  const s = G.playoffs.series;
+  const userTeamId = parseNum(G.teamId, 0);
+
+  // Check user's series
+  if (s.myWins >= 4) {
+    // User won the series — advance
+    const currentRound = G.playoffs.round;
+    // Mark user as winner in bracket
+    const userSeries = G.playoffs.bracket.find(ser =>
+      ser.round === currentRound && !ser.winner &&
+      (parseNum(ser.higherSeed, 0) === userTeamId || parseNum(ser.lowerSeed, 0) === userTeamId)
+    );
+    if (userSeries) userSeries.winner = userTeamId;
+
+    if (currentRound >= 4) {
+      // Finals winner = champion!
+      G.playoffs.champion = true;
+      G.playoffs.active = false;
+      // Add ring to honors
+      if (typeof addHonorTextToCounter === 'function') addHonorTextToCounter('总冠军');
+      G.awards.push({ season: G.season, year: G.year, text: '总冠军', type: 'ring' });
+      addNews(`🏆 总冠军！你赢得了${G.year}年NBA总冠军！`, 'pos');
+      // Finals MVP
+      if (typeof addHonorTextToCounter === 'function') addHonorTextToCounter('FMVP');
+      G.awards.push({ season: G.season, year: G.year, text: 'FMVP', type: 'fmvp' });
+      return 'champion';
+    }
+
+    // Advance to next round
+    G.playoffs.round = currentRound + 1;
+    // Complete other series that haven't finished yet (force-simulate remaining games)
+    forceCompleteOtherSeries(currentRound);
+
+    // Find next opponent from bracket
+    const nextOpponent = findNextPlayoffOpponent(currentRound + 1, userTeamId);
+    if (nextOpponent) {
+      const userConf = (TEAMS.find(t => t.id === userTeamId) || {}).c || 'East';
+      s.opp = nextOpponent;
+      s.myWins = 0;
+      s.oppWins = 0;
+      s.games = [];
+      const roundNames = ['', '首轮', '次轮', '分区决赛', '总决赛'];
+      addNews(`🏆 季后赛${roundNames[currentRound + 1]}！对阵${teamNameFallback(nextOpponent)}`, 'pos');
+    }
+    return 'advance';
+  }
+
+  if (s.oppWins >= 4) {
+    // User eliminated
+    G.playoffs.eliminated = true;
+    G.playoffs.active = false;
+    addNews(`😔 季后赛淘汰。你的赛季结束了。`, 'neg');
+    return 'eliminated';
+  }
+
+  return 'continue';
+}
+
+function forceCompleteOtherSeries(round) {
+  const userTeamId = parseNum(G.teamId, 0);
+  G.playoffs.bracket.forEach(series => {
+    if (series.round !== round || series.winner) return;
+    if (parseNum(series.higherSeed, 0) === userTeamId || parseNum(series.lowerSeed, 0) === userTeamId) return;
+    // Quick-sim remaining games
+    while (series.higherWins < 4 && series.lowerWins < 4) {
+      const hiStr = getTeamStrength(parseNum(series.higherSeed, 0));
+      const loStr = getTeamStrength(parseNum(series.lowerSeed, 0));
+      const hiWinProb = 0.5 + (hiStr - loStr) / 100;
+      if (Math.random() < hiWinProb) series.higherWins++;
+      else series.lowerWins++;
+    }
+    series.winner = series.higherWins >= 4 ? series.higherSeed : series.lowerSeed;
+  });
+}
+
+function findNextPlayoffOpponent(nextRound, userTeamId) {
+  const bracket = G.playoffs.bracket;
+  const userConf = (TEAMS.find(t => t.id === userTeamId) || {}).c || 'East';
+
+  if (nextRound <= 2) {
+    // Find a completed series in same conference from previous round
+    const prevRound = nextRound - 1;
+    const completed = bracket.filter(s => s.round === prevRound && s.winner);
+    const confSeries = completed.filter(s => s.conf === userConf);
+    // Find the opponent from the other series in same conference
+    const userPrev = confSeries.find(s => parseNum(s.winner, 0) === userTeamId);
+    const otherWinner = confSeries.find(s => parseNum(s.winner, 0) !== userTeamId && s.winner);
+    return parseNum(otherWinner?.winner, 0) || 0;
+  }
+
+  if (nextRound === 3) {
+    // Conference Finals — find winner from other round-2 series in same conf
+    const r2 = bracket.filter(s => s.round === 2 && s.winner && s.conf === userConf);
+    const other = r2.find(s => parseNum(s.winner, 0) !== userTeamId);
+    return parseNum(other?.winner, 0) || 0;
+  }
+
+  if (nextRound === 4) {
+    // Finals — find winner from other conference's round 3
+    const otherConf = userConf === 'East' ? 'West' : 'East';
+    const r3 = bracket.find(s => s.round === 3 && s.winner && s.conf === otherConf);
+    return parseNum(r3?.winner, 0) || 0;
+  }
+
+  return 0;
+}
+
+function isPlayerAlpha() {
+  const userRating = ovr(G.player.attrs || {});
+  const teammates = getTeamPlayers(parseNum(G.teamId, 0)) || [];
+  if (!teammates.length) return true;
+  const maxTeamRating = Math.max(...teammates.map(p => parseNum(p.rating, 0)));
+  return userRating >= maxTeamRating;
+}
+
+function endSeason(opts = {}) {
+  // Save season to career history
+  const cs = G.seasonStats;
+  const gp = Math.max(parseNum(cs.gp, 1), 1);
+  G.careerStats.push({
+    season: G.season, year: G.year,
+    team: parseNum(G.teamId, 0),
+    gp: parseNum(cs.gp, 0),
+    ppg: +(parseNum(cs.pts, 0) / gp).toFixed(1),
+    rpg: +(parseNum(cs.reb, 0) / gp).toFixed(1),
+    apg: +(parseNum(cs.ast, 0) / gp).toFixed(1),
+    spg: +(parseNum(cs.stl, 0) / gp).toFixed(1),
+    bpg: +(parseNum(cs.blk, 0) / gp).toFixed(1),
+    fgPct: parseNum(cs.fga, 0) > 0 ? +(parseNum(cs.fgm, 0) / parseNum(cs.fga, 0) * 100).toFixed(1) : 0,
+    tpPct: parseNum(cs.tpa, 0) > 0 ? +(parseNum(cs.tpm, 0) / parseNum(cs.tpa, 0) * 100).toFixed(1) : 0,
+    ftPct: parseNum(cs.fta, 0) > 0 ? +(parseNum(cs.ftm, 0) / parseNum(cs.fta, 0) * 100).toFixed(1) : 0,
+    wins: parseNum(cs.wins, 0),
+    losses: parseNum(cs.losses, 0)
+  });
+
+  // Apply user attribute decline (age-based)
+  if (typeof applyUserAttributeDecline === 'function') applyUserAttributeDecline();
+
+  // Age user one year
+  if (typeof ageUserOneYear === 'function') ageUserOneYear();
+
+  // Apply NPC season development
+  Object.values(LEAGUE.teams || {}).forEach(t => {
+    const coach = t.coach || null;
+    (t.players || []).forEach(p => applyNpcSeasonDevelopment(p, coach));
+  });
+
+  // Compute season awards
+  if (typeof leagueAwardEntryForSeason === 'function') {
+    leagueAwardEntryForSeason(G.season);
+  }
+
+  // Add Finals MVP if champion
+  if (G.playoffs.champion) {
+    const lastAwards = G.leagueAwards[G.leagueAwards.length - 1];
+    if (lastAwards && !lastAwards.fmvp) {
+      lastAwards.fmvp = { name: G.player.name, teamId: parseNum(G.teamId, 0), team: teamNameFallback(parseNum(G.teamId, 0)) };
+    }
+  }
+
+  G._pendingRegularSeasonAwardsModal = true;
+}
+
+// ============ SEASON AWARDS ============
+
+function leagueAwardEntryForSeason(seasonNum) {
+  ensureLeagueStateShape();
+  const rows = getLeaguePlayerSeasonRows();
+  const records = getLeagueTeamRecordsArray();
+  const teamWinPct = {};
+  records.forEach(r => { teamWinPct[r.id] = parseNum(r.pct, 0.5); });
+
+  const season = parseNum(seasonNum, G.season);
+  const year = parseNum(G.year, 2025);
+
+  // Helper: get ppg from stats row
+  const ppg = r => parseNum(r.gp, 1) > 0 ? parseNum(r.pts, 0) / parseNum(r.gp, 1) : 0;
+  const rpg = r => parseNum(r.gp, 1) > 0 ? parseNum(r.reb, 0) / parseNum(r.gp, 1) : 0;
+  const apg = r => parseNum(r.gp, 1) > 0 ? parseNum(r.ast, 0) / parseNum(r.gp, 1) : 0;
+  const spg = r => parseNum(r.gp, 1) > 0 ? parseNum(r.stl, 0) / parseNum(r.gp, 1) : 0;
+  const bpg = r => parseNum(r.gp, 1) > 0 ? parseNum(r.blk, 0) / parseNum(r.gp, 1) : 0;
+  const rated = (arr, fn, n = 1) => [...arr].sort((a, b) => fn(b) - fn(a)).slice(0, n);
+  const rowName = r => r.name || r.nameCn || 'Unknown';
+  const rowTeam = r => parseNum(r.teamId, 0);
+
+  const minGP = 20;
+  const eligible = rows.filter(r => parseNum(r.gp, 0) >= minGP);
+  const rookies = eligible.filter(r => parseNum(r.yearsLeague, 0) <= 1);
+
+  // MVP: composite = ppg*0.3 + apg*0.2 + rpg*0.15 + winPct*20 + rating*0.1
+  const mvpScore = r => ppg(r) * 0.3 + apg(r) * 0.2 + rpg(r) * 0.15 + (teamWinPct[rowTeam(r)] || 0.5) * 20 + parseNum(r.rating, 70) * 0.1;
+  const mvpRow = rated(eligible, mvpScore)[0] || eligible[0];
+
+  // DPOY: spg + bpg + winPct bonus
+  const dpoyScore = r => spg(r) + bpg(r) + (teamWinPct[rowTeam(r)] || 0.5) * 3;
+  const dpoyRow = rated(eligible, dpoyScore)[0] || eligible[0];
+
+  // ROY
+  const royRow = rated(rookies, ppg)[0] || rookies[0];
+
+  // Stat leaders
+  const scoringLeader = rated(eligible, ppg)[0];
+  const reboundLeader = rated(eligible, rpg)[0];
+  const assistLeader = rated(eligible, apg)[0];
+  const blockLeader = rated(eligible, bpg)[0];
+  const stealLeader = rated(eligible, spg)[0];
+
+  // 6th Man: filter non-starters (simplified: filter players with low minutes)
+  const sixthMen = eligible.filter(r => parseNum(r.mins, 0) > 0 && parseNum(r.mins, 0) / parseNum(r.gp, 1) < 28);
+  const sixthManRow = rated(sixthMen.length ? sixthMen : eligible, r => ppg(r) + apg(r) * 0.5)[0];
+
+  // All-NBA: top 15 players
+  const top15 = rated(eligible, mvpScore, 15);
+  const allNba1 = top15.slice(0, 5).map(r => ({ name: rowName(r), teamId: rowTeam(r), team: teamNameFallback(rowTeam(r)), pos: parseNum(r.pos, 3) }));
+  const allNba2 = top15.slice(5, 10).map(r => ({ name: rowName(r), teamId: rowTeam(r), team: teamNameFallback(rowTeam(r)), pos: parseNum(r.pos, 3) }));
+  const allNba3 = top15.slice(10, 15).map(r => ({ name: rowName(r), teamId: rowTeam(r), team: teamNameFallback(rowTeam(r)), pos: parseNum(r.pos, 3) }));
+
+  // All-Defensive: top 10 defensive players
+  const allDef = rated(eligible, dpoyScore, 10).map(r => ({ name: rowName(r), teamId: rowTeam(r), team: teamNameFallback(rowTeam(r)) }));
+
+  const entry = {
+    season, year,
+    mvp: mvpRow ? { name: rowName(mvpRow), teamId: rowTeam(mvpRow), team: teamNameFallback(rowTeam(mvpRow)), ppg: +ppg(mvpRow).toFixed(1) } : null,
+    dpoy: dpoyRow ? { name: rowName(dpoyRow), teamId: rowTeam(dpoyRow), team: teamNameFallback(rowTeam(dpoyRow)), spg: +spg(dpoyRow).toFixed(1), bpg: +bpg(dpoyRow).toFixed(1) } : null,
+    roy: royRow ? { name: rowName(royRow), teamId: rowTeam(royRow), team: teamNameFallback(rowTeam(royRow)), ppg: +ppg(royRow).toFixed(1) } : null,
+    fmvp: null,
+    scoring: scoringLeader ? { name: rowName(scoringLeader), teamId: rowTeam(scoringLeader), team: teamNameFallback(rowTeam(scoringLeader)), ppg: +ppg(scoringLeader).toFixed(1) } : null,
+    rebound: reboundLeader ? { name: rowName(reboundLeader), teamId: rowTeam(reboundLeader), team: teamNameFallback(rowTeam(reboundLeader)), rpg: +rpg(reboundLeader).toFixed(1) } : null,
+    assist: assistLeader ? { name: rowName(assistLeader), teamId: rowTeam(assistLeader), team: teamNameFallback(rowTeam(assistLeader)), apg: +apg(assistLeader).toFixed(1) } : null,
+    block: blockLeader ? { name: rowName(blockLeader), teamId: rowTeam(blockLeader), team: teamNameFallback(rowTeam(blockLeader)), bpg: +bpg(blockLeader).toFixed(1) } : null,
+    steal: stealLeader ? { name: rowName(stealLeader), teamId: rowTeam(stealLeader), team: teamNameFallback(rowTeam(stealLeader)), spg: +spg(stealLeader).toFixed(1) } : null,
+    sixthMan: sixthManRow ? { name: rowName(sixthManRow), teamId: rowTeam(sixthManRow), team: teamNameFallback(rowTeam(sixthManRow)), ppg: +ppg(sixthManRow).toFixed(1) } : null,
+    allNba1, allNba2, allNba3,
+    allDefensive: allDef,
+    allStar: [],
+    allStarMvp: null
+  };
+
+  G.leagueAwards.push(entry);
+  return entry;
+}
+
+function buildUserAwardsFromLeague(leagueAwards) {
+  if (!leagueAwards) return [];
+  const userName = (G.player?.name || '').trim();
+  if (!userName) return [];
+  const awards = [];
+
+  const checkMatch = (entry) => {
+    if (!entry) return false;
+    return String(entry.name || '').trim() === userName;
+  };
+
+  if (checkMatch(leagueAwards.mvp)) awards.push('MVP');
+  if (checkMatch(leagueAwards.dpoy)) awards.push('DPOY');
+  if (checkMatch(leagueAwards.roy)) awards.push('ROY');
+  if (checkMatch(leagueAwards.scoring)) awards.push('得分王');
+  if (checkMatch(leagueAwards.rebound)) awards.push('篮板王');
+  if (checkMatch(leagueAwards.assist)) awards.push('助攻王');
+  if (checkMatch(leagueAwards.block)) awards.push('盖帽王');
+  if (checkMatch(leagueAwards.steal)) awards.push('抢断王');
+  if (checkMatch(leagueAwards.sixthMan)) awards.push('最佳第六人');
+  if (leagueAwards.fmvp && String(leagueAwards.fmvp.name || '').trim() === userName) awards.push('FMVP');
+
+  const inAllNba = (list, label) => list?.some(e => String(e.name || '').trim() === userName);
+  if (inAllNba(leagueAwards.allNba1, '一阵')) awards.push('一阵');
+  else if (inAllNba(leagueAwards.allNba2, '二阵')) awards.push('二阵');
+  else if (inAllNba(leagueAwards.allNba3, '三阵')) awards.push('三阵');
+
+  if (leagueAwards.allDefensive?.some(e => String(e.name || '').trim() === userName)) awards.push('一防');
+  if (leagueAwards.allStar?.some(e => String(e.name || '').trim() === userName)) awards.push('全明星');
+
+  // Add to honor counter
+  awards.forEach(a => { if (typeof addHonorTextToCounter === 'function') addHonorTextToCounter(a); });
+  return awards;
+}
+
+function getUserHallOfFameProfile() {
+  const counter = typeof collectUserHonorCounterFromHistory === 'function'
+    ? collectUserHonorCounterFromHistory() : (G._userHonorCounter || {});
+  const rings = parseNum(counter.rings, 0);
+  const mvps = parseNum(counter.mvp, 0);
+  const fmvp = parseNum(counter.fmvp, 0);
+  const dpoy = parseNum(counter.dpoy, 0);
+  const allNba1 = parseNum(counter.allNba1, 0);
+  const allNba2 = parseNum(counter.allNba2, 0);
+  const allNba3 = parseNum(counter.allNba3, 0);
+  const allStar = parseNum(counter.allStar, 0);
+  const scoring = parseNum(counter.scoring, 0);
+  const sixthMan = parseNum(counter.sixthMan, 0);
+
+  const score = rings * 15 + mvps * 20 + fmvp * 14 + dpoy * 10 + allNba1 * 9 + allNba2 * 5 + allNba3 * 3 + allStar * 4 + scoring * 6 + sixthMan * 4;
+  const threshold = parseNum(G.hallOfFameThreshold, 120);
+  return { score, threshold, eligible: score >= threshold, counter, ringCount: rings };
+}
+
+function updateUserHallOfFameProgress() {
+  const profile = getUserHallOfFameProfile();
+  if (profile.eligible && !G.hallOfFame?.some(h => parseNum(h.season, 0) === parseNum(G.season, 0))) {
+    if (!Array.isArray(G.hallOfFame)) G.hallOfFame = [];
+    G.hallOfFame.push({ season: G.season, year: G.year, score: profile.score, name: G.player.name });
+  }
+}
+
+// ============ USER ATTRIBUTE DECLINE ============
+
+function applyUserAttributeDecline() {
+  const age = parseNum(G.player?.age, 19);
+  if (age < 30) return;
+  const attrs = G.player?.attrs;
+  if (!attrs) return;
+
+  // Decline amount: age 30-32 → -1, 33-35 → -2, 36+ → -3
+  let declineTotal = age <= 32 ? 1 : age <= 35 ? 2 : 3;
+  // Reduce by 50% compared to NPC (user can counteract with XP)
+  declineTotal = Math.max(1, Math.round(declineTotal * 0.5));
+
+  // Priority: speed > physique > strength > other skills
+  const declineOrder = ['speed', 'physique', 'strength', 'reb', 'blk', 'stl', 'shotExt', 'shotInt', 'pass', 'shotFree'];
+  let applied = 0;
+  for (const key of declineOrder) {
+    if (applied >= declineTotal) break;
+    if (typeof attrs[key] === 'number' && attrs[key] > 25) {
+      attrs[key] = Math.max(25, attrs[key] - 1);
+      applied++;
+    }
+  }
+}
+
+// ============ AI RENEWALS ============
+
+function runOffseasonStaged_renewals() {
+  let renewed = 0;
+  const released = [];
+
+  Object.values(LEAGUE.teams || {}).forEach(team => {
+    const players = team.players || [];
+    const toRemove = [];
+
+    players.forEach(p => {
+      if (!p.contract) p.contract = { years: 0, amount: 0 };
+      p.contract.years = Math.max(0, (parseNum(p.contract.years, 0)) - 1);
+
+      if (parseNum(p.contract.years, 0) <= 0) {
+        const rating = parseNum(p.rating, 65);
+        const teamAvg = players.reduce((s, pp) => s + parseNum(pp.rating, 65), 0) / Math.max(players.length, 1);
+        if (rating >= teamAvg * 0.85 && players.length > 8) {
+          // Renew
+          const newYears = rating >= 85 ? rng(3, 5) : rating >= 75 ? rng(2, 3) : rng(1, 2);
+          const newSalary = normalizeSalaryMillion(clamp(rating * 0.18 + rng(-1, 2), 1, 45));
+          p.contract = { years: newYears, amount: newSalary };
+          renewed++;
+        } else {
+          toRemove.push(p);
+        }
+      }
+    });
+
+    toRemove.forEach(p => {
+      const idx = team.players.indexOf(p);
+      if (idx >= 0) { team.players.splice(idx, 1); released.push(p); }
+    });
+
+    // Recalculate rotation and strength
+    if (team.players.length) {
+      team.rotation = toRotation(team.players);
+      team.strength = calcTeamStrength(team);
+    }
+  });
+
+  // Decrement user contract years
+  G.player.contractYears = Math.max(0, parseNum(G.player.contractYears, 0) - 1);
+
+  return { renewed, released };
+}
+
+function npcFreeAgentContract(player) {
+  const rating = parseNum(player?.rating, 65);
+  const age = parseNum(player?.age, 25);
+  let years = age <= 26 ? rng(2, 4) : age <= 30 ? rng(2, 3) : rng(1, 2);
+  let salary = normalizeSalaryMillion(clamp(rating * 0.15 + rng(-1, 2), 0.8, 40));
+  return { years, salary };
+}
+
+function createOffseasonDraftState() {
+  const draftClass = generateDraftClass(64, { targetYear: G.year + 1 });
+  const records = getLeagueTeamRecordsArray();
+  const sorted = [...records].sort((a, b) => parseNum(a.w, 0) - parseNum(b.w, 0));
+  // Simple lottery: swap top-4 with some randomness
+  for (let i = 0; i < Math.min(4, sorted.length); i++) {
+    const j = i + rng(0, Math.min(3, sorted.length - i - 1));
+    if (j !== i && j < sorted.length) { [sorted[i], sorted[j]] = [sorted[j], sorted[i]]; }
+  }
+  const order = sorted.map(r => r.id);
+  return { pool: draftClass.players, order, results: [], tier: draftClass.tier, year: draftClass.year };
+}
+
+function getTeamFirstRoundPick(teamId) {
+  return parseNum(teamId, 0);
+}
+
+function processDraftRoundStage(state, round, pref, teamId) {
+  if (!state || !state.pool || !state.order) return [];
+  const results = [];
+  const picksPerRound = state.order.length;
+
+  for (let i = 0; i < picksPerRound && state.pool.length > 0; i++) {
+    const pickingTeamId = state.order[i];
+    const isUserPick = pickingTeamId === parseNum(teamId, G.teamId);
+
+    let chosen = null;
+    if (isUserPick && pref) {
+      chosen = state.pool.find(p => String(p.id) === String(pref) || String(p.name) === String(pref));
+    }
+    if (!chosen) {
+      // AI picks: best available with position need bias
+      const teamPlayers = getTeamPlayers(pickingTeamId) || [];
+      const posCount = [0, 0, 0, 0, 0, 0];
+      teamPlayers.forEach(p => { posCount[clamp(parseNum(p.pos, 3), 1, 5)]++; });
+      const neediestPos = posCount.slice(1).indexOf(Math.min(...posCount.slice(1))) + 1;
+      // Sort pool: prefer neediest position, then by rating
+      const sorted = [...state.pool].sort((a, b) => {
+        const aFit = parseNum(a.pos, 3) === neediestPos ? 5 : 0;
+        const bFit = parseNum(b.pos, 3) === neediestPos ? 5 : 0;
+        return (bFit + parseNum(b.rating, 65)) - (aFit + parseNum(a.rating, 65));
+      });
+      chosen = sorted[0];
+    }
+
+    if (chosen) {
+      const pickNum = (round - 1) * picksPerRound + i + 1;
+      results.push({ pick: pickNum, teamId: pickingTeamId, player: chosen, round });
+      state.pool = state.pool.filter(p => p.id !== chosen.id);
+    }
+  }
+
+  state.results.push(...results);
+  return results;
+}
+
+function processDraftFinishStage(state, released) {
+  // Inject drafted rookies into teams
+  if (state?.results?.length) {
+    state.results.forEach(r => {
+      const team = LEAGUE.teams?.[r.teamId];
+      if (team && r.player) {
+        r.player.teamId = r.teamId;
+        r.player.contract = npcFreeAgentContract(r.player);
+        team.players.push(r.player);
+      }
+    });
+  }
+  // Remaining undrafted + released = free agent pool
+  const faPool = [...(state?.pool || []), ...(released || [])];
+
+  // Recalculate all teams
+  Object.values(LEAGUE.teams || {}).forEach(t => {
+    if (t.players?.length) {
+      t.rotation = toRotation(t.players);
+      t.strength = calcTeamStrength(t);
+    }
+  });
+
+  return faPool;
+}
+
+function getAffordableFreeAgents(teamId, pool, limit) {
+  if (!Array.isArray(pool)) return [];
+  const capRoom = getSalaryCap() * 1.18 - teamPayrollMillion(teamId, { includeUser: false });
+  return pool
+    .filter(p => normalizeSalaryMillion(p?.contract?.amount || p?.salary || 1) <= capRoom)
+    .sort((a, b) => parseNum(b.rating, 65) - parseNum(a.rating, 65))
+    .slice(0, Math.max(1, parseNum(limit, 5)));
+}
+
+function runOffseasonStaged_fa(state, renewRes, pref) {
+  const summary = [];
+  const faPool = Array.isArray(state?.faPool) ? state.faPool : [];
+
+  // AI teams sign free agents to fill roster gaps
+  Object.values(LEAGUE.teams || {}).forEach(team => {
+    const teamId = team.meta?.id;
+    if (!teamId || teamId === parseNum(G.teamId, 0)) return;
+    const rosterSize = (team.players || []).length;
+    if (rosterSize >= 15) return;
+    const needed = Math.min(15 - rosterSize, 3);
+    const affordable = getAffordableFreeAgents(teamId, faPool, needed);
+    affordable.forEach(p => {
+      const contract = npcFreeAgentContract(p);
+      p.contract = contract;
+      p.teamId = teamId;
+      team.players.push(p);
+      const idx = faPool.indexOf(p);
+      if (idx >= 0) faPool.splice(idx, 1);
+    });
+    if (affordable.length) {
+      team.rotation = toRotation(team.players);
+      team.strength = calcTeamStrength(team);
+    }
+  });
+
+  summary.push(`自由市场签约完成`);
+  return summary;
+}
+
+// ============ AI TRADES ============
+
+function tryAITrade() {
+  if (Math.random() > 0.04) return; // ~4% per day
+  const teamIds = Object.keys(LEAGUE.teams || {}).map(Number).filter(id => id >= 1 && id <= 30);
+  if (teamIds.length < 2) return;
+
+  const idx1 = rng(0, teamIds.length - 1);
+  let idx2 = rng(0, teamIds.length - 2);
+  if (idx2 >= idx1) idx2++;
+  const teamA = LEAGUE.teams[teamIds[idx1]];
+  const teamB = LEAGUE.teams[teamIds[idx2]];
+  if (!teamA?.players?.length || !teamB?.players?.length) return;
+
+  // Find a player each team could trade
+  const playersA = teamA.players.sort((a, b) => parseNum(a.rating, 65) - parseNum(b.rating, 65));
+  const playersB = teamB.players.sort((a, b) => parseNum(a.rating, 65) - parseNum(b.rating, 65));
+  // Pick a mid-tier player from each team
+  const pA = playersA[Math.floor(playersA.length * rng(3, 7) / 10)];
+  const pB = playersB[Math.floor(playersB.length * rng(3, 7) / 10)];
+  if (!pA || !pB) return;
+
+  // Validate value balance (within 75-125%)
+  const valA = parseNum(pA.rating, 65);
+  const valB = parseNum(pB.rating, 65);
+  if (valA === 0 || valB === 0) return;
+  const ratio = valA / valB;
+  if (ratio < 0.75 || ratio > 1.33) return;
+
+  // Execute trade
+  const aIdx = teamA.players.indexOf(pA);
+  const bIdx = teamB.players.indexOf(pB);
+  if (aIdx < 0 || bIdx < 0) return;
+
+  teamA.players.splice(aIdx, 1);
+  teamB.players.splice(bIdx, 1);
+  pA.teamId = teamIds[idx2];
+  pB.teamId = teamIds[idx1];
+  teamB.players.push(pA);
+  teamA.players.push(pB);
+
+  // Recalculate
+  teamA.rotation = toRotation(teamA.players);
+  teamA.strength = calcTeamStrength(teamA);
+  teamB.rotation = toRotation(teamB.players);
+  teamB.strength = calcTeamStrength(teamB);
+
+  if (!Array.isArray(G.aiTradeLog)) G.aiTradeLog = [];
+  G.aiTradeLog.push({
+    season: G.season, day: parseNum(G.dayNum, 0),
+    fromTeamId: teamIds[idx1], toTeamId: teamIds[idx2],
+    players: [pA.name, pB.name]
+  });
+}
+
+function triggerTradeRequest() {
+  // Low chance to generate incoming trade offer for user
+  if (Math.random() > 0.02) return;
+  if (parseNum(G.dayNum, 0) > G.tradeDeadline) return;
+  if (!G.player || parseNum(G.player.contractYears, 0) <= 0) return;
+
+  const teamIds = Object.keys(LEAGUE.teams || {}).map(Number).filter(id => id >= 1 && id <= 30 && id !== parseNum(G.teamId, 0));
+  if (!teamIds.length) return;
+  const targetId = teamIds[rng(0, teamIds.length - 1)];
+  if (typeof buildUserTradeProposal === 'function') {
+    const proposal = buildUserTradeProposal(targetId);
+    if (proposal) {
+      G.pendingTrade = proposal;
+      addPhone('管理层', `收到了来自${teamNameFallback(targetId)}的交易询价，请在手机中查看。`, 'trade');
+    }
+  }
+}
+
+// ============ ALL-STAR GAME ============
+
+function checkAllStarBreak() {
+  if (parseNum(G.dayNum, 0) < 88 || parseNum(G.dayNum, 0) > 92) return null;
+  if (G.allStar?.held) return null;
+
+  const rows = getLeaguePlayerSeasonRows();
+  const minGP = 10;
+  const eligible = rows.filter(r => parseNum(r.gp, 0) >= minGP);
+  const eastTeams = new Set(TEAMS.filter(t => t.c === 'East').map(t => t.id));
+  const westTeams = new Set(TEAMS.filter(t => t.c === 'West').map(t => t.id));
+
+  const ppg = r => parseNum(r.gp, 1) > 0 ? parseNum(r.pts, 0) / parseNum(r.gp, 1) : 0;
+  const compositeRating = r => ppg(r) * 0.4 + parseNum(r.rating, 65) * 0.3 + (parseNum(r.ast, 0) + parseNum(r.reb, 0)) / Math.max(parseNum(r.gp, 1), 1) * 0.3;
+
+  const eastPlayers = eligible.filter(r => eastTeams.has(parseNum(r.teamId, 0))).sort((a, b) => compositeRating(b) - compositeRating(a)).slice(0, 12);
+  const westPlayers = eligible.filter(r => westTeams.has(parseNum(r.teamId, 0))).sort((a, b) => compositeRating(b) - compositeRating(a)).slice(0, 12);
+
+  const userName = (G.player?.name || '').trim();
+  const userSelected = [...eastPlayers, ...westPlayers].some(r => (r.name || '').trim() === userName);
+
+  // Simulate exhibition game
+  const eastScore = rng(140, 180);
+  const westScore = rng(140, 180);
+  const mvpSide = eastScore >= westScore ? eastPlayers : westPlayers;
+  const mvpPlayer = mvpSide[rng(0, Math.min(2, mvpSide.length - 1))];
+
+  G.allStar = {
+    held: true,
+    day: parseNum(G.dayNum, 0),
+    east: eastPlayers.map(r => ({ name: r.name, teamId: parseNum(r.teamId, 0) })),
+    west: westPlayers.map(r => ({ name: r.name, teamId: parseNum(r.teamId, 0) })),
+    mvp: mvpPlayer ? { name: mvpPlayer.name, teamId: parseNum(mvpPlayer.teamId, 0), pts: rng(20, 40) } : null,
+    userSelected,
+    eastScore, westScore
+  };
+
+  // Add to season awards
+  const currentAwards = G.leagueAwards[G.leagueAwards.length - 1];
+  if (currentAwards) {
+    currentAwards.allStar = [...eastPlayers, ...westPlayers].map(r => ({ name: r.name, teamId: parseNum(r.teamId, 0) }));
+    currentAwards.allStarMvp = G.allStar.mvp;
+  }
+
+  if (userSelected) {
+    if (typeof addHonorTextToCounter === 'function') addHonorTextToCounter('全明星');
+    G.awards.push({ season: G.season, year: G.year, text: '全明星', type: 'allStar' });
+    addNews(`⭐ 恭喜你入选全明星赛！`, 'pos');
+  }
+
+  return G.allStar;
+}
+
+// ============ SALARY CAP ERA DIFFERENCES ============
+
+function getEraSalaryCap(rosterYear) {
+  const y = parseNum(rosterYear, 2025);
+  if (y <= 1970) return { capM: 0.5, luxuryMult: 1.10, eraName: 'early' };
+  if (y <= 1980) return { capM: 3.5, luxuryMult: 1.12, eraName: 'early' };
+  if (y <= 1990) return { capM: 12, luxuryMult: 1.15, eraName: 'historic' };
+  if (y <= 2000) return { capM: 26 + (y - 1990) * 1.2, luxuryMult: 1.15, eraName: 'historic' };
+  if (y <= 2010) return { capM: 42 + (y - 2000) * 1.8, luxuryMult: 1.18, eraName: 'modern' };
+  if (y <= 2016) return { capM: 58 + (y - 2010) * 8, luxuryMult: 1.18, eraName: 'modern' };
+  if (y <= 2020) return { capM: 99 + (y - 2016) * 3, luxuryMult: 1.18, eraName: 'modern' };
+  return { capM: 170, luxuryMult: 1.18, eraName: 'modern' };
+}
+
+function getSalaryCap() {
+  if (G.eraConfig?.salaryCapM) return G.eraConfig.salaryCapM;
+  const rosterYear = parseNum(LEAGUE?.years?.roster, 2025);
+  return getEraSalaryCap(rosterYear).capM;
+}
+
+// ============ RESTRICTED FREE AGENTS ============
+
+function identifyRestrictedFreeAgents() {
+  const rfas = [];
+  Object.values(LEAGUE.teams || {}).forEach(team => {
+    (team.players || []).forEach(p => {
+      const years = parseNum(p.yearsLeague, 0);
+      const contractYears = parseNum(p.contract?.years, 0);
+      if (years >= 1 && years <= 4 && contractYears <= 0) {
+        p.isRFA = true;
+        const qualifyingSalary = normalizeSalaryMillion(clamp(parseNum(p.rating, 65) * 0.12, 1, 15));
+        rfas.push({ player: p, teamId: parseNum(team.meta?.id, 0), qualifyingSalary });
+      }
+    });
+  });
+  return rfas;
+}
+
+function processRFAMatching(rfas) {
+  rfas.forEach(rfa => {
+    const team = LEAGUE.teams[rfa.teamId];
+    if (!team) return;
+    const p = rfa.player;
+    const rating = parseNum(p.rating, 65);
+    const teamAvg = (team.players || []).reduce((s, pp) => s + parseNum(pp.rating, 65), 0) / Math.max((team.players || []).length, 1);
+    // Team matches if player is above average
+    if (rating >= teamAvg * 0.9) {
+      const contract = npcFreeAgentContract(p);
+      p.contract = contract;
+      p.isRFA = false;
+    } else {
+      // Release
+      const idx = team.players.indexOf(p);
+      if (idx >= 0) team.players.splice(idx, 1);
+      p.isRFA = false;
+    }
+  });
+}
+
+// ============ TRADE DRAFT PICKS ============
+
+function initTeamPicks() {
+  G.teamPicks = {};
+  const teamIds = Object.keys(LEAGUE.teams || {}).map(Number);
+  for (let futureOffset = 0; futureOffset < 7; futureOffset++) {
+    const season = G.season + futureOffset + 1;
+    teamIds.forEach(tid => {
+      if (!G.teamPicks[tid]) G.teamPicks[tid] = {};
+      G.teamPicks[tid][season] = {
+        r1: { originalTeamId: tid, protected: null },
+        r2: { originalTeamId: tid, protected: null }
+      };
+    });
+  }
+}
+
+function evaluatePickValue(season, round, protection) {
+  const seasonsAway = season - parseNum(G.season, 1);
+  const discount = Math.pow(0.85, Math.max(0, seasonsAway));
+  const baseValue = round === 1 ? 30 : 12;
+  const protMult = protection === 'top5' ? 0.7 : protection === 'top3' ? 0.6 : protection === 'top1' ? 0.5 : 1;
+  return baseValue * discount * protMult;
+}
+
+// ============ SIGN-AND-TRADE ============
+
+function buildSignAndTradeOptions(player, fromTeamId) {
+  const options = [];
+  const teamIds = Object.keys(LEAGUE.teams || {}).map(Number).filter(id => id !== parseNum(fromTeamId, 0));
+  const rating = ovr(player?.attrs || {});
+  const baseSalary = clamp(rating * 0.2 + rng(-2, 3), 2, 42);
+
+  teamIds.slice(0, 5).forEach(targetId => {
+    const team = LEAGUE.teams[targetId];
+    if (!team?.players?.length) return;
+    // Find a player the target team might send back
+    const candidates = (team.players || []).filter(p => parseNum(p.rating, 65) >= rating * 0.7 && parseNum(p.rating, 65) <= rating * 1.3);
+    if (!candidates.length) return;
+    const incoming = candidates[rng(0, candidates.length - 1)];
+    options.push({
+      targetTeamId,
+      targetTeamName: teamNameFallback(targetId),
+      contractYears: rng(2, 4),
+      contractSalary: baseSalary,
+      incomingPlayer: incoming.name,
+      incomingRating: parseNum(incoming.rating, 65)
+    });
+  });
+
+  return options;
+}
+
+// ============ MISSING UI-REFERENCED FUNCTIONS ============
+
+
+const LEGACY_SIGNATURE_SHOE_SLOT_KEYS = ['speed', 'shooting', 'finishing', 'playmaking', 'defense'];
+const LEGACY_SIGNATURE_SHOE_EFFECT_LABELS = {
   speed: '??',
   shooting: '??',
   finishing: '??',
@@ -9192,13 +11490,13 @@ const SIGNATURE_SHOE_EFFECT_LABELS = {
   blk: '??',
   physique: '??'
 };
-const SIGNATURE_SHOE_STYLE_DEFS = {
+const LEGACY_SIGNATURE_SHOE_STYLE_DEFS = {
   speed: { label: '???', bonusKey: 'speed', priority: ['speed', 'shooting', 'playmaking', 'finishing', 'defense'] },
   scoring: { label: '???', bonusKey: 'shotExt', priority: ['shooting', 'finishing', 'speed', 'playmaking', 'defense'] },
   defense: { label: '???', bonusKey: 'stl', priority: ['defense', 'speed', 'playmaking', 'finishing', 'shooting'] },
   allaround: { label: '???', bonusKey: 'pass', priority: ['speed', 'shooting', 'finishing', 'playmaking', 'defense'] }
 };
-const SIGNATURE_SHOE_LEVEL_RULES = {
+const LEGACY_SIGNATURE_SHOE_LEVEL_RULES = {
   1: { level: 1, label: '???', extraPoints: 0, fame: 0, earned: 0, days: 0 },
   2: { level: 2, label: '???', extraPoints: 2, fame: 30, earned: 0.35, days: 10 },
   3: { level: 3, label: '???', extraPoints: 2, fame: 45, earned: 0.95, days: 24 },
@@ -9207,17 +11505,17 @@ const SIGNATURE_SHOE_LEVEL_RULES = {
 };
 function normalizeSignatureShoeStyle(styleKey) {
   const key = String(styleKey || '').toLowerCase();
-  return Object.prototype.hasOwnProperty.call(SIGNATURE_SHOE_STYLE_DEFS, key) ? key : 'allaround';
+  return Object.prototype.hasOwnProperty.call(LEGACY_SIGNATURE_SHOE_STYLE_DEFS, key) ? key : 'allaround';
 }
 function getSignatureShoeStyleDef(styleKey) {
-  return SIGNATURE_SHOE_STYLE_DEFS[normalizeSignatureShoeStyle(styleKey)] || SIGNATURE_SHOE_STYLE_DEFS.allaround;
+  return LEGACY_SIGNATURE_SHOE_STYLE_DEFS[normalizeSignatureShoeStyle(styleKey)] || LEGACY_SIGNATURE_SHOE_STYLE_DEFS.allaround;
 }
 function getSignatureShoeStylePriority(styleKey) {
-  return getSignatureShoeStyleDef(styleKey).priority || SIGNATURE_SHOE_STYLE_DEFS.allaround.priority;
+  return getSignatureShoeStyleDef(styleKey).priority || LEGACY_SIGNATURE_SHOE_STYLE_DEFS.allaround.priority;
 }
 function getSignatureShoeUpgradeRule(level) {
   const lv = clamp(parseNum(level, 1), 1, 5);
-  return SIGNATURE_SHOE_LEVEL_RULES[lv] || SIGNATURE_SHOE_LEVEL_RULES[1];
+  return LEGACY_SIGNATURE_SHOE_LEVEL_RULES[lv] || LEGACY_SIGNATURE_SHOE_LEVEL_RULES[1];
 }
 function getSignatureShoeBaseBudget() {
   return 5;
@@ -9235,11 +11533,11 @@ function getSignatureShoeDefaultAllocations(styleKey, budget = 5) {
 function normalizeSignatureShoeAllocations(raw, styleKey, budget = 5) {
   const out = { speed: 0, shooting: 0, finishing: 0, playmaking: 0, defense: 0 };
   if (raw && typeof raw === 'object') {
-    SIGNATURE_SHOE_SLOT_KEYS.forEach(key => {
+    LEGACY_SIGNATURE_SHOE_SLOT_KEYS.forEach(key => {
       out[key] = clamp(Math.floor(parseNum(raw[key], 0)), 0, 99);
     });
   }
-  let total = SIGNATURE_SHOE_SLOT_KEYS.reduce((sum, key) => sum + parseNum(out[key], 0), 0);
+  let total = LEGACY_SIGNATURE_SHOE_SLOT_KEYS.reduce((sum, key) => sum + parseNum(out[key], 0), 0);
   const target = Math.max(1, Math.floor(parseNum(budget, 5)));
   if (total === 0) return getSignatureShoeDefaultAllocations(styleKey, target);
   const priority = getSignatureShoeStylePriority(styleKey);
@@ -9282,7 +11580,7 @@ function spreadSignatureShoeAllocations(allocations, styleKey, extraPoints = 0) 
 function formatSignatureShoeBoostText(boosts = {}) {
   return Object.entries(boosts || {})
     .filter(([, v]) => parseNum(v, 0) > 0)
-    .map(([k, v]) => (SIGNATURE_SHOE_EFFECT_LABELS[k] || k) + '+' + parseNum(v, 0))
+    .map(([k, v]) => (LEGACY_SIGNATURE_SHOE_EFFECT_LABELS[k] || k) + '+' + parseNum(v, 0))
     .join(' ? ');
 }
 function sanitizeSignatureShoeName(raw, fallback = '') {
