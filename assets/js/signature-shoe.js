@@ -247,7 +247,7 @@ async function generateSignatureShoeImageByGeminiNative(prompt, { baseUrl, apiKe
     }
   };
   try {
-    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
+    const res = await (typeof fetchWithTimeout === 'function' ? fetchWithTimeout : fetch)(url, { method: 'POST', headers, body: JSON.stringify(payload) }, 60000);
     const data = await readJSONResponseSafe(res, '签名鞋Gemini图片');
     if (!res.ok) throw new Error(String(data?.error?.message || data?.message || `HTTP ${res.status}`));
     // 从 candidates[0].content.parts 提取 inlineData

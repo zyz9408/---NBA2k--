@@ -1038,7 +1038,7 @@ async function generateDraftScoutingReportByGeminiNative(baseUrl, apiKey, model,
     contents: [{ role: 'user', parts: [{ text: JSON.stringify({ context }) }] }],
     generationConfig: { temperature: 0.6, responseMimeType: 'application/json' }
   };
-  const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+  const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
   const data = await readJSONResponseSafe(res, '球探报告');
   const parts = data?.candidates?.[0]?.content?.parts;
   const raw = Array.isArray(parts) ? parts.map(p => String(p?.text || '')).join('').trim() : '';
@@ -1087,7 +1087,7 @@ async function generateDraftScoutingReportByLLM(context) {
   const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
 
   try {
-    const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+    const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
     const data = await readJSONResponseSafe(res, '球探报告');
     const raw = data?.choices?.[0]?.message?.content || '';
     return parseDraftScoutReportFromRaw(raw, context, 'llm');
@@ -1298,7 +1298,7 @@ async function generateMatchRecapByLLM(result, { force = false } = {}) {
         contents: [{ role: 'user', parts: [{ text: promptContext }] }],
         generationConfig: { temperature: 0.6, responseMimeType: 'application/json' }
       };
-      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
       const data = await readJSONResponseSafe(res, '比赛战报');
       raw = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text).join('') || '';
     } else {
@@ -1313,7 +1313,7 @@ async function generateMatchRecapByLLM(result, { force = false } = {}) {
       };
       const endpoint = `${baseUrl}/chat/completions`;
       const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
-      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
       const data = await readJSONResponseSafe(res, '比赛战报');
       raw = data?.choices?.[0]?.message?.content || '';
     }
@@ -1424,7 +1424,7 @@ JSON 格式要求如下：
         generationConfig: { temperature: 0.7, responseMimeType: 'application/json' }
       };
       if (!deferRender && typeof appendStoryToBoard === 'function') appendStoryToBoard('⏳ 正在推演今日事件...', '#888', false);
-      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
       const data = await readJSONResponseSafe(res, '故事生成');
       raw = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text).join('') || '';
     } else {
@@ -1440,7 +1440,7 @@ JSON 格式要求如下：
       const endpoint = `${baseUrl}/chat/completions`;
       const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
       if (!deferRender && typeof appendStoryToBoard === 'function') appendStoryToBoard('⏳ 正在推演今日事件...', '#888', false);
-      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
       const data = await readJSONResponseSafe(res, '故事生成');
       raw = data?.choices?.[0]?.message?.content || '';
     }
@@ -5176,7 +5176,7 @@ async function classifyCoachResponseByLLM(prompt, text) {
         contents: [{ role: 'user', parts: [{ text: userPayload }] }],
         generationConfig: { temperature: 0.2, responseMimeType: 'application/json' }
       };
-      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
       const data = await readJSONResponseSafe(res, '自由输入判定');
       raw = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text).join('') || '';
     } else {
@@ -5191,7 +5191,7 @@ async function classifyCoachResponseByLLM(prompt, text) {
       };
       const endpoint = `${baseUrl}/chat/completions`;
       const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
-      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
       const data = await readJSONResponseSafe(res, '自由输入判定');
       raw = data?.choices?.[0]?.message?.content || '';
     }
@@ -6250,20 +6250,21 @@ async function generateCommercialBuzzDraftByLLM(event = {}, { avoidTexts = [] } 
   const baseUrl = normalizeLLMBaseUrl(llm.baseUrl);
   const model = String(llm.model || 'gpt-4.1-mini').trim();
   const allowedPersonaKeys = ['news', 'casual', 'data', 'neutral', 'fan', 'youtuber', 'hottake', 'tactical'];
-  const system = `你是篮球生涯游戏里的中文社媒写手。你要为“商业/代言/签名鞋”事件生成一条第三方账号发出的推文。
+  const system = `你是篮球生涯游戏里的中文社媒写手。你要为”商业/代言/签名鞋”事件生成一条第三方账号发出的推文。
 要求：
-1. 文案要像真实中文社媒，不要模板腔，不要重复“完成了一笔签名鞋相关采购”这类机械句。
+1. 文案要像真实中文社媒，不要模板腔，不要重复”完成了一笔签名鞋相关采购”这类机械句。
 2. 必须是旁观者口吻，不能写成球员本人第一人称。
-3. 如果同一品牌同一天有多个动作已经合并成一个事件，要写成“一条新的进展”，不要拆成重复官宣。
+3. 如果同一品牌同一天有多个动作已经合并成一个事件，要写成”一条新的进展”，不要拆成重复官宣。
 4. 文字自然、有变化，允许有一点吃瓜、数据流、新闻快讯、战术观察的差异，但不要太浮夸。
 5. 只返回合法 JSON，不要解释。
+6. **绝对禁止**出现任何游戏系统数据（如训练XP、伤病风险系数、恢复+数值、伤停时间×倍率等），用普通人能理解的口语描述效果。
 
 返回格式：
 {
-  "personaKey": "必须是 ${allowedPersonaKeys.join('/')} 之一",
-  "tone": "positive 或 neutral 或 negative",
-  "text": "20到72字的中文推文正文",
-  "comments": ["评论1","评论2","评论3"]
+  “personaKey”: “必须是 ${allowedPersonaKeys.join('/')} 之一”,
+  “tone”: “positive 或 neutral 或 negative”,
+  “text”: “20到72字的中文推文正文”,
+  “comments”: [“评论1”,”评论2”,”评论3”]
 }`;
   const userPayload = buildCommercialBuzzPromptPayload(event, avoidTexts);
   try {
@@ -6277,7 +6278,7 @@ async function generateCommercialBuzzDraftByLLM(event = {}, { avoidTexts = [] } 
         contents: [{ role: 'user', parts: [{ text: userPayload }] }],
         generationConfig: { temperature: 0.95, responseMimeType: 'application/json' }
       };
-      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
       const data = await readJSONResponseSafe(res, '商业推文生成');
       raw = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text).join('') || '';
     } else {
@@ -6292,7 +6293,7 @@ async function generateCommercialBuzzDraftByLLM(event = {}, { avoidTexts = [] } 
       };
       const endpoint = `${baseUrl}/chat/completions`;
       const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
-      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
       const data = await readJSONResponseSafe(res, '商业推文生成');
       raw = data?.choices?.[0]?.message?.content || '';
     }
@@ -8207,7 +8208,7 @@ async function generateStarPostBatchByLLM(candidates = [], dayResult = {}, { avo
         contents: [{ role: 'user', parts: [{ text: userPayload }] }],
         generationConfig: { temperature: 0.95, responseMimeType: 'application/json' }
       };
-      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
       const data = await readJSONResponseSafe(res, '球星推文生成');
       raw = (data?.candidates?.[0]?.content?.parts || []).map(part => part.text).join('') || '';
     } else {
@@ -8222,7 +8223,7 @@ async function generateStarPostBatchByLLM(candidates = [], dayResult = {}, { avo
       };
       const endpoint = `${baseUrl}/chat/completions`;
       const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
-      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
       const data = await readJSONResponseSafe(res, '球星推文生成');
       raw = data?.choices?.[0]?.message?.content || '';
     }
@@ -8417,7 +8418,7 @@ async function generateStarReplyByLLM(profile, relationInfo, impact, targetPost 
         contents: [{ role: 'user', parts: [{ text: userPayload }] }],
         generationConfig: { temperature: 0.92, responseMimeType: 'application/json' }
       };
-      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
       const data = await readJSONResponseSafe(res, '球星回话生成');
       raw = (data?.candidates?.[0]?.content?.parts || []).map(part => part.text).join('') || '';
     } else {
@@ -8432,7 +8433,7 @@ async function generateStarReplyByLLM(profile, relationInfo, impact, targetPost 
       };
       const endpoint = `${baseUrl}/chat/completions`;
       const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
-      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
       const data = await readJSONResponseSafe(res, '球星回话生成');
       raw = data?.choices?.[0]?.message?.content || '';
     }
@@ -8747,11 +8748,13 @@ function llmSystemPrompt(context = null) {
 
   【严格禁令】
   - 🚫 **绝对禁止**出现 OVR, POT, 能力值, 评分, 潜力值 等游戏术语
+  - 🚫 **绝对禁止**在推文中出现系统属性数据，包括但不限于：训练XP、伤病风险系数、休息恢复+数值、赛后恢复、伤停时间×倍率、疲劳管理+百分比、赛前准备+数值、训练成长效率等游戏机制数据
   - 🚫 **严禁**编造 context 中不存在的球员名字或数据
   - 🚫 **严禁**出现时间错乱的人物
   - 🚫 **严禁**在非选秀期间疯狂刷屏"选秀"关键词
   - 🚫 **严禁**大量讨论数码产品、歌手明星、娱乐八卦等非篮球话题
   - 🚫 **严禁**连续使用相同句式结构
+  - ⚠️ 提到商业购买、团队升级、教练聘用时，必须用普通球迷/记者的自然口吻描述（如"训练条件升级了"、"恢复团队更专业了"），绝对不能出现游戏系统数值
 
   【输出格式】
   只输出JSON对象（不要Markdown）：
@@ -8809,6 +8812,15 @@ function tryParseJSONText(text) {
     return null;
   }
 }
+async function fetchWithTimeout(url, options = {}, timeoutMs = 45000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 async function readJSONResponseSafe(res, label = '接口') {
   const bodyText = await res.text();
   const data = tryParseJSONText(bodyText);
@@ -8838,10 +8850,10 @@ async function fetchSocialLLMModels() {
   const apiKey = String(llm.apiKey || '').trim();
   if (!apiKey) throw new Error('API Key 为空');
   const req = buildLLMRequestConfig(baseUrl, apiKey, `${baseUrl}/models`, { jsonBody: false });
-  const res = await fetch(req.url, {
+  const res = await fetchWithTimeout(req.url, {
     method: 'GET',
     headers: req.headers
-  });
+  }, 15000);
   const data = await readJSONResponseSafe(res, '模型列表');
   const models = extractModelIds(data);
   if (!models.length) throw new Error('模型列表为空或响应格式不支持');
@@ -9149,9 +9161,14 @@ function buildSocialLLMContext(dayResult = {}) {
     tone: String(item?.analysisText || '').trim(),
     text: cleanSocialText(item?.text || '').slice(0, 120)
   })).filter(item => item.text);
-  const commercialEvents = typeof getRecentCommercialEvents === 'function' ? getRecentCommercialEvents(3).map(e => ({
-    label: e?.displayLabel || e?.label || '', detail: e?.detail || '', type: e?.type || ''
-  })) : [];
+  const commercialEvents = typeof getRecentCommercialEvents === 'function' ? getRecentCommercialEvents(3).map(e => {
+    const rawDetail = String(e?.detail || '').trim();
+    const cleanDetail = rawDetail.replace(/[＋\+]\d+(\.\d+)?%?/g, '')
+      .replace(/×\d+\.\d+/g, '')
+      .replace(/(休息恢复|赛后恢复|训练\s*XP|伤病风险|伤停时间|疲劳管理|赛前准备|声望|信任|正面舆论|负面舆论|热度|商业机会|市场分|代言报价|商业分成|并行代言上限)\s*[＋\+\-]?\d*\.?\d*%?/g, '')
+      .replace(/\s*\|\s*/g, '，').replace(/,+\s*$/, '').replace(/^，|，$/g, '').trim();
+    return { label: e?.displayLabel || e?.label || '', detail: cleanDetail || rawDetail, type: e?.type || '' };
+  }) : [];
   const relationships = getTrackedSocialRelationships(4).map(item => ({
     name: String(item?.name || '').trim(),
     team: String(item?.teamAbbr || item?.profile?.teamAbbr || '--').trim(),
@@ -9289,7 +9306,7 @@ async function generateDailySocialTweetsSmart(dayResult = {}, { force = false, c
         contents: [{ role: 'user', parts: [{ text: userPayload }] }],
         generationConfig: { temperature: 0.85, responseMimeType: 'application/json' }
       };
-      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
       const data = await readJSONResponseSafe(res, '推文生成');
       raw = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text).join('') || '';
     } else {
@@ -9304,7 +9321,7 @@ async function generateDailySocialTweetsSmart(dayResult = {}, { force = false, c
       };
       const endpoint = `${baseUrl}/chat/completions`;
       const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
-      const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
       const data = await readJSONResponseSafe(res, '推文生成');
       raw = data?.choices?.[0]?.message?.content || '';
     }
@@ -9531,6 +9548,8 @@ function createPlayerTweetRecord(text = '') {
     reposts: rng(8, 88),
     comments: [],
     isPlayer: true,
+    avatar: String(G.player?.avatar || '').trim(),
+    photo: typeof getPlayerPhotoSrc === 'function' ? getPlayerPhotoSrc(G.player || {}) : String(G.player?.photo || '').trim(),
     day,
     season: G.season,
     year: G.year
@@ -9829,6 +9848,59 @@ function buildEconomyEffectSummary(item = {}) {
   if (parseNum(item.fatigueRelief, 0) > 0) parts.push(`疲劳管理 +${(parseNum(item.fatigueRelief, 0) * 100).toFixed(1)}%`);
   return [overview, ...parts].filter(Boolean).join(' | ') || '提升商业曝光与生涯体验';
 }
+function buildNaturalBuzzDetail(item = {}) {
+  const has = key => Object.prototype.hasOwnProperty.call(item, key);
+  const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+  if (has('restBonus') && has('gameBonus') && has('injuryMult') && has('injuryDaysMult')) {
+    return pick([
+      '康复理疗团队再升级，球员的恢复效率和伤病保障都更有底气了',
+      '医疗团队扩充了理疗组，赛后恢复和长期健康管理更专业',
+      '新的康复配置到位，球员身体管理进入精细化阶段'
+    ]);
+  }
+  if (has('restBonus') && has('gameBonus') && has('injuryMult')) {
+    return pick([
+      '体能保障体系又进一步，恢复节奏和伤病预防都更稳了',
+      '团队在恢复和减伤方面加码，为后半程赛程做足了准备',
+      '这套升级偏"打底"性质，但长期看对出勤率很关键'
+    ]);
+  }
+  if (has('xpMult') && !has('prepBonus') && !has('fatigueRelief')) {
+    return pick([
+      '训练团队再添一名教练，日常练习的成长节奏会更快',
+      '教练配置又往上提了一档，训练质量和效率都有提升空间',
+      '训练端加码了，后续属性开发和比赛状态值得期待'
+    ]);
+  }
+  if (has('posRepMult') || has('negRepMult') || has('socialHeatMult') || has('eventBonus')) {
+    return pick([
+      '公关和舆论团队升级，面对风波的缓冲能力更强了',
+      '品牌运营端有新动作，曝光和舆论管理都在提档',
+      '这套配置更像是在为长期商业版图铺路'
+    ]);
+  }
+  if (has('offerMult') || has('incomeMult') || has('activeCapBonus')) {
+    return pick([
+      '商业谈判和运营能力又进一步，后续代言和收入都有提升空间',
+      '商业团队配置升级，谈判筹码和并行合作上限都在提高',
+      '这套升级对商业版图的扩展会有直接帮助'
+    ]);
+  }
+  if (has('prepBonus') || has('fatigueRelief')) {
+    return pick([
+      '数据分析和疲劳管理体系升级，赛前准备会更充分',
+      '训练分析和体能节奏管理加码，比赛日的状态调配更精细了',
+      '这套升级偏"运营向"，但对赛程后半段的稳定性很关键'
+    ]);
+  }
+  if (has('fame') || has('trust')) {
+    return pick([
+      '团队在公众形象管理方面又走了一步',
+      '品牌层面的积累在持续加深'
+    ]);
+  }
+  return '团队配置持续优化，整体运营更成体系了';
+}
 function addCommercialMomentum({ label = '', cost = 0, extra = 0, source = '商业运作', quiet = false } = {}) {
   ensureEconomyState();
   const gain = clamp(Math.round(parseNum(cost, 0) * 0.7 + parseNum(extra, 0)), 1, 22);
@@ -10009,7 +10081,7 @@ function buyLevelUpgrade({ levelKey = '', market = [], maxMessage = '已满级',
     displayLabel: next.name,
     tag: buzzTag,
     category: buzzTag,
-    detail: buildEconomyEffectSummary(next),
+    detail: buildNaturalBuzzDetail(next),
     fame: rep.fameDelta,
     trust: rep.trustDelta,
     playerName: G.player?.name || '',
@@ -10114,7 +10186,7 @@ function buyFacilityItem(itemId) {
     displayLabel: item.name,
     tag: item.socialTag || '设施升级',
     category: item.socialTag || '设施升级',
-    detail: buildEconomyEffectSummary(item),
+    detail: buildNaturalBuzzDetail(item),
     fame: rep.fameDelta,
     trust: rep.trustDelta,
     playerName: G.player?.name || '',

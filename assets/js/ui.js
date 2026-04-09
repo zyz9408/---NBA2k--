@@ -2853,6 +2853,26 @@ async function doSimulateDay() {
   G._simulatingDay = true;
   if (typeof showLoading === 'function') showLoading();
   renderHome();
+  // 全局安全超时：60秒后提示重试（此时 simulateDay 已完成，只需重跑LLM内容）
+  let dayTimeoutId = null;
+  let timedOut = false;
+  dayTimeoutId = setTimeout(() => {
+    timedOut = true;
+    G._simulatingDay = false;
+    if (typeof hideLoading === 'function') hideLoading();
+    const retryLabel = G._latestDayResult ? '补生成剧情和推文' : '重新模拟当天';
+    showModal(`
+      <div style="text-align:center;padding:16px">
+        <div style="font-size:28px;margin-bottom:12px">⏱️</div>
+        <h3 style="margin:0 0 8px">模拟响应超时</h3>
+        <p style="color:#aaa;margin:0 0 16px;font-size:14px">模型请求未能在规定时间内返回，可能是网络波动或接口拥堵。比赛数据已保存，可以只重试剧情生成。</p>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <button class="btn btn-gold" onclick="hideModal();retryDayLLMContent()">补生成剧情和推文</button>
+          <button class="btn" onclick="hideModal();renderHome()">跳过，继续游戏</button>
+        </div>
+      </div>
+    `);
+  }, 60000);
   try {
     // 赛前事件：如果今天是比赛日，先掷骰并展示事件
     const isGame = typeof isGameDay === 'function' && isGameDay(G.dayNum) && G.gameNum < (typeof getSeasonGameCount === 'function' ? getSeasonGameCount() : (G.totalGames || 82));
@@ -2885,32 +2905,66 @@ async function doSimulateDay() {
 
     G._latestDayResult = result;
 
-    // ========== 剧情引擎接管 ==========
-    if (typeof generateDailyStoryByLLM === 'function') {
-      await generateDailyStoryByLLM(result, { deferRender: true });
-    }
-    // ===================================
-    if (result.isGame && typeof generateMatchRecapByLLM === 'function') {
-      const recap = await generateMatchRecapByLLM(result);
-      if (recap?.ok && recap.recap) {
-        result.gameRecap = recap.recap;
-        G._latestGameRecap = recap.recap;
-      }
-    }
+    // ========== 剧情引擎（优先，独立超时） ==========
+    const storyPromise = typeof generateDailyStoryByLLM === 'function'
+      ? generateDailyStoryByLLM(result, { deferRender: true }).catch(e => { console.warn('剧情生成失败:', e); return null; })
+      : Promise.resolve(null);
 
-    if (typeof generateDailySocialTweetsSmart === 'function') {
-      await generateDailySocialTweetsSmart(result);
+    // ========== 战报 + 推文并行（不阻塞剧情） ==========
+    const recapPromise = (result.isGame && typeof generateMatchRecapByLLM === 'function')
+      ? generateMatchRecapByLLM(result).catch(e => { console.warn('战报生成失败:', e); return null; })
+      : Promise.resolve(null);
+
+    const tweetsPromise = typeof generateDailySocialTweetsSmart === 'function'
+      ? generateDailySocialTweetsSmart(result).catch(e => { console.warn('推文生成失败:', e); G.social.lastLLMError = String(e?.message || e || ''); return []; })
+      : Promise.resolve([]);
+
+    // 剧情先完成（渲染到面板），然后等战报和推文
+    await storyPromise;
+    const settled = await Promise.allSettled([recapPromise, tweetsPromise]);
+    const recapResult = settled[0];
+    if (recapResult?.status === 'fulfilled' && recapResult?.value?.ok && recapResult.value.recap) {
+      result.gameRecap = recapResult.value.recap;
+      G._latestGameRecap = recapResult.value.recap;
     }
 
     updateHeader();
     renderHome();
     if ($('phonePage').classList.contains('active')) renderPhone();
   } finally {
+    clearTimeout(dayTimeoutId);
     G._simulatingDay = false;
     if (typeof hideLoading === 'function') hideLoading();
     if ($('homePage').classList.contains('active')) renderHome();
     if ($('phonePage').classList.contains('active')) renderPhone();
     // 自动备份到 localStorage
+    try { localStorage.setItem('nba_save_auto', JSON.stringify(buildSaveObj())); } catch (e) { }
+  }
+}
+
+async function retryDayLLMContent() {
+  const result = G._latestDayResult;
+  if (!result) { renderHome(); return; }
+  if (typeof showLoading === 'function') showLoading();
+  try {
+    const storyP = typeof generateDailyStoryByLLM === 'function'
+      ? generateDailyStoryByLLM(result, { deferRender: true }).catch(e => { console.warn('剧情补生成失败:', e); })
+      : Promise.resolve();
+    const recapP = (result.isGame && typeof generateMatchRecapByLLM === 'function')
+      ? generateMatchRecapByLLM(result, { force: true }).then(r => {
+          if (r?.ok && r.recap) { result.gameRecap = r.recap; G._latestGameRecap = r.recap; }
+        }).catch(e => { console.warn('战报补生成失败:', e); })
+      : Promise.resolve();
+    const tweetsP = typeof generateDailySocialTweetsSmart === 'function'
+      ? generateDailySocialTweetsSmart(result, { force: true }).catch(e => { console.warn('推文补生成失败:', e); })
+      : Promise.resolve();
+    await storyP;
+    await Promise.allSettled([recapP, tweetsP]);
+  } finally {
+    if (typeof hideLoading === 'function') hideLoading();
+    updateHeader();
+    renderHome();
+    if ($('phonePage').classList.contains('active')) renderPhone();
     try { localStorage.setItem('nba_save_auto', JSON.stringify(buildSaveObj())); } catch (e) { }
   }
 }
@@ -7514,7 +7568,7 @@ async function forceRetire() {
           contents: [{ role: 'user', parts: [{ text: promptContext }] }],
           generationConfig: { temperature: 0.7, responseMimeType: 'application/json' }
         };
-        const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+        const res = await (typeof fetchWithTimeout === 'function' ? fetchWithTimeout : fetch)(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
         const data = await readJSONResponseSafe(res, '退役生成');
         raw = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text).join('') || '';
       } else {
@@ -7528,7 +7582,7 @@ async function forceRetire() {
         };
         const endpoint = `${baseUrl}/chat/completions`;
         const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
-        const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
+        const res = await (typeof fetchWithTimeout === 'function' ? fetchWithTimeout : fetch)(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
         const data = await readJSONResponseSafe(res, '退役生成');
         raw = data?.choices?.[0]?.message?.content || '';
       }
