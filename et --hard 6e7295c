@@ -1,0 +1,30 @@
+*   [33m121b7ab[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Merge branch 'main' of https://github.com/zyz9408/---NBA2k--
+[31m|[m[32m\[m  
+[31m|[m *   [33m58c743e[m Merge branch 'main' of https://github.com/zyz9408/---NBA2k--
+[31m|[m [33m|[m[34m\[m  
+[31m|[m * [34m|[m [33m7e68b38[m LLM和推文功能修复
+[31m|[m * [34m|[m [33m3c85754[m LLM更新
+* [34m|[m [34m|[m [33m6e7295c[m 最新版本,增加PY启动
+[34m|[m [34m|[m[34m/[m  
+[34m|[m[34m/[m[34m|[m   
+* [34m|[m [33m476597e[m UI大修
+* [34m|[m [33m891ba33[m 对NBA生涯模拟游戏进行全面的优化评估，修改BUG
+* [34m|[m [33m24c8eaa[m 推特头像和内容更新
+[34m|[m[34m/[m  
+* [33mb074582[m 添加《NBA Career Sim v1.3.0 差距与优化清单》文档
+* [33ma1ee53e[m 重构UI 比赛模拟增强
+* [33m0153c4b[m 页面更新
+* [33m7d45adc[m 球鞋界面
+* [33mf452a7f[m 商业中心(缺少签名鞋）+LLM+每日手机
+* [33m9a96bb9[m feat: 新增用于 TG 增强的正则表达式脚本并创建进度日志
+* [33m85fcbaa[m 季后赛修改,ATTDEF修改
+* [33m6d5150d[m LLM新秀聊天,休赛期大当家调整
+* [33m920322c[m 潜力修复,玻璃人修复
+* [33m6dff6e2[m 更新球员详情数据
+* [33m93c9b75[m 更新潜力,推文,季后赛,升级
+* [33mcf53e2d[m Bug修复
+* [33mc7a4364[m 修复报错和选秀错误
+* [33m45a9ec5[m 修复评论回复
+* [33mcd1ec54[m 修复评论回复
+* [33m25d5e72[m feat: implement core game data structures and UI components for the game.
+* [33m38dfd02[m feat: Add NBA career simulator HTML file and associated player, team, and badge image assets.
