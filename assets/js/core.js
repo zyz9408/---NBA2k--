@@ -1,37 +1,6 @@
 // core.js
 // ============ GAME DATA ============
 
-const DEFAULT_LLM_PRESET_CONFIG = {
-  enabled: true,
-  antiTalk: true,
-  strictTurnTaking: false,
-  styleEnabled: true,
-  style: '白描',
-  antiOmniscience: true,
-  antiVariable: true,
-  emotionControl: true,
-  roleHope: true,
-  gameInteraction: true,
-  dataFirst: true
-};
-
-function normalizeLLMPresetConfig(raw = {}) {
-  const source = raw && typeof raw === 'object' ? raw : {};
-  return {
-    enabled: source.enabled !== false,
-    antiTalk: source.antiTalk !== false,
-    strictTurnTaking: source.strictTurnTaking === true,
-    styleEnabled: source.styleEnabled !== false,
-    style: String(source.style || DEFAULT_LLM_PRESET_CONFIG.style || '').trim() || DEFAULT_LLM_PRESET_CONFIG.style,
-    antiOmniscience: source.antiOmniscience !== false,
-    antiVariable: source.antiVariable !== false,
-    emotionControl: source.emotionControl !== false,
-    roleHope: source.roleHope !== false,
-    gameInteraction: source.gameInteraction !== false,
-    dataFirst: source.dataFirst !== false
-  };
-}
-
 const TEAMS = [
   { id: 1, n: "Celtics", z: "凯尔特人", a: "BOS", c: "East", cl: "#007A33", r: 88 },
   { id: 2, n: "Nets", z: "篮网", a: "BKN", c: "East", cl: "#000", r: 75 },
@@ -261,28 +230,7 @@ let G = {
     playerStatementLog: [],
     playerLinks: {},
     rivalry: { lastPreviewGameKey: '', lastResultGameKey: '' },
-    starProfiles: {},
-    tweetImagesEnabled: false,
-    llm: {
-      enabled: false,
-      baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4.1-mini',
-      apiKey: '',
-      imageModel: '',
-      presets: {
-        enabled: true,
-        antiTalk: true,
-        strictTurnTaking: false,
-        styleEnabled: true,
-        style: '白描',
-        antiOmniscience: true,
-        antiVariable: true,
-        emotionControl: true,
-        roleHope: true,
-        gameInteraction: true,
-        dataFirst: true
-      }
-    }
+    starProfiles: {}
   },
   coachRelations: { byKey: {} },
   coachDynamics: { lastConversationDay: -99, lastDailyPromptDay: -99, lastRenewalBriefSeason: 0, directives: { usageDemandUntilDay: -1, startingDemandUntilDay: -1, buyInUntilDay: -1 } },
@@ -292,6 +240,25 @@ let G = {
     chemistry: { overall: 50, offenseSynergy: 50, defenseSynergy: 50, lockerRoomMood: 50, leadershipScore: 0, dramaLevel: 0, lastUpdated: -1 },
     events: [],
     lastPromptDay: -99
+  },
+  // ========== 游戏化生涯循环 ==========
+  gameplay: {
+    postgameDirector: {
+      lastEventDayByType: {},
+      lastEventGameIdByType: {},
+      forcedModalCountByGameId: {},
+      suppressedEvents: [],
+      pendingInboxEvents: []
+    },
+    pregamePlanByGame: {},
+    latestPostgame: null,
+    careerLines: {
+      coach: { score: 50, stage: 'rotation_watch', lastDelta: 0 },
+      rotation: { score: 35, stage: 'bench', lastDelta: 0 },
+      lockerRoom: { score: 50, stage: 'neutral', lastDelta: 0 },
+      media: { score: 20, stage: 'local_notice', heat: 0, lastDelta: 0 },
+      starCircle: { score: 8, stage: 'unknown', lastDelta: 0 }
+    }
   },
   // ========== 赛季目标系统 ==========
   seasonGoals: {
@@ -342,38 +309,23 @@ const LEAGUE = {
   rookiesBySeason: {},
   namesPool: [],
   availableScriptYears: [],
-  years: { roster: 25, coach: 1, rosterCode: 1 }
+  years: { roster: 25, coach: 1, rosterCode: 1 },
+  historicalDb: { loaded: false, error: null }
 };
 
 const LEAGUE_SALARY_CAP_M = 170;
 const APK_NBA_START_YEARS = [
-  2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017,
-  2015, 2011, 2008, 2005, 2003, 1995, 1983, 1971, 1946
+  2025, 2009, 2003, 1996, 1983
 ];
 const APK_ROSTER_INDEX_TO_START_YEAR = {
-  1: 2025, 2: 2024, 3: 2023, 4: 2022, 5: 2021, 6: 2020, 7: 2019, 8: 2018, 9: 2017,
-  10: 2015, 11: 2011, 12: 2008, 13: 2005, 14: 2003, 15: 1995, 16: 1983, 17: 1971,
-  18: 1946, 19: 1946, 20: 2025, 21: 1946
+  1: 2025, 12: 2009, 14: 2003, 15: 1996, 16: 1983
 };
 const APK_START_YEAR_TO_ROSTER_INDEXES = {
   2025: [1],
-  2024: [2],
-  2023: [3],
-  2022: [4],
-  2021: [5],
-  2020: [6],
-  2019: [7],
-  2018: [8],
-  2017: [9],
-  2015: [10],
-  2011: [11],
-  2008: [12],
-  2005: [13],
+  2009: [12],
   2003: [14],
-  1995: [15],
-  1983: [16],
-  1971: [17],
-  1946: [18, 19]
+  1996: [15],
+  1983: [16]
 };
 const APK_RAW_BASE_PATH = 'APK/resources/res/raw';
 
@@ -474,10 +426,8 @@ const RAW_TEAM_ID_REMAP = {
   26: 21, 27: 22, 28: 23, 29: 24, 30: 25
 };
 function resolveTeamId(rawTeamId, rawTeamName = '') {
-  const token = normalizeTeamToken(rawTeamName);
-  const byName = TEAM_NAME_ID_MAP.get(token);
-  if (byName && byName >= 1 && byName <= 30) return byName;
   const byId = parseNum(rawTeamId, 0);
+  const token = normalizeTeamToken(rawTeamName);
   if (byId >= 1 && byId <= 30) {
     const byIdTeam = TEAMS.find(t => t.id === byId);
     if (byIdTeam) {
@@ -485,7 +435,17 @@ function resolveTeamId(rawTeamId, rawTeamName = '') {
       if (matchById) return byId;
     }
   }
-  if ((rawTeamName || '').trim() && RAW_TEAM_ID_REMAP[byId]) return RAW_TEAM_ID_REMAP[byId];
+  const remappedId = RAW_TEAM_ID_REMAP[byId];
+  if (remappedId) {
+    const remappedTeam = TEAMS.find(t => t.id === remappedId);
+    const matchRemapped = remappedTeam
+      ? [remappedTeam.z, remappedTeam.n, remappedTeam.a].some(v => normalizeTeamToken(v) === token)
+      : false;
+    if (matchRemapped) return remappedId;
+    if ((rawTeamName || '').trim()) return remappedId;
+  }
+  const byName = TEAM_NAME_ID_MAP.get(token);
+  if (byName && byName >= 1 && byName <= 30) return byName;
   if (byId >= 1 && byId <= 30) return byId;
   return 0;
 }
@@ -517,14 +477,24 @@ function getPlayerPhotoPath(imageId) {
 function stripUndefinedTokens(text) {
   return String(text == null ? '' : text).replace(/\b(?:undefined|underfined)\b/gi, '').trim();
 }
+function escapeHtml(value = '') {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch]));
+}
 function getPlayerPhotoSrc(player) {
   // Support uploaded avatar/photo (data URL / remote URL / local blob URL)
   const avatar = stripUndefinedTokens(player && typeof player.avatar === 'string' ? player.avatar : '');
   const photoRaw = stripUndefinedTokens(player && typeof player.photo === 'string' ? player.photo : '');
+  const photoLocal = stripUndefinedTokens(player && typeof player.photoLocal === 'string' ? player.photoLocal : '');
   if (avatar && avatar !== 'null') return avatar;
   if (photoRaw && (photoRaw.startsWith('data:image/') || photoRaw.startsWith('blob:') || /^https?:\/\//i.test(photoRaw))) return photoRaw;
   const imageId = clamp(parseNum(player?.image, 0), 0, 9999);
-  return photoRaw || getPlayerPhotoPath(imageId);
+  return photoRaw || photoLocal || getPlayerPhotoPath(imageId);
 }
 function resolveDisplayName(name, nameBirth, fallback = '') {
   const n = (name || '').trim();
@@ -649,6 +619,7 @@ function rowToPlayer(row, fallbackId, extra = {}) {
     photo: getPlayerPhotoPath(imgId),
     image: imgId,
     info: row.info || '',
+    historicalRosterHonors: rosterRowHonorCounter(row),
     attrs,
     tendencies: {
       in: parseNum(row.tendencyIn, 55),
@@ -1103,27 +1074,6 @@ async function setImageCacheData(url, dataUrl) {
   } catch (e) {}
 }
 
-async function cacheRemoteImage(url) {
-  if (!url || typeof url !== 'string') return url;
-  if (url.startsWith('data:')) return url;
-  if (url.startsWith('<svg') || url.startsWith('<SVG')) return url;
-  const cached = await getCachedImageData(url);
-  if (cached) return cached;
-  try {
-    const res = await fetch(url, { mode: 'cors' });
-    if (!res.ok) return url;
-    const blob = await res.blob();
-    const dataUrl = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-    await setImageCacheData(url, dataUrl);
-    return dataUrl;
-  } catch (e) { return url; }
-}
-
 const isFileMode = () => location.protocol === 'file:';
 const canUseFS = () => typeof window.showDirectoryPicker === 'function' && typeof indexedDB !== 'undefined';
 
@@ -1131,8 +1081,7 @@ async function resolveImageSrc(src) {
   if (!src || typeof src !== 'string') return src;
   if (src.startsWith('data:')) return src;
   if (src.startsWith('<svg') || src.startsWith('<SVG')) return src;
-  const cached = await getCachedImageData(src);
-  return cached || src;
+  return src;
 }
 function normalizePath(path) {
   return String(path || '').replace(/\\/g, '/').replace(/^\.?\//, '');
@@ -1368,6 +1317,413 @@ async function fetchFirstText(candidates, { required = true, label = '' } = {}) 
   if (!required) return { path: '', text: '' };
   throw lastErr || new Error(`DATA_FILE_NOT_FOUND:${label || candidates[0] || 'unknown'}`);
 }
+const HISTORICAL_DB_BASE = 'assets/data/historical';
+function normalizeHistoricalNameKey(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+function historicalHonorCounter() {
+  return {
+    rings: 0, mvp: 0, fmvp: 0, dpoy: 0, roy: 0, allStar: 0, allStarMvp: 0,
+    allNba1: 0, allNba2: 0, allNba3: 0, allDefensive: 0, scoring: 0,
+    rebound: 0, assist: 0, block: 0, steal: 0, sixthMan: 0
+  };
+}
+function normalizeHistoricalHonors(raw = null) {
+  const out = historicalHonorCounter();
+  if (!raw || typeof raw !== 'object') return out;
+  Object.keys(out).forEach(key => { out[key] = Math.max(0, Math.floor(parseNum(raw[key], 0))); });
+  return out;
+}
+function rosterRowHonorCounter(row = {}) {
+  return normalizeHistoricalHonors({
+    rings: row.rings,
+    mvp: row.mvps,
+    fmvp: row.fmvps,
+    allNba1: row.allTeam1,
+    allNba2: row.allTeam2,
+    allNba3: row.allTeam3
+  });
+}
+function computeHistoricalSeasonTotals(rows = []) {
+  const totals = rows.reduce((acc, row) => {
+    const gp = parseNum(row.gp, 0);
+    acc.gp += gp;
+    acc.pts += parseNum(row.ppg, 0) * gp;
+    acc.reb += parseNum(row.rpg, 0) * gp;
+    acc.ast += parseNum(row.apg, 0) * gp;
+    acc.stl += parseNum(row.spg, 0) * gp;
+    acc.blk += parseNum(row.bpg, 0) * gp;
+    return acc;
+  }, { gp: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0 });
+  const gp = Math.max(1, totals.gp);
+  return {
+    ...totals,
+    averages: {
+      ppg: +(totals.pts / gp).toFixed(1),
+      rpg: +(totals.reb / gp).toFixed(1),
+      apg: +(totals.ast / gp).toFixed(1),
+      spg: +(totals.stl / gp).toFixed(1),
+      bpg: +(totals.blk / gp).toFixed(1)
+    }
+  };
+}
+function historicalHonorsSummary(honors = {}) {
+  const c = normalizeHistoricalHonors(honors);
+  const parts = [
+    ['rings', '总冠军'], ['mvp', 'MVP'], ['fmvp', 'FMVP'], ['dpoy', 'DPOY'], ['roy', 'ROY'],
+    ['allStar', '全明星'], ['allStarMvp', '全明星MVP'], ['allNba1', '一阵'], ['allNba2', '二阵'],
+    ['allNba3', '三阵'], ['allDefensive', '一防'], ['scoring', '得分王'], ['rebound', '篮板王'],
+    ['assist', '助攻王'], ['block', '盖帽王'], ['steal', '抢断王'], ['sixthMan', '最佳第六人']
+  ].filter(([key]) => parseNum(c[key], 0) > 0).map(([key, label]) => `${label}x${c[key]}`);
+  return parts.length ? parts.join(' / ') : '暂无已验证荣誉';
+}
+function hasHistoricalHonors(honors = {}) {
+  const c = normalizeHistoricalHonors(honors);
+  return Object.keys(c).some(key => parseNum(c[key], 0) > 0);
+}
+function historicalHonorBadgeItems(honors = {}) {
+  const c = normalizeHistoricalHonors(honors);
+  return [
+    ['rings', '总冠军', 'b-gold'], ['mvp', 'MVP', 'b-gold'], ['fmvp', 'FMVP', 'b-gold'],
+    ['dpoy', 'DPOY', 'b-cyan'], ['roy', 'ROY', 'b-pri'], ['allNba1', '一阵', 'b-gold'],
+    ['allNba2', '二阵', 'b-pri'], ['allNba3', '三阵', 'b-pri'], ['allDefensive', '一防', 'b-cyan'],
+    ['allStar', '全明星', 'b-pri'], ['allStarMvp', '全明星MVP', 'b-gold'], ['scoring', '得分王', 'b-no'],
+    ['rebound', '篮板王', 'b-cyan'], ['assist', '助攻王', 'b-cyan'], ['block', '盖帽王', 'b-cyan'],
+    ['steal', '抢断王', 'b-cyan'], ['sixthMan', '最佳第六人', 'b-pri']
+  ]
+    .filter(([key]) => parseNum(c[key], 0) > 0)
+    .map(([key, label, cls]) => ({ key, label, count: parseNum(c[key], 0), cls }));
+}
+function renderHistoricalHonorBadges(honors = {}) {
+  const items = historicalHonorBadgeItems(honors);
+  if (!items.length) return '<div class="t-2 fs-xs">暂无可验证 NBA 历史荣誉</div>';
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px">${items.map(item => (
+    `<span class="badge ${item.cls}" title="${escapeHtml(item.label)}">${escapeHtml(item.label)} x${item.count}</span>`
+  )).join('')}</div>`;
+}
+function renderHistoricalHonorSeasonList(seasons = []) {
+  const rows = (Array.isArray(seasons) ? seasons : [])
+    .filter(row => Array.isArray(row.awards) && row.awards.length)
+    .slice()
+    .sort((a, b) => parseNum(b.seasonEndYear, 0) - parseNum(a.seasonEndYear, 0))
+    .slice(0, 8);
+  if (!rows.length) return '<div class="t-2 fs-xs mt-8">暂无可验证逐年荣誉明细</div>';
+  return `<div class="mt-8">${rows.map(row => {
+    const year = parseNum(row.seasonEndYear, parseNum(row.year, 0));
+    const awards = row.awards.map(item => escapeHtml(item)).join(' / ');
+    const sourceNote = row.approximate ? ' · 聚合口径' : '';
+    return `<div class="t-2 fs-xs mt-8"><span class="fw-b">${year}</span>：${awards}${sourceNote}</div>`;
+  }).join('')}</div>`;
+}
+async function fetchHistoricalJson(fileName, fallback = null) {
+  try {
+    return JSON.parse(await fetchText(`${HISTORICAL_DB_BASE}/${fileName}`));
+  } catch (e) {
+    return fallback;
+  }
+}
+function indexHistoricalDb(raw = {}) {
+  const players = Array.isArray(raw.players?.players) ? raw.players.players : [];
+  const playersById = {};
+  const playersByKey = {};
+  players.forEach(player => {
+    if (!player?.realId) return;
+    playersById[player.realId] = player;
+    const keys = [
+      player.historyKey,
+      player.name,
+      player.displayName,
+      player.nameEn,
+      player.nameCn,
+      ...(Array.isArray(player.aliases) ? player.aliases : [])
+    ].map(normalizeHistoricalNameKey).filter(Boolean);
+    keys.forEach(key => { if (!playersByKey[key]) playersByKey[key] = player; });
+  });
+  const seasonsByPlayer = {};
+  (raw.seasonPacks || []).forEach(pack => {
+    (Array.isArray(pack?.rows) ? pack.rows : []).forEach(row => {
+      if (!row?.realId) return;
+      if (!seasonsByPlayer[row.realId]) seasonsByPlayer[row.realId] = { regular: [], playoffs: [] };
+      const type = String(row.type || 'regular').toLowerCase() === 'playoffs' ? 'playoffs' : 'regular';
+      seasonsByPlayer[row.realId][type].push(row);
+    });
+  });
+  Object.values(seasonsByPlayer).forEach(bucket => {
+    bucket.regular.sort((a, b) => parseNum(a.season, 0) - parseNum(b.season, 0));
+    bucket.playoffs.sort((a, b) => parseNum(a.season, 0) - parseNum(b.season, 0));
+  });
+  return {
+    loaded: true,
+    error: null,
+    manifest: raw.manifest || {},
+    players,
+    playersById,
+    playersByKey,
+    seasonsByPlayer,
+    draftClasses: raw.draftClasses?.classes || {},
+    awardsByPlayer: raw.awards?.playerAwards || {},
+    awardSeasonsByPlayer: raw.awards?.awardSeasons || {},
+    awardsMeta: raw.awards?.sourceCoverage || {},
+    awardsVersion: parseNum(raw.awards?.version, 0),
+    eraTop100: raw.eraTop100 || { rankings: {} },
+    transactions: raw.transactions || {},
+    salaries: raw.salaries || {}
+  };
+}
+async function loadHistoricalDb({ force = false } = {}) {
+  if (!force && LEAGUE.historicalDb?.loaded) return LEAGUE.historicalDb;
+  try {
+    const manifest = await fetchHistoricalJson('manifest.json', null);
+    if (!manifest) throw new Error('historical manifest missing');
+    const [players, draftClasses, awards, eraTop100, transactions, salaries] = await Promise.all([
+      fetchHistoricalJson(manifest.files?.players || 'players.json', { players: [] }),
+      fetchHistoricalJson(manifest.files?.draftClasses || 'draft_classes.json', { classes: {} }),
+      fetchHistoricalJson(manifest.files?.awards || 'awards.json', { playerAwards: {}, awardSeasons: {} }),
+      fetchHistoricalJson(manifest.files?.eraTop100 || 'era_top100.json', { rankings: {} }),
+      fetchHistoricalJson(manifest.files?.transactions || 'transactions.json', { transactions: [] }),
+      fetchHistoricalJson(manifest.files?.salaries || 'salaries.json', { salaries: [] })
+    ]);
+    const seasonFiles = Array.isArray(manifest.files?.playerSeasons) ? manifest.files.playerSeasons : [];
+    const seasonPacks = await Promise.all(seasonFiles.map(file => fetchHistoricalJson(file, { rows: [] })));
+    LEAGUE.historicalDb = indexHistoricalDb({ manifest, players, draftClasses, awards, eraTop100, transactions, salaries, seasonPacks });
+  } catch (e) {
+    LEAGUE.historicalDb = { loaded: false, error: e, manifest: {}, playersById: {}, playersByKey: {}, seasonsByPlayer: {}, draftClasses: {}, awardsByPlayer: {}, awardSeasonsByPlayer: {}, awardsMeta: {}, eraTop100: { rankings: {} } };
+    console.warn('Historical DB load failed; continuing without verified history.', e);
+  }
+  return LEAGUE.historicalDb;
+}
+function getHistoricalDb() {
+  return LEAGUE.historicalDb?.loaded ? LEAGUE.historicalDb : null;
+}
+function findHistoricalPlayer(playerOrRow = {}) {
+  const db = getHistoricalDb();
+  if (!db) return null;
+  const keys = [
+    playerOrRow.realId,
+    playerOrRow.historyKey,
+    playerOrRow.nameEn,
+    playerOrRow.altName,
+    playerOrRow.nameBirth,
+    playerOrRow.displayName,
+    playerOrRow.name,
+    playerOrRow.nameCn
+  ];
+  for (const keyRaw of keys) {
+    const id = String(keyRaw || '').trim();
+    if (id && db.playersById[id]) return db.playersById[id];
+    const key = normalizeHistoricalNameKey(keyRaw);
+    if (key && db.playersByKey[key]) return db.playersByKey[key];
+  }
+  return null;
+}
+function getHistoricalHonorsForPlayer(realId, asOfYear, fallback = null) {
+  const db = getHistoricalDb();
+  const byYear = db?.awardsByPlayer?.[realId] || {};
+  const years = Object.keys(byYear).map(Number).filter(year => year <= asOfYear).sort((a, b) => a - b);
+  if (years.length) return normalizeHistoricalHonors(byYear[years[years.length - 1]]);
+  return normalizeHistoricalHonors(fallback || null);
+}
+function getHistoricalHonorSeasonsForPlayer(realId, asOfYear) {
+  const db = getHistoricalDb();
+  const rows = Array.isArray(db?.awardSeasonsByPlayer?.[realId]) ? db.awardSeasonsByPlayer[realId] : [];
+  return rows
+    .filter(row => parseNum(row.seasonEndYear, parseNum(row.year, 0)) <= asOfYear)
+    .map(row => ({
+      seasonEndYear: parseNum(row.seasonEndYear, parseNum(row.year, 0)),
+      year: parseNum(row.year, parseNum(row.seasonEndYear, 0)),
+      awards: Array.isArray(row.awards) ? row.awards.map(item => String(item || '').trim()).filter(Boolean) : [],
+      counter: normalizeHistoricalHonors(row.counter || null),
+      cumulative: normalizeHistoricalHonors(row.cumulative || null),
+      source: String(row.source || 'historical_awards'),
+      approximate: !!row.approximate
+    }))
+    .sort((a, b) => parseNum(a.seasonEndYear, 0) - parseNum(b.seasonEndYear, 0));
+}
+function mapHistoricalSeasonRow(row = {}) {
+  return {
+    year: parseNum(row.season, 0),
+    seasonEndYear: parseNum(row.seasonEndYear, parseNum(row.season, 0) + 1),
+    team: parseNum(row.teamId, 0),
+    teamAbbr: String(row.team || '').trim(),
+    gp: parseNum(row.gp, 0),
+    mins: parseNum(row.mins, 0),
+    ppg: parseNum(row.ppg, 0),
+    rpg: parseNum(row.rpg, 0),
+    apg: parseNum(row.apg, 0),
+    spg: parseNum(row.spg, 0),
+    bpg: parseNum(row.bpg, 0),
+    fgPct: parseNum(row.fgPct, 0),
+    tpPct: parseNum(row.tpPct, 0),
+    ftPct: parseNum(row.ftPct, 0),
+    source: String(row.source || 'historical_db')
+  };
+}
+function getHistoricalEraEntries(asOfYear = null) {
+  const db = getHistoricalDb();
+  if (!db) return [];
+  const year = parseNum(asOfYear, parseNum(G.startYear, G.year || 2025));
+  const rankings = db.eraTop100?.rankings || {};
+  const direct = rankings[String(year)] || rankings[year];
+  if (Array.isArray(direct)) return direct;
+  const years = Object.keys(rankings).map(Number).filter(y => y <= year).sort((a, b) => a - b);
+  return years.length ? (rankings[String(years[years.length - 1])] || []) : [];
+}
+function getHistoricalRankForPlayer(realId, asOfYear = null) {
+  const list = getHistoricalEraEntries(asOfYear);
+  return list.find(entry => String(entry.realId || entry.id) === String(realId)) || null;
+}
+function hydratePlayerWithHistoricalData(player, asOfYear = null) {
+  if (!player) return player;
+  const year = parseNum(asOfYear, parseNum(G.startYear, G.year || 2025));
+  const historical = findHistoricalPlayer(player);
+  if (!historical) return player;
+  const realId = historical.realId;
+  const db = getHistoricalDb();
+  const bucket = db?.seasonsByPlayer?.[realId] || { regular: [], playoffs: [] };
+  const regularRows = bucket.regular.filter(row => parseNum(row.seasonEndYear, 0) <= year).map(mapHistoricalSeasonRow);
+  const playoffRows = bucket.playoffs.filter(row => parseNum(row.seasonEndYear, 0) <= year).map(mapHistoricalSeasonRow);
+  const fallbackHonors = historical.honorsFromRosters?.[year] || player.historicalRosterHonors || null;
+  const honors = getHistoricalHonorsForPlayer(realId, year, fallbackHonors);
+  const honorSeasons = getHistoricalHonorSeasonsForPlayer(realId, year);
+  const totals = computeHistoricalSeasonTotals(regularRows);
+  const firstRegular = regularRows[0] || null;
+  const lastRegular = regularRows[regularRows.length - 1] || null;
+  const rankEntry = getHistoricalRankForPlayer(realId, year);
+  player.realId = realId;
+  player.historyKey = historical.historyKey || player.historyKey || normalizeHistoricalNameKey(player.nameEn || player.altName || player.name);
+  player.sourceCoverage = {
+    ...(historical.sourceCoverage || {}),
+    asOfYear: year,
+    awards: hasHistoricalHonors(honors),
+    awardSeasons: honorSeasons.length
+  };
+  if (historical.image && !parseNum(player.image, 0)) player.image = parseNum(historical.image, 0);
+  if (historical.photoLocal && !player.photoLocal) player.photoLocal = historical.photoLocal;
+  if (historical.photoStatus && !player.photoStatus) player.photoStatus = historical.photoStatus;
+  if (historical.photoSource && !player.photoSource) player.photoSource = historical.photoSource;
+  if (historical.photoLocal && (!player.photo || /IMG0000\.png$/i.test(String(player.photo)))) player.photo = historical.photoLocal;
+  player.seasonHistory = regularRows;
+  player.playoffHistory = playoffRows;
+  player.careerHistory = regularRows;
+  player.historicalStatsBySeason = regularRows.reduce((acc, row) => {
+    const key = String(row.seasonEndYear || row.year || '').trim();
+    if (key) acc[key] = row;
+    return acc;
+  }, {});
+  player.honorSeasons = honorSeasons;
+  player.salaryHistory = [];
+  player.transactionHistory = [];
+  player.careerBeforeStart = {
+    asOfYear: year,
+    seasons: regularRows.length,
+    playoffSeasons: playoffRows.length,
+    firstSeason: firstRegular?.year || null,
+    firstSeasonEndYear: firstRegular?.seasonEndYear || null,
+    lastSeason: lastRegular?.year || null,
+    lastSeasonEndYear: lastRegular?.seasonEndYear || null,
+    totals,
+    honors,
+    honorSummary: historicalHonorsSummary(honors),
+    honorSeasons,
+    honorSource: 'historical_awards_v2',
+    sourceCoverage: player.sourceCoverage
+  };
+  if (rankEntry) {
+    player.historicalRankAsOfStart = {
+      rank: parseNum(rankEntry.rank, 0),
+      legacyScore: parseNum(rankEntry.legacyScore, 0),
+      peakScore: parseNum(rankEntry.peakScore, 0),
+      asOfYear: year
+    };
+  }
+  return player;
+}
+function historicalDraftYears() {
+  const db = getHistoricalDb();
+  return Object.keys(db?.draftClasses || {}).map(Number).filter(year => year >= 1947 && year <= 2100).sort((a, b) => a - b);
+}
+function historicalRookieAttrs(rating, pos) {
+  const r = clamp(parseNum(rating, 68), 45, 92);
+  const attrs = {
+    pass: r - 2,
+    shotInt: r,
+    shotExt: r - 2,
+    shotFree: r - 1,
+    physique: r,
+    blk: r - 5,
+    reb: r - 2,
+    stl: r - 4,
+    speed: r,
+    strength: r - 1
+  };
+  if (pos <= 2) { attrs.pass += 5; attrs.speed += 4; attrs.blk -= 8; attrs.reb -= 5; }
+  if (pos >= 4) { attrs.reb += 5; attrs.blk += 5; attrs.pass -= 4; attrs.shotExt -= 5; attrs.strength += 5; }
+  Object.keys(attrs).forEach(key => { attrs[key] = clamp(Math.round(attrs[key]), 35, 96); });
+  return attrs;
+}
+function historicalRookieToPlayer(item = {}, index = 0) {
+  const pick = parseNum(item.pick, index + 1);
+  const draftYear = parseNum(item.draftYear, 0);
+  const pos = clamp(parseNum(item.pos, 3), 1, 5);
+  const rating = clamp(parseNum(item.ratingSeed, pick <= 1 ? 78 : pick <= 5 ? 75 : pick <= 14 ? 71 : 66), 45, 90);
+  const rawPot = parseNum(item.potentialSeed, pick <= 1 ? 95 : pick <= 5 ? 90 : pick <= 14 ? 84 : 76);
+  const potential = rawPot <= 11 ? normalizePotentialValue(rawPot, rating) : clamp(rawPot, rating, 99);
+  const attrs = historicalRookieAttrs(rating, pos);
+  const imageId = clamp(parseNum(item.image, 0), 0, 9999);
+  const photoLocal = cleanText(item.photoLocal || '');
+  const photo = cleanText(item.photo || photoLocal || (imageId ? getPlayerPhotoPath(imageId) : getPlayerPhotoPath(0)));
+  return {
+    id: 730000 + draftYear * 1000 + pick,
+    uid: `hist_${draftYear}_${pick}_${item.historyKey || index}`,
+    realId: item.realId || '',
+    historyKey: item.historyKey || normalizeHistoricalNameKey(item.nameEn || item.name || ''),
+    name: cleanText(item.nameCn || item.name || item.displayName || `新秀${pick}号`),
+    altName: cleanText(item.nameEn || item.name || item.displayName || ''),
+    nameCn: cleanText(item.nameCn || item.name || item.displayName || ''),
+    nameEn: cleanText(item.nameEn || item.name || item.displayName || ''),
+    pos,
+    pos2: clamp(parseNum(item.pos2, 0), 0, 5),
+    rating,
+    potential,
+    att: calcPlayerAtt(attrs),
+    def: calcPlayerDef(attrs),
+    age: clamp(parseNum(item.age, 20), 18, 30),
+    yearsLeague: 0,
+    draft: parseNum(item.draft, draftYear * 100 + pick),
+    draftPick: pick,
+    draftTeam: item.draftTeam || '',
+    teamId: parseNum(item.teamId, 0),
+    sourceDraftYear: draftYear,
+    source: item.source || 'historical_db',
+    photo,
+    photoLocal,
+    photoSource: item.photoSource || (photoLocal ? 'historical_headshot_cache' : ''),
+    photoStatus: item.photoStatus || (photoLocal ? 'cached' : 'missing'),
+    image: imageId,
+    info: item.college ? `真实选秀来源：${item.college}` : '真实历史选秀库',
+    attrs,
+    tendencies: { in: pos >= 4 ? 70 : 58, mid: 58, ex: pos <= 3 ? 65 : 48 },
+    rookie: true,
+    injury: { active: false, games: 0, type: "" }
+  };
+}
+function getHistoricalDraftClass(targetYear) {
+  const db = getHistoricalDb();
+  const year = parseNum(targetYear, 0);
+  const list = db?.draftClasses?.[String(year)] || db?.draftClasses?.[year] || [];
+  return (Array.isArray(list) ? list : []).map(historicalRookieToPlayer);
+}
+function buildHistoricalRookieCatalog() {
+  const db = getHistoricalDb();
+  if (!db) return [];
+  return Object.entries(db.draftClasses || {}).flatMap(([year, list]) =>
+    (Array.isArray(list) ? list : []).map((item, idx) => historicalRookieToPlayer({ ...item, draftYear: parseNum(item.draftYear, year) }, idx))
+  );
+}
 function renderLocalFileHint() {
   if (!isFileMode()) return '';
   if (LEAGUE.loaded) {
@@ -1446,6 +1802,7 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
     const rosterText = rosterPack.text;
     const coachText = coachPack.text;
     const namesText = namesPack.text || '[]';
+    await loadHistoricalDb();
 
     const detectedCoachYear = parseYearFromPath(coachPack.path, 'coaches');
     const mappedRosterYear = resolveRosterScriptStartYear(detectedRosterYear);
@@ -1475,7 +1832,9 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
       if (!LEAGUE.teams[teamId]) {
         LEAGUE.teams[teamId] = { meta: toTeamMeta(teamId, r.team), players: [], rotation: [], coach: null, strength: 75 };
       }
-      LEAGUE.teams[teamId].players.push(rowToPlayer(r, idx + 1, { teamId }));
+      const player = rowToPlayer(r, idx + 1, { teamId });
+      hydratePlayerWithHistoricalData(player, requestedStartYear);
+      LEAGUE.teams[teamId].players.push(player);
     });
     coachRows.forEach((c, idx) => {
       const teamId = resolveTeamId(c.teamID, c.team);
@@ -1523,7 +1882,14 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
       });
       t.players = kept;
     });
-    LEAGUE.rookieCatalog = extractedRookies;
+    const historicalRookies = buildHistoricalRookieCatalog();
+    const rookieKeys = new Set();
+    LEAGUE.rookieCatalog = [...extractedRookies, ...historicalRookies].filter(p => {
+      const key = playerIdentityKey(p) || `${p.sourceDraftYear || rookieDraftYear(p)}:${p.draftPick || p.id}`;
+      if (!key || rookieKeys.has(key)) return false;
+      rookieKeys.add(key);
+      return true;
+    });
     LEAGUE.rookiesBySeason = {};
 
     const scriptYears = getAvailableScriptYears();
@@ -1548,6 +1914,173 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
     LEAGUE.loadError = e;
     console.warn('League data load failed, fallback to static teams.', e);
   }
+}
+function cloneLeagueDataValue(value, fallback) {
+  try {
+    return JSON.parse(JSON.stringify(value == null ? fallback : value));
+  } catch (e) {
+    return JSON.parse(JSON.stringify(fallback));
+  }
+}
+function snapshotLeagueDataState() {
+  return {
+    loaded: !!LEAGUE.loaded,
+    teams: cloneLeagueDataValue(LEAGUE.teams, {}),
+    coaches: cloneLeagueDataValue(LEAGUE.coaches, []),
+    rookieCatalog: cloneLeagueDataValue(LEAGUE.rookieCatalog, []),
+    rootHandle: LEAGUE.rootHandle || null,
+    loadError: LEAGUE.loadError || null,
+    rookiesBySeason: cloneLeagueDataValue(LEAGUE.rookiesBySeason, {}),
+    namesPool: cloneLeagueDataValue(LEAGUE.namesPool, []),
+    availableScriptYears: cloneLeagueDataValue(LEAGUE.availableScriptYears, []),
+    historicalDb: cloneLeagueDataValue(LEAGUE.historicalDb, { loaded: false, error: null }),
+    years: cloneLeagueDataValue(LEAGUE.years, { roster: 25, coach: 1, rosterCode: 1 })
+  };
+}
+function restoreLeagueDataState(snapshot = null) {
+  const next = snapshot && typeof snapshot === 'object' ? snapshot : {};
+  LEAGUE.loaded = !!next.loaded;
+  LEAGUE.teams = cloneLeagueDataValue(next.teams, {});
+  LEAGUE.coaches = cloneLeagueDataValue(next.coaches, []);
+  LEAGUE.rookieCatalog = cloneLeagueDataValue(next.rookieCatalog, []);
+  LEAGUE.rootHandle = next.rootHandle || null;
+  LEAGUE.loadError = next.loadError || null;
+  LEAGUE.rookiesBySeason = cloneLeagueDataValue(next.rookiesBySeason, {});
+  LEAGUE.namesPool = cloneLeagueDataValue(next.namesPool, []);
+  LEAGUE.availableScriptYears = cloneLeagueDataValue(next.availableScriptYears, []);
+  LEAGUE.historicalDb = cloneLeagueDataValue(next.historicalDb, { loaded: false, error: null });
+  LEAGUE.years = cloneLeagueDataValue(next.years, { roster: 25, coach: 1, rosterCode: 1 });
+}
+async function buildLeagueReferenceState(startYear = null) {
+  const leagueSnapshot = snapshotLeagueDataState();
+  const startYearSnapshot = G.startYear;
+  const yearSnapshot = G.year;
+  try {
+    await loadLeagueData({ startYear });
+    return snapshotLeagueDataState();
+  } finally {
+    restoreLeagueDataState(leagueSnapshot);
+    G.startYear = startYearSnapshot;
+    G.year = yearSnapshot;
+  }
+}
+function normalizePersonToken(v) {
+  return String(v || '').toLowerCase().trim().replace(/[·\.\-_'"`\s]/g, '');
+}
+function repairLeagueTeamsFromReference(referenceState = null) {
+  const refTeams = referenceState && typeof referenceState === 'object' ? referenceState.teams : null;
+  if (!refTeams || typeof refTeams !== 'object' || !LEAGUE || typeof LEAGUE !== 'object') {
+    return { repairedTeams: [], movedPlayers: 0, clonedPlayers: 0, repairedCoaches: 0 };
+  }
+  const repairedTeams = new Set();
+  const donorTeams = new Set();
+  let movedPlayers = 0;
+  let clonedPlayers = 0;
+  let repairedCoaches = 0;
+  const playerToken = (player) => normalizePersonToken(player?.name || player?.nameCn || player?.nameEn || player?.altName);
+  const coachToken = (coach) => normalizePersonToken(coach?.name);
+  const ensureTeam = (teamId, refTeam = null) => {
+    const tid = parseNum(teamId, 0);
+    if (!tid) return null;
+    if (!LEAGUE.teams[tid]) {
+      LEAGUE.teams[tid] = {
+        meta: cloneLeagueDataValue(refTeam?.meta, toTeamMeta(tid, refTeam?.meta?.z || '')),
+        players: [],
+        rotation: [],
+        coach: null,
+        strength: parseNum(refTeam?.strength, getTeamStrength(tid))
+      };
+    }
+    if (!LEAGUE.teams[tid].meta) {
+      LEAGUE.teams[tid].meta = cloneLeagueDataValue(refTeam?.meta, toTeamMeta(tid, refTeam?.meta?.z || ''));
+    }
+    if (!Array.isArray(LEAGUE.teams[tid].players)) LEAGUE.teams[tid].players = [];
+    if (!Array.isArray(LEAGUE.teams[tid].rotation)) LEAGUE.teams[tid].rotation = [];
+    return LEAGUE.teams[tid];
+  };
+  const movePlayerFromDonor = (targetId, token) => {
+    if (!token) return null;
+    for (const [donorIdRaw, donorTeam] of Object.entries(LEAGUE.teams || {})) {
+      const donorId = parseNum(donorIdRaw, 0);
+      if (!donorTeam || donorId === targetId || !Array.isArray(donorTeam.players)) continue;
+      const idx = donorTeam.players.findIndex(candidate => playerToken(candidate) === token);
+      if (idx < 0) continue;
+      const [player] = donorTeam.players.splice(idx, 1);
+      donorTeams.add(donorId);
+      return { ...player, teamId: targetId };
+    }
+    return null;
+  };
+  const moveCoachFromDonor = (targetId, token) => {
+    if (!token) return null;
+    for (const [donorIdRaw, donorTeam] of Object.entries(LEAGUE.teams || {})) {
+      const donorId = parseNum(donorIdRaw, 0);
+      if (!donorTeam || donorId === targetId || !donorTeam.coach) continue;
+      if (coachToken(donorTeam.coach) !== token) continue;
+      const coach = { ...donorTeam.coach, teamId: targetId };
+      donorTeam.coach = null;
+      donorTeams.add(donorId);
+      return coach;
+    }
+    return null;
+  };
+
+  Object.entries(refTeams).forEach(([teamIdRaw, refTeamRaw]) => {
+    const teamId = parseNum(teamIdRaw, 0);
+    const refTeam = refTeamRaw && typeof refTeamRaw === 'object' ? refTeamRaw : null;
+    if (!teamId || !refTeam) return;
+    const liveTeam = ensureTeam(teamId, refTeam);
+    if (!liveTeam) return;
+    const refPlayers = Array.isArray(refTeam.players) ? refTeam.players : [];
+    if (!liveTeam.players.length && refPlayers.length) {
+      const rebuiltPlayers = [];
+      const seenTokens = new Set();
+      refPlayers.forEach(refPlayer => {
+        const token = playerToken(refPlayer);
+        const dedupeKey = token || `${teamId}_${rebuiltPlayers.length}`;
+        if (seenTokens.has(dedupeKey)) return;
+        seenTokens.add(dedupeKey);
+        let nextPlayer = movePlayerFromDonor(teamId, token);
+        if (nextPlayer) {
+          movedPlayers += 1;
+        } else {
+          nextPlayer = { ...refPlayer, teamId };
+          clonedPlayers += 1;
+        }
+        rebuiltPlayers.push(nextPlayer);
+      });
+      if (rebuiltPlayers.length) {
+        liveTeam.players = rebuiltPlayers;
+        repairedTeams.add(teamId);
+      }
+    }
+    if (!liveTeam.coach && refTeam.coach) {
+      const token = coachToken(refTeam.coach);
+      liveTeam.coach = moveCoachFromDonor(teamId, token) || { ...refTeam.coach, teamId };
+      repairedCoaches += 1;
+      repairedTeams.add(teamId);
+    }
+  });
+
+  repairedTeams.forEach(teamId => {
+    const team = ensureTeam(teamId, refTeams[teamId]);
+    if (!team) return;
+    team.rotation = typeof toRotation === 'function' ? toRotation(team.players || []) : (team.rotation || []);
+    if (typeof calcTeamStrength === 'function') team.strength = calcTeamStrength(team);
+  });
+  donorTeams.forEach(teamId => {
+    const team = LEAGUE.teams[teamId];
+    if (!team) return;
+    team.rotation = typeof toRotation === 'function' ? toRotation(team.players || []) : (team.rotation || []);
+    if (typeof calcTeamStrength === 'function') team.strength = calcTeamStrength(team);
+  });
+
+  return {
+    repairedTeams: [...repairedTeams].sort((a, b) => a - b),
+    movedPlayers,
+    clonedPlayers,
+    repairedCoaches
+  };
 }
 function getTeam(id) {
   if (!id) return null;
@@ -2197,7 +2730,9 @@ function resolveRookieDisplayName(nameCn, nameEn, fallback = '') {
   return fallback || '新秀球员';
 }
 function getAvailableDraftYears() {
-  // 直接从名单年份映射返回所有可开档年份（不再依赖新秀CSV）
+  const historicalYears = historicalDraftYears();
+  if (historicalYears.length) return historicalYears;
+  // 历史库不可用时，回退到名单年份映射。
   const years = [...APK_NBA_START_YEARS].filter(y => y >= 1946 && y <= 2100).sort((a, b) => a - b);
   if (years.length) return years;
   const y = clamp(parseNum(G.startYear, G.year || 2025), 1947, 2100);
@@ -3111,6 +3646,20 @@ function cloneRealRookie(base, pick, draftYear = G.year) {
   };
 }
 function collectRealDraftCandidates(targetYear, classSize, activeNameSet) {
+  const requestedYear = clamp(parseNum(targetYear, G.year || 2025), 1947, 2100);
+  const exactHistorical = getHistoricalDraftClass(requestedYear)
+    .filter(p => {
+      const key = playerIdentityKey(p);
+      return !!key && !activeNameSet.has(key);
+    })
+    .sort((a, b) => {
+      const pa = parseNum(a.draftPick, 999), pb = parseNum(b.draftPick, 999);
+      if (pa !== pb) return pa - pb;
+      return realDraftValue(b) - realDraftValue(a);
+    });
+  if (exactHistorical.length) {
+    return { year: requestedYear, players: exactHistorical.slice(0, classSize) };
+  }
   const year = resolveDraftScriptYear(targetYear);
   const all = [...getRookieCatalog()].filter(p => {
     if (!p) return false;
@@ -3697,6 +4246,15 @@ function openPlayerDetailModal(player, teamMeta = null, title = '球员详情') 
           <div class="stat-box"><div class="stat-val">${player.age ?? '-'}</div><div class="stat-lbl">年龄</div></div>
           <div class="stat-box"><div class="stat-val">${player.yearsLeague ?? 0}</div><div class="stat-lbl">球龄</div></div>
         </div>
+${(() => {
+      const hist = player.careerBeforeStart || null;
+      if (!hist) return '';
+      const honors = hist.honors || {};
+      return `<div class="ev neu" style="margin-top:12px">
+        <div class="fw-b fs-sm">历史荣誉</div>
+        <div class="mt-8">${renderHistoricalHonorBadges(honors)}</div>
+      </div>`;
+    })()}
 ${(() => {
       const t = player.tendencies || {};
       const tIn = parseNum(t.in, 55), tMid = parseNum(t.mid, 55), tEx = parseNum(t.ex, 55);

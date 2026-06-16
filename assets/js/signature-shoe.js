@@ -93,13 +93,6 @@ function sanitizeSignatureShoeName(raw, fallback = '') {
   const base = txt || String(fallback || '').replace(/\s+/g, ' ').trim();
   return base.slice(0, 28);
 }
-function normalizeSignatureShoeImageModelName(model) {
-  const raw = String(model || '').trim().replace(/^models\//i, '');
-  if (!raw) return 'gemini-3.1-flash-image-preview';
-  if (/banana/i.test(raw)) return 'gemini-3.1-flash-image-preview';
-  if (/^gemini/i.test(raw)) return raw;
-  return 'gemini-3.1-flash-image-preview';
-}
 function calculateSignatureShoeIncome(contract, shoe = {}) {
   const tier = clamp(parseNum(contract?.tier, 1), 1, 5);
   const level = clamp(parseNum(shoe?.level, 1), 1, 5);
@@ -156,31 +149,6 @@ function buildSignatureShoeBoosts(contract, configOrStyleKey = {}) {
     slotEffects
   };
 }
-function buildSignatureShoeImagePrompt(contract, shoe = {}) {
-  const style = getSignatureShoeStyleDef(shoe?.styleKey);
-  const styleLabel = String(shoe?.styleLabel || style.label || '全能型').trim();
-  const shoeName = sanitizeSignatureShoeName(shoe?.name || `${contract?.brand || '品牌'} 签名鞋`, `${contract?.brand || '品牌'} 签名鞋`);
-  const brand = String(contract?.brand || '品牌').trim();
-  // 根据风格选择鞋子设计描述
-  const styleDesc = {
-    speed: '轻量化低帮跑鞋设计，透气编织鞋面，流线型鞋底',
-    scoring: '中高帮篮球鞋，碳纤维支撑板，加厚缓震中底',
-    defense: '高帮护踝设计，加固侧翼支撑，抓地力外底',
-    allaround: '经典中帮篮球鞋，均衡缓震与支撑，多功能鞋底'
-  }[shoe?.styleKey] || '经典中帮篮球鞋，均衡缓震与支撑';
-  return [
-    `A single high-end basketball signature shoe, ${brand} brand style`,
-    `shoe name: ${shoeName}, ${styleLabel} type`,
-    styleDesc,
-    'Product photography on clean background, studio lighting, dramatic shadows',
-    'Single shoe only, 3/4 angle view, floating or on reflective surface',
-    'Ultra detailed shoe texture, visible stitching, premium materials',
-    'No text, no letters, no words, no watermark, no logo text, no labels',
-    'No people, no feet, no legs, no hands',
-    'Professional commercial product shot, 1:1 square composition',
-    'Photorealistic, 8K quality, soft gradient background'
-  ].join('. ');
-}
 function buildSignatureShoeFallbackImage(contract, shoe = {}) {
   const style = getSignatureShoeStyleDef(shoe?.styleKey);
   const revenue = calculateSignatureShoeIncome(contract, shoe);
@@ -197,104 +165,6 @@ function buildSignatureShoeFallbackImage(contract, shoe = {}) {
     footer: `日常 ${formatSignatureShoeMoney(revenue.dailyIncome)} | 比赛日 ${formatSignatureShoeMoney(revenue.gameIncome)}`,
     tone: 'positive'
   });
-}
-function extractGeneratedImageUrl(payload) {
-  const queue = [payload];
-  while (queue.length) {
-    const node = queue.shift();
-    if (!node || typeof node !== 'object') continue;
-    if (typeof node.url === 'string' && node.url.trim()) return node.url.trim();
-    if (typeof node.image_url === 'string' && node.image_url.trim()) return node.image_url.trim();
-    if (typeof node.b64_json === 'string' && node.b64_json.trim()) return `data:image/png;base64,${node.b64_json.trim()}`;
-    if (typeof node.data_uri === 'string' && node.data_uri.trim()) return node.data_uri.trim();
-    if (typeof node.base64 === 'string' && node.base64.trim()) return `data:image/png;base64,${node.base64.trim()}`;
-    if (Array.isArray(node.data)) queue.push(...node.data);
-    if (Array.isArray(node.output)) queue.push(...node.output);
-    if (Array.isArray(node.images)) queue.push(...node.images);
-    if (Array.isArray(node.contents)) queue.push(...node.contents);
-    if (Array.isArray(node.content)) queue.push(...node.content);
-  }
-  return '';
-}
-async function generateSignatureShoeImageByGeminiNative(prompt, { baseUrl, apiKey, model = 'gemini-3.1-flash-image-preview' } = {}) {
-  // Gemini 原生图片生成：使用 generateContent + responseModalities IMAGE
-  const modelName = String(model || 'gemini-3.1-flash-image-preview').trim().replace(/^models\//, '');
-  // 构造端点 URL
-  let endpoint;
-  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
-  if (base.includes('generativelanguage.googleapis.com')) {
-    // 纯 Gemini API 端点
-    endpoint = `${base}/models/${modelName}:generateContent`;
-  } else {
-    // 其他 OpenAI 兼容网关可能也转发 Gemini，尝试构造
-    endpoint = `${base}/models/${modelName}:generateContent`;
-  }
-  const key = String(apiKey || '').trim();
-  const headers = { 'Content-Type': 'application/json' };
-  // Gemini 原生认证：x-goog-api-key 或 query param
-  let url = endpoint;
-  if (key) {
-    // 优先用 header，兼容性更好
-    headers['x-goog-api-key'] = key;
-  }
-  const payload = {
-    contents: [{
-      parts: [{ text: String(prompt || '').slice(0, 4000) }]
-    }],
-    generationConfig: {
-      responseModalities: ['IMAGE'],
-      maxOutputTokens: 8192
-    }
-  };
-  try {
-    const res = await (typeof fetchWithTimeout === 'function' ? fetchWithTimeout : fetch)(url, { method: 'POST', headers, body: JSON.stringify(payload) }, 60000);
-    const data = await readJSONResponseSafe(res, '签名鞋Gemini图片');
-    if (!res.ok) throw new Error(String(data?.error?.message || data?.message || `HTTP ${res.status}`));
-    // 从 candidates[0].content.parts 提取 inlineData
-    const parts = data?.candidates?.[0]?.content?.parts || [];
-    for (const part of parts) {
-      if (part?.inlineData?.data) {
-        const mime = part.inlineData.mimeType || 'image/png';
-        const b64 = part.inlineData.data;
-        return { ok: true, image: `data:${mime};base64,${b64}`, model: modelName, raw: data };
-      }
-    }
-    // 也尝试提取通用格式
-    const fallbackUrl = extractGeneratedImageUrl(data);
-    if (fallbackUrl) return { ok: true, image: fallbackUrl, model: modelName, raw: data };
-    throw new Error('Gemini 未返回图片数据');
-  } catch (err) {
-    const message = String(err?.message || err || 'Gemini签名鞋图片生成失败');
-    console.warn('Signature shoe Gemini image generation failed:', err);
-    return { ok: false, reason: 'error', message, image: '' };
-  }
-}
-async function generateSignatureShoeImageByLLM(prompt, { model = 'gpt-image-1', size = '1024x1024' } = {}) {
-  ensureSocialState();
-  const llm = G.social.llm || {};
-  if (!llm.enabled || !llm.apiKey) return { ok: false, reason: 'disabled', message: '未配置图片模型', image: '' };
-  const baseUrl = normalizeLLMBaseUrl(llm.baseUrl);
-  // 如果是 Gemini 端点，使用 Nano Banana 2 原生生图
-  if (isGoogleGeminiEndpoint(baseUrl)) {
-    const geminiModel = normalizeSignatureShoeImageModelName(model);
-    return generateSignatureShoeImageByGeminiNative(prompt, { baseUrl, apiKey: llm.apiKey, model: geminiModel });
-  }
-  // 非 Gemini：保持原有 OpenAI 兼容路径
-  const endpoint = `${baseUrl}/images/generations`;
-  const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint, { jsonBody: true });
-  const payload = { model: String(model || 'gpt-image-1'), prompt: String(prompt || '').slice(0, 4000), size, n: 1 };
-  try {
-    const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) });
-    const data = await readJSONResponseSafe(res, '签名鞋图片');
-    if (!res.ok) throw new Error(String(data?.error?.message || data?.message || `HTTP ${res.status}`));
-    const image = extractGeneratedImageUrl(data);
-    if (!image) throw new Error('未返回图片');
-    return { ok: true, image, model: payload.model, raw: data };
-  } catch (err) {
-    const message = String(err?.message || err || '签名鞋图片生成失败');
-    console.warn('Signature shoe image generation failed:', err);
-    return { ok: false, reason: 'error', message, image: '' };
-  }
 }
 function resolveEndorsementContract(contractRef) {
   if (contractRef && typeof contractRef === 'object') return contractRef;
@@ -449,39 +319,20 @@ async function generateSignatureShoeImageForOffer(contractRef) {
   if (!contract || !contract.shoe) return { ok: false, reason: 'missing', message: '请先创建签名鞋' };
   const shoe = getSignatureShoeCurrentState(contract);
   if (!shoe) return { ok: false, reason: 'missing', message: '请先创建签名鞋' };
-  const prompt = buildSignatureShoeImagePrompt(contract, shoe);
-  // 自动检测 Gemini 端点，选择合适的默认模型
-  ensureSocialState();
-  const baseUrl = normalizeLLMBaseUrl(G.social?.llm?.baseUrl || '');
-  const isGemini = isGoogleGeminiEndpoint(baseUrl);
-  const defaultModel = isGemini ? 'gemini-3.1-flash-image-preview' : 'gpt-image-1';
-  const userModel = String(G.social?.llm?.imageModel || '').trim();
-  const imageModel = userModel || defaultModel;
-  const llmResult = await generateSignatureShoeImageByLLM(prompt, { model: imageModel });
-  const usedModel = llmResult.ok ? (llmResult.model || imageModel) : 'fallback';
-  let image = llmResult.ok && llmResult.image ? llmResult.image : buildSignatureShoeFallbackImage(contract, shoe);
-  // 将远程图片缓存为 data URL，防止链接过期
-  if (image && image.startsWith('http')) {
-    try {
-      const cached = await cacheRemoteImage(image);
-      if (cached) image = cached;
-    } catch (e) { console.warn('签名鞋图片缓存失败:', e); }
-  }
+  const image = buildSignatureShoeFallbackImage(contract, shoe);
   const res = updateSignatureShoeProject(contract, {
     image,
-    imagePrompt: prompt,
-    imageModel: usedModel,
-    imageStatus: llmResult.ok ? 'llm' : 'fallback',
+    imageStatus: 'fallback',
     imageUpdatedAt: Date.now()
   }, {
     action: '签名鞋生图',
-    detail: llmResult.ok ? `已用 ${usedModel} 生成 ${shoe.name} 的签名鞋图片` : `已回退为本地样图：${shoe.name}（${llmResult.message || ''})`,
-    phoneMessage: llmResult.ok ? `签名鞋 ${shoe.name} 图片已生成（${usedModel}）` : `签名鞋 ${shoe.name} 使用了本地样图`,
-    logMessage: llmResult.ok ? `签名鞋图片生成 ${shoe.name} [${usedModel}]` : `签名鞋图片回退 ${shoe.name}`,
+    detail: `已生成本地样图：${shoe.name}`,
+    phoneMessage: `签名鞋 ${shoe.name} 图片已生成`,
+    logMessage: `签名鞋图片生成 ${shoe.name} [SVG]`,
     buzz: true
   });
   if (!res.ok) return res;
-  return { ok: true, contract: res.contract, shoe: res.shoe, image: res.shoe.image, message: llmResult.ok ? `签名鞋图片已生成（${usedModel}）：${res.shoe.name}` : `签名鞋图片已使用本地样图：${res.shoe.name}` };
+  return { ok: true, contract: res.contract, shoe: res.shoe, image: res.shoe.image, message: `签名鞋图片已生成：${res.shoe.name}` };
 }
 function upgradeSignatureShoeContract(contractRef) {
   const contract = resolveEndorsementContract(contractRef);

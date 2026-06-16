@@ -833,7 +833,7 @@ async function createStep1() {
   </div>`;
   await loadLeagueData({ startYear: G.startYear, strictRoster: true });
   if (!LEAGUE.loaded) {
-    alert(`未能读取 ${G.startYear} 年对应名单。请确认已选择项目根目录（包含 APK/resources/res/raw）。`);
+    alert(`未能读取 ${G.startYear} 年对应名单。请确认已选择项目根目录（包含 assets/data）或直接授权 assets/data 目录。`);
   }
   createStep = 1; renderCreate();
 }
@@ -1139,17 +1139,28 @@ function renderXFactorReveal() {
 async function gotoDraft() {
   $('createPage').innerHTML = `
   <div class="card tc">
-    <div class="card-title fc" style="justify-content:center">🧾 生成选秀报告</div>
-    <div class="t-2">正在模拟选秀并生成球探剧情报道，请稍候...</div>
+    <div class="card-title fc" style="justify-content:center">生成选秀前夜媒体预测</div>
+    <div class="t-2">正在提交事实包给真实 LLM，请稍候...</div>
   </div>`;
-  assignToDraft();
-  if (typeof generateDraftScoutingReport === 'function') {
-    try { 
-      const scout = await generateDraftScoutingReport({ force: true }); 
-      if (scout && scout.story && typeof showStoryModal === 'function') {
-        await showStoryModal('选秀夜', scout.story);
-      }
-    } catch (e) { }
+  if (!G.draftBoard || !Array.isArray(G.draftBoard.results)) assignToDraft();
+  try {
+    if (typeof generateDraftScoutingReport !== 'function') throw new Error('选秀前夜 LLM 生成函数未加载');
+    const scout = await generateDraftScoutingReport({ force: true });
+    if (scout && scout.story && typeof showStoryModal === 'function') {
+      await showStoryModal('选秀前夜 · 媒体预测', scout.story);
+    }
+  } catch (e) {
+    $('createPage').innerHTML = `
+      <div class="card tc">
+        <div class="card-title fc" style="justify-content:center">选秀前夜未生成</div>
+        <div class="t-2 mt-12">${e?.message || e}</div>
+        <div class="t-2 mt-12">媒体预测必须由真实 LLM JSON 生成。请先配置 LLM，或修正接口返回后重试。</div>
+        <div class="grid g2 mt-16">
+          <button class="btn btn-gold" onclick="openAutoCareerLLMSettingsModal()">打开 LLM 设置</button>
+          <button class="btn btn-pri" onclick="gotoDraft()">重试选秀前夜</button>
+        </div>
+      </div>`;
+    return;
   }
   createStep = 5; renderCreate();
 }
@@ -1211,25 +1222,8 @@ function renderDraftResult() {
       ? `<img src="${avatarSrc}" style="width:64px;height:64px;border-radius:50%;object-fit:cover">`
       : `<div style="font-size:32px">🏀</div>`;
 
-    // 球探分析：优先使用 LLM 报告（仅用户球员），否则使用规则生成
-    let analysisHtml = '';
-    if (isUser && G.draftScoutingReport) {
-      const r = G.draftScoutingReport;
-      const strengths = Array.isArray(r.strengths) ? r.strengths : [];
-      const weaknesses = Array.isArray(r.weaknesses) ? r.weaknesses : [];
-      analysisHtml = `
-        <div class="draft-scout-pros">
-          ${strengths.map(s => `<div class="pros">✅ ${s}</div>`).join('')}
-        </div>
-        <div class="draft-scout-cons">
-          ${weaknesses.map(w => `<div class="cons">⚠️ ${w}</div>`).join('')}
-        </div>
-        ${r.comparable ? `<div class="draft-scout-compare">🔍 ${r.comparable}</div>` : ''}
-        ${r.projection ? `<div class="draft-scout-projection">📈 ${r.projection}</div>` : ''}
-      `;
-    } else {
-      analysisHtml = generatePlayerScoutReport(currentPlayer, currentResult);
-    }
+    // 球探分析：统一使用新格式报告
+    const analysisHtml = generatePlayerScoutReport(currentPlayer, currentResult);
 
     scoutReportHtml = `
       <div class="draft-player-report">
@@ -1268,76 +1262,39 @@ function renderDraftResult() {
   // 生成媒体预测（营造悬念）
   let mediaHtml = '';
   if (currentPick === 0) {
-    const actualPick = parseNum(G.draftPick, 1);
-    const pName = G.player.name || '新秀';
-    const pos = getPos(G.player.pos);
-    const posName = pos?.n || '球员';
+    const report = G.draftScoutingReport || {};
     const tierLabel = tierText || '正常年';
-    const topProspects = (G.draftBoard?.top || []).filter(t => !t.user).slice(0, 5).map(t => t.name);
-    const topNamesStr = topProspects.length ? topProspects.join('、') : '多位热门新秀';
-
-    // 生成不同专家的模拟选秀预测
-    const experts = [
-      { src: 'ESPN Draft Analytics', icon: '📺', offset: Math.max(1, actualPick - rng(2, 5)) },
-      { src: 'The Athletic 选秀专刊', icon: '📰', offset: Math.min(60, actualPick + rng(1, 4)) },
-      { src: 'Bleacher Report', icon: '🎙️', offset: Math.max(1, actualPick - rng(0, 3)) },
-      { src: 'Yahoo Sports', icon: '💻', offset: Math.min(30, actualPick + rng(2, 6)) },
-      { src: 'Sports Illustrated', icon: '📑', offset: actualPick }
-    ];
-    // 排序让预测更随机感
-    experts.sort(() => Math.random() - 0.5);
-
-    const pickLabel = (n) => n === 1 ? '状元签（第1顺位）' : n <= 5 ? `前5顺位（第${n}顺位）` : n <= 14 ? `乐透区（第${n}顺位）` : n <= 30 ? `首轮第${n}顺位` : `第${n}顺位`;
-
-    const headlines = [
-      { src: '📺 NBA TV 直播', text: `"${pName}在联合试训中表现出色，多位经理认为其行情正在上涨..."` },
-      { src: '📰 内部消息源', text: `"有球队高管透露，如果${pName}掉到他们的签位，会毫不犹豫地选择..."` },
-      { src: '💬 选秀推特热议', text: `"${topNamesStr}和${pName}都可能是本届最大黑马，选秀结果难以预测"` }
-    ];
-
-    const fanComments = [
-      `"${pName}如果被${getTeam(G.teamId)?.z || ''}选中的话就完美了！"`,
-      `"说实话，${pName}的潜力比很多人想象的要高得多"`,
-      `"本届选秀是${tierLabel}，${pName}的最终顺位可能是最大悬念"`
-    ];
+    const textCard = (text, cls = '') => `<div class="draft-media-card ${cls}"><div class="media-quote">${escapeAutoCareerAttr(text)}</div></div>`;
+    const experts = Array.isArray(report.expertMocks) ? report.expertMocks : [];
+    const latestBuzz = Array.isArray(report.latestBuzz) ? report.latestBuzz : [];
+    const fanTalk = Array.isArray(report.fanTalk) ? report.fanTalk : [];
 
     mediaHtml = `
       <div class="draft-start-screen draft-media-phase">
-        <div class="draft-start-title">📡 选秀前夜 · 媒体预测</div>
+        <div class="draft-start-title">选秀前夜 · 媒体预测</div>
         <div class="draft-start-subtitle">${board?.year || G.year} 届选秀 · ${tierLabel} · ${allResults.length} 名新秀</div>
+        <div class="draft-media-summary">
+          <div class="draft-summary-text">${escapeAutoCareerAttr(report.headline || report.title || '媒体预测已生成')}</div>
+          <div class="draft-summary-sub">${escapeAutoCareerAttr(report.summary || '')}</div>
+        </div>
 
         <div class="draft-media-feed">
-          <div class="draft-media-section-label">📝 专家模拟选秀</div>
-          ${experts.slice(0, 4).map(e => `
-            <div class="draft-media-card">
-              <div class="media-source">${e.icon} ${e.src}</div>
-              <div class="media-prediction">预测顺位：<strong>${pickLabel(e.offset)}</strong></div>
-              <div class="media-quote">"${e.offset <= 5 ? `${pName}的天赋毋庸置疑，有望在前5顺位被选中` : e.offset <= 14 ? `${pName}是乐透区的有力竞争者，多家球探给予高度评价` : `${posName}位置竞争激烈，${pName}的最终顺位存在较大分歧`}。"</div>
-            </div>
-          `).join('')}
+          <div class="draft-media-section-label">专家模拟选秀</div>
+          ${experts.length ? experts.slice(0, 4).map(text => textCard(text)).join('') : textCard('LLM 未返回专家模拟选秀。')}
 
-          <div class="draft-media-section-label">🔥 最新动态</div>
-          ${headlines.map(h => `
-            <div class="draft-media-card draft-media-hot">
-              <div class="media-source">${h.src}</div>
-              <div class="media-quote">${h.text}</div>
-            </div>
-          `).join('')}
+          <div class="draft-media-section-label">最新动态</div>
+          ${latestBuzz.length ? latestBuzz.slice(0, 4).map(text => textCard(text, 'draft-media-hot')).join('') : textCard('LLM 未返回最新动态。', 'draft-media-hot')}
 
-          <div class="draft-media-section-label">💬 球迷热议</div>
-          ${fanComments.map(c => `
-            <div class="draft-media-card draft-media-fan">
-              <div class="media-quote">${c}</div>
-            </div>
-          `).join('')}
+          <div class="draft-media-section-label">球迷热议</div>
+          ${fanTalk.length ? fanTalk.slice(0, 4).map(text => textCard(text, 'draft-media-fan')).join('') : textCard('LLM 未返回球迷热议。', 'draft-media-fan')}
         </div>
 
         <div class="draft-media-summary">
-          <div class="draft-summary-text">综合预测：${pickLabel(actualPick)}附近，各家意见不一</div>
+          <div class="draft-summary-text">综合预测：${escapeAutoCareerAttr(report.consensus || '各家意见仍有分歧')}</div>
           <div class="draft-summary-sub">最终顺位以选秀大会结果为准</div>
         </div>
 
-        <button class="draft-start-btn" onclick="startDraftReveal()">选秀大会正式开始 🏀</button>
+        <button class="draft-start-btn" onclick="startDraftReveal()">选秀大会正式开始</button>
       </div>
     `;
   }
@@ -1691,6 +1648,95 @@ function renderDraftResult() {
       .draft-scout-compare { color: #818cf8; margin: 8px 0 4px; font-size: 13px; }
       .draft-scout-projection { color: #60a5fa; font-size: 13px; line-height: 1.6; }
 
+      /* New Scout Report Full Format Styles */
+      .scout-report-full {
+        padding: 4px 0;
+      }
+      .scout-report-name {
+        font-size: 18px;
+        font-weight: 800;
+        color: #fbbf27;
+        text-align: center;
+        margin-bottom: 12px;
+        letter-spacing: 1px;
+      }
+      .scout-report-meta {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 8px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      .scout-meta-row {
+        display: flex;
+        gap: 6px;
+        padding: 4px 10px;
+        background: rgba(255,255,255,0.05);
+        border-radius: 6px;
+        font-size: 12px;
+      }
+      .scout-meta-label {
+        color: #666;
+        white-space: nowrap;
+      }
+      .scout-meta-value {
+        color: #ddd;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .scout-section-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #fbbf27;
+        margin: 14px 0 8px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid rgba(251,191,39,0.2);
+      }
+      .scout-title-green {
+        color: #22c55e;
+        border-bottom-color: rgba(34,197,94,0.2);
+      }
+      .scout-title-red {
+        color: #ef4444;
+        border-bottom-color: rgba(239,68,68,0.2);
+      }
+      .scout-play-style {
+        font-size: 13px;
+        color: #ccc;
+        line-height: 1.8;
+        text-align: center;
+        padding: 6px 0;
+      }
+      .scout-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 6px;
+        margin-bottom: 4px;
+      }
+      .scout-list-item {
+        font-size: 12px;
+        padding: 3px 8px;
+        border-radius: 4px;
+        line-height: 1.4;
+      }
+      .scout-list-pros .scout-list-item {
+        background: rgba(34,197,94,0.1);
+        color: #22c55e;
+        border: 1px solid rgba(34,197,94,0.15);
+      }
+      .scout-list-cons .scout-list-item {
+        background: rgba(239,68,68,0.08);
+        color: #ef4444;
+        border: 1px solid rgba(239,68,68,0.12);
+      }
+      .scout-evaluation {
+        font-size: 13px;
+        color: #bbb;
+        line-height: 1.8;
+        text-indent: 2em;
+        margin-top: 4px;
+      }
+
       .draft-reveal-actions {
         display: flex;
         gap: 12px;
@@ -1843,6 +1889,10 @@ function renderDraftResult() {
         .draft-night-content {
           flex-direction: column;
         }
+        .draft-media-phase {
+          max-height: none;
+          overflow: visible;
+        }
         .draft-board-panel {
           width: 100%;
         }
@@ -1877,46 +1927,52 @@ function revealAllPicks() {
 function generatePlayerScoutReport(player, result) {
   if (!player) return '<p>暂无球探报告</p>';
 
-  const attrs = player.attrs || {};
-  const pos = getPos(player.pos) || { n: '球员' };
-  const rating = result?.rating || 70;
-  const potential = result?.potential || 75;
+  // Use new full report system if available
+  if (typeof generateFullScoutReport === 'function') {
+    const report = generateFullScoutReport(player, result);
+    if (report) return renderScoutReportHtml(report);
+  }
 
-  // 根据属性生成优势
-  const strengths = [];
-  if (attrs.shotExt >= 75) strengths.push('出色的外线投射能力');
-  if (attrs.shotInt >= 75) strengths.push('稳定的内线终结能力');
-  if (attrs.pass >= 75) strengths.push('优秀的传球视野');
-  if (attrs.reb >= 75) strengths.push('强悍的篮板能力');
-  if (attrs.blk >= 75) strengths.push('出色的护框能力');
-  if (attrs.stl >= 75) strengths.push('敏锐的抢断嗅觉');
-  if (attrs.phy >= 75) strengths.push('强壮的身体素质');
-  if (potential >= 85) strengths.push('极高的成长上限');
-  if (strengths.length === 0) strengths.push('扎实的篮球基本功');
+  // Fallback (should rarely be reached)
+  return '<p>暂无球探报告</p>';
+}
 
-  // 根据属性生成劣势
-  const weaknesses = [];
-  if (attrs.shotExt < 60) weaknesses.push('外线投射需要提升');
-  if (attrs.shotInt < 60) weaknesses.push('内线终结能力有待加强');
-  if (attrs.pass < 60) weaknesses.push('传球视野需要改善');
-  if (attrs.reb < 60) weaknesses.push('篮板意识需要提高');
-  if (attrs.blk < 60) weaknesses.push('护框能力不足');
-  if (attrs.stl < 60) weaknesses.push('防守端侵略性不够');
-  if (attrs.phy < 60) weaknesses.push('身体对抗能力偏弱');
-  if (potential < 70) weaknesses.push('成长空间有限');
-  if (weaknesses.length === 0) weaknesses.push('需要增加比赛经验');
-
-  // 球员模板
-  let template = '角色球员';
-  if (rating >= 85) template = '全明星级别';
-  else if (rating >= 78) template = '首发级别';
-  else if (rating >= 70) template = '轮换球员';
+/**
+ * Render a full scout report object to HTML (Kobe-style format)
+ */
+function renderScoutReportHtml(report) {
+  const h = report.header;
+  const c = report.comparison;
 
   return `
-    <p class="pros"><strong>优势：</strong>${strengths.join('、')}。</p>
-    <p class="cons"><strong>劣势：</strong>${weaknesses.join('、')}。</p>
-    <p><strong>球员模板：</strong>${template} ${pos.n}</p>
-    <p><strong>发展预期：</strong>${potential >= 85 ? '有望成为球队核心' : potential >= 78 ? '可成长为稳定首发' : '需要时间培养'}</p>
+    <div class="scout-report-full">
+      <div class="scout-report-name">${h.name}${h.nameEn}</div>
+      <div class="scout-report-meta">
+        <div class="scout-meta-row"><span class="scout-meta-label">位置</span><span class="scout-meta-value">${h.posDisplay}</span></div>
+        <div class="scout-meta-row"><span class="scout-meta-label">身高</span><span class="scout-meta-value">${h.heightStr}</span></div>
+        <div class="scout-meta-row"><span class="scout-meta-label">体重</span><span class="scout-meta-value">${h.weightStr}</span></div>
+      </div>
+      <div class="scout-report-meta">
+        <div class="scout-meta-row"><span class="scout-meta-label">球员模板</span><span class="scout-meta-value">${c.primary}</span></div>
+        <div class="scout-meta-row"><span class="scout-meta-label">次级模板</span><span class="scout-meta-value">${c.secondary}</span></div>
+      </div>
+
+      <div class="scout-section-title">打法定位</div>
+      <div class="scout-play-style">${report.playStyle}</div>
+
+      <div class="scout-section-title scout-title-green">优势</div>
+      <div class="scout-list scout-list-pros">
+        ${(report.strengths || []).map(s => `<div class="scout-list-item">${s}</div>`).join('')}
+      </div>
+
+      <div class="scout-section-title scout-title-red">短板</div>
+      <div class="scout-list scout-list-cons">
+        ${(report.weaknesses || []).map(w => `<div class="scout-list-item">${w}</div>`).join('')}
+      </div>
+
+      <div class="scout-section-title">球探评价</div>
+      <div class="scout-evaluation">${report.evaluation || ''}</div>
+    </div>
   `;
 }
 
@@ -1973,6 +2029,10 @@ function showDraftPlayerDetail(idx) {
         </div>
       `).join('')}
     </div>
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.1)">
+      <div style="font-size:13px;font-weight:700;color:#fbbf27;margin-bottom:8px">球探报告</div>
+      ${generatePlayerScoutReport(player, { rating: player.rating, potential: player.potential })}
+    </div>
   `;
 
   $('draftPlayerModalBody').innerHTML = modalBody;
@@ -1999,6 +2059,8 @@ function startCareer() {
   if (typeof migrateLegacyCommercialSocialState === 'function') migrateLegacyCommercialSocialState();
   if (typeof ensureCoachRelationshipState === 'function') ensureCoachRelationshipState();
   if (typeof ensureCoachDynamicsState === 'function') ensureCoachDynamicsState();
+  if (typeof ensureGameplayState === 'function') ensureGameplayState();
+  if (typeof ensureAutoCareerState === 'function') ensureAutoCareerState();
   if (typeof applySeasonSalaryPayout === 'function') applySeasonSalaryPayout({ force: false, reason: '新秀赛季薪资发放' });
   if (typeof recalcPlayerTradeValue === 'function') recalcPlayerTradeValue();
   if (typeof ensureLeagueBadges === 'function') ensureLeagueBadges();
@@ -2020,6 +2082,7 @@ function startCareer() {
     injectSeasonRookies().then(() => {
       generateSchedule();
       setMainNavigationVisible(true);
+      if (typeof applyAutoCareerNavigation === 'function') applyAutoCareerNavigation();
       $('createPage').classList.remove('active');
       $('homePage').classList.add('active');
       updateHeader();
@@ -2033,6 +2096,7 @@ function startCareer() {
 
   generateSchedule();
   setMainNavigationVisible(true);
+  if (typeof applyAutoCareerNavigation === 'function') applyAutoCareerNavigation();
   $('createPage').classList.remove('active');
   $('homePage').classList.add('active');
   updateHeader();
@@ -2063,7 +2127,77 @@ function updateHeader() {
 }
 
 // ============ HOME PAGE ============
+function renderPregamePlanPicker(game = null, opp = null) {
+  if (!game || typeof getPregamePlanOptions !== 'function') return '';
+  const gameKey = typeof getCurrentGameKey === 'function'
+    ? getCurrentGameKey({ season: G.season, gameNum: G.gameNum, opp: game.opp })
+    : `${G.season}_${G.gameNum}_${game.opp || 0}`;
+  const view = getPregamePlanOptions({ gameKey, season: G.season, gameNum: G.gameNum, opp: game.opp, home: game.home });
+  const opponentName = opp?.z || opp?.a || '对手';
+  return `
+    <div class="gameplan-board" data-gameplan-key="${gameKey}">
+      <div class="gameplan-head">
+        <div>
+          <div class="gameplan-kicker">PreGame Plan</div>
+          <div class="gameplan-title">今晚对阵 ${opponentName} 的赛前方案</div>
+        </div>
+        <div class="gameplan-status">${game?.home ? '主场' : '客场'}</div>
+      </div>
+      <div class="gameplan-axis-list">
+        ${view.axes.map(axis => `
+          <div class="gameplan-axis">
+            <div class="gameplan-axis-title">${axis.title}</div>
+            <div class="strategy-chip-row" role="group" aria-label="${axis.title}">
+              ${axis.options.map(option => `
+                <button class="strategy-chip ${option.active ? 'active' : ''}" data-plan-axis="${axis.id}" data-plan-option="${option.id}" onclick="setPregamePlanChoice('${axis.id}','${option.id}','${gameKey}'); renderHome();">
+                  <span>${option.title}</span>
+                  <small>${option.detail}</small>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+}
+
+function renderPostgameSummaryPanel() {
+  const summary = G.gameplay?.latestPostgame?.summary || null;
+  if (!summary || !Array.isArray(summary.lines) || !summary.lines.length) return '';
+  return `
+    <section class="card home-panel postgame-summary-panel">
+      <div class="card-title home-section-title">赛后简报</div>
+      <div class="postgame-summary-title">${summary.title || '赛后简报'}</div>
+      <div class="postgame-summary-sub">${summary.subtitle || ''}</div>
+      <div class="postgame-summary-lines">
+        ${summary.lines.map(line => `<div class="postgame-summary-line">${line}</div>`).join('')}
+      </div>
+    </section>`;
+}
+
+function renderCareerLinesPanel() {
+  const lines = typeof buildCareerLinesView === 'function' ? buildCareerLinesView() : [];
+  if (!lines.length) return '';
+  return `
+    <section class="card home-panel career-lines-panel">
+      <div class="card-title home-section-title">生涯线</div>
+      <div class="career-line-grid">
+        ${lines.map(line => `
+          <div class="career-line-card tone-${line.tone || 'neutral'}">
+            <div class="career-line-top">
+              <span>${line.title}</span>
+              <b>${line.score}</b>
+            </div>
+            <div class="career-line-track"><span style="width:${clamp(parseNum(line.score, 0), 0, 100)}%"></span></div>
+            <div class="career-line-stage">${line.label}${line.lastDelta ? ` · ${line.lastDelta > 0 ? '+' : ''}${line.lastDelta}` : ''}</div>
+          </div>
+        `).join('')}
+      </div>
+    </section>`;
+}
+
 function renderHome() {
+  if (typeof ensureGameplayState === 'function') ensureGameplayState();
   const p = G.player, s = G.seasonStats, gp = Math.max(s.gp, 1);
   const xf = getXFactor(p.xfactor) || { icon: '❔', n: '未知天赋' };
   const shopView = typeof buildEconomyShopView === 'function' ? buildEconomyShopView() : null;
@@ -2226,10 +2360,14 @@ function renderHome() {
     </section>
 
     <div class="home-grid">
+      <div class="home-main-stack">
+      ${typeof renderAutoReportCard === 'function' ? renderAutoReportCard(G.autoCareer?.weeklyReports?.[0] || null) : ''}
+      ${typeof renderAutoWeeklyFacts === 'function' ? renderAutoWeeklyFacts() : ''}
       <section class="card home-panel home-feed">
         <div class="card-title home-section-title">生涯播报</div>
         <div id="storyBoard" class="home-feed-scroll">${storyContent}</div>
       </section>
+      </div>
 
       <div class="home-side">
         <section class="card home-panel">
@@ -2257,6 +2395,9 @@ function renderHome() {
           ${latestGameHtml}
           ${goalsHtml}
         </section>
+
+        ${renderPostgameSummaryPanel()}
+        ${renderCareerLinesPanel()}
 
         <section class="card home-panel">
           <div class="card-title home-section-title">关系网络</div>
@@ -2292,7 +2433,9 @@ function renderHome() {
     });
   }, 10);
 
-  if (G.playoffs && G.playoffs.active && !G.playoffs.eliminated) {
+  if (typeof isAutoCareerMode === 'function' && isAutoCareerMode()) {
+    if (typeof renderRegularSeasonAction === 'function') renderRegularSeasonAction();
+  } else if (G.playoffs && G.playoffs.active && !G.playoffs.eliminated) {
     if (typeof renderPlayoffGame === 'function') renderPlayoffGame();
   } else if (G.gameNum >= (typeof getSeasonGameCount === 'function' ? getSeasonGameCount() : (G.totalGames || 82))) {
     if (typeof renderSeasonEnd === 'function') renderSeasonEnd();
@@ -2320,7 +2463,7 @@ function appendStoryToBoard(text, color = '#fff', typewrite = true, opts = {}) {
       span.style.color = color;
       span.id = id;
       sb.appendChild(span);
-      
+
       let i = 0;
       const speed = 25;
       function typeWriter() {
@@ -2406,6 +2549,7 @@ function showLeagueGameDetailModal(gameId) {
   if (typeof getLeagueGameDetailById !== 'function') return;
   const game = getLeagueGameDetailById(gameId);
   if (!game) return;
+  if (typeof hydrateLeagueGameDetailRows === 'function') hydrateLeagueGameDetailRows(game);
   const home = getTeam(game.homeTeamId) || {};
   const away = getTeam(game.awayTeamId) || {};
   const homeRows = Array.isArray(game.homeRows) ? game.homeRows : [];
@@ -2478,32 +2622,32 @@ function showLeagueMatchupPreviewModal(game) {
   showModal(`
     <div class="game-detail-wrap">
     <div class="modal-hd">
-      <h3>姣旇禌棰勮 | 绗?{parseNum(game.round, 0)}杞?${parseNum(game.year, G.year)}璧涘</h3>
-      <button class="modal-x" onclick="hideModal()">鉁?/button>
+      <h3>比赛预览 | 第${parseNum(game.round, 0)}轮 · ${parseNum(game.year, G.year)}赛季</h3>
+      <button class="modal-x" onclick="hideModal()">✕</button>
     </div>
-    <div class="ev neu mb-12">杩欐槸涓€娆￠瑙傦紝涓嶄細鍐欏叆璧涘绉垎銆佹垬缁╂垨鐞冨憳缁熻銆?/div>
+    <div class="ev neu mb-12">这是一次预览，不会写入赛季积分、战绩或球员统计。</div>
     <div class="card game-detail-score" style="margin-bottom:12px">
       <div class="flex fb">
-        <div class="fw-b">${away.z || away.n || '瀹㈤槦'} (${away.a || '--'})</div>
+        <div class="fw-b">${away.z || away.n || '客队'} (${away.a || '--'})</div>
         <div class="fw-b ${homeWin ? 't-ok' : 't-no'}">${parseNum(game.awayScore, 0)} - ${parseNum(game.homeScore, 0)}</div>
-        <div class="fw-b">${home.z || home.n || '涓婚槦'} (${home.a || '--'})</div>
+        <div class="fw-b">${home.z || home.n || '主队'} (${home.a || '--'})</div>
       </div>
       <div class="tc mt-12">
-        <span class="badge ${homeWin ? 'b-ok' : 'b-no'}">${homeWin ? '涓昏儨' : '瀹㈣儨'}</span>
+        <span class="badge ${homeWin ? 'b-ok' : 'b-no'}">${homeWin ? '主胜' : '客胜'}</span>
       </div>
     </div>
     ${renderHomeAwayFlow(game)}
     <div class="grid g1 game-detail-teams">
       <div class="card game-detail-team" style="margin-bottom:0">
-        <div class="card-title">${home.z || home.n || '涓婚槦'} 鐩掑垎</div>
+        <div class="card-title">${home.z || home.n || '主队'} 盒分</div>
         <div class="tbl"><table><thead><tr>
-          <th>#</th><th>鐞冨憳</th><th>浣嶇疆</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>PF</th><th>TOV</th><th>鍛戒腑 FG/3PT/FT</th>
+          <th>#</th><th>球员</th><th>位置</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>PF</th><th>TOV</th><th>命中 FG/3PT/FT</th>
         </tr></thead><tbody>${renderGameDetailRows(homeRows)}</tbody></table></div>
       </div>
       <div class="card game-detail-team" style="margin-bottom:0">
-        <div class="card-title">${away.z || away.n || '瀹㈤槦'} 鐩掑垎</div>
+        <div class="card-title">${away.z || away.n || '客队'} 盒分</div>
         <div class="tbl"><table><thead><tr>
-          <th>#</th><th>鐞冨憳</th><th>浣嶇疆</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>PF</th><th>TOV</th><th>鍛戒腑 FG/3PT/FT</th>
+          <th>#</th><th>球员</th><th>位置</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>PF</th><th>TOV</th><th>命中 FG/3PT/FT</th>
         </tr></thead><tbody>${renderGameDetailRows(awayRows)}</tbody></table></div>
       </div>
     </div>
@@ -2702,7 +2846,7 @@ function renderGameResultCard(res) {
         </div>
         <div style="font-family:monospace;font-size:13px">
           <span style="color:${roll.d20 === 20 ? 'gold' : roll.d20 === 1 ? 'red' : 'inherit'}">🎲${parseNum(roll.d20, 1)}</span>
-          ${parseNum(roll.mod, 0) >= 0 ? '+' : ''}${parseNum(roll.mod, 0)} = 
+          ${parseNum(roll.mod, 0) >= 0 ? '+' : ''}${parseNum(roll.mod, 0)} =
           <span style="font-weight:bold">${parseNum(roll.total, 0)}</span>
           <span style="color:#aaa;margin:0 4px">vs</span>
           <span>DC${parseNum(ev.dc, 10)}</span>
@@ -2739,7 +2883,7 @@ function renderGameResultCard(res) {
   const recapHtml = recapData
     ? `
     <div class="sim-flow-card mt-12">
-      <div class="fw-b">${recapData.headline || '比赛战报'} <span class="badge b-cyan" style="margin-left:6px">AI</span></div>
+      <div class="fw-b">${recapData.headline || '比赛战报'} <span class="badge b-cyan" style="margin-left:6px">本地模板</span></div>
       <div class="t-2 fs-sm mt-8" style="line-height:1.7">${recapData.recap || ''}</div>
     </div>`
     : '';
@@ -2853,21 +2997,20 @@ async function doSimulateDay() {
   G._simulatingDay = true;
   if (typeof showLoading === 'function') showLoading();
   renderHome();
-  // 全局安全超时：60秒后提示重试（此时 simulateDay 已完成，只需重跑LLM内容）
+  // 全局安全超时：60秒后提示重试（此时 simulateDay 已完成，只需重跑生成内容）
   let dayTimeoutId = null;
   let timedOut = false;
   dayTimeoutId = setTimeout(() => {
     timedOut = true;
     G._simulatingDay = false;
     if (typeof hideLoading === 'function') hideLoading();
-    const retryLabel = G._latestDayResult ? '补生成剧情和推文' : '重新模拟当天';
     showModal(`
       <div style="text-align:center;padding:16px">
         <div style="font-size:28px;margin-bottom:12px">⏱️</div>
         <h3 style="margin:0 0 8px">模拟响应超时</h3>
-        <p style="color:#aaa;margin:0 0 16px;font-size:14px">模型请求未能在规定时间内返回，可能是网络波动或接口拥堵。比赛数据已保存，可以只重试剧情生成。</p>
+        <p style="color:#aaa;margin:0 0 16px;font-size:14px">本地模板内容未能在规定时间内完成。比赛数据已保存，可以只重试剧情、战报和舆情。</p>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-          <button class="btn btn-gold" onclick="hideModal();retryDayLLMContent()">补生成剧情和推文</button>
+          <button class="btn btn-gold" onclick="hideModal();retryDayContent()">重试本地内容</button>
           <button class="btn" onclick="hideModal();renderHome()">跳过，继续游戏</button>
         </div>
       </div>
@@ -2879,7 +3022,9 @@ async function doSimulateDay() {
     if (isGame && !G.player?.injury?.active && typeof rollPreGameEvent === 'function') {
       const ev = rollPreGameEvent();
       if (ev && typeof showEventOutcomeModal === 'function') {
+        if (typeof hideLoading === 'function') hideLoading();
         await showEventOutcomeModal(ev);
+        if (typeof showLoading === 'function') showLoading();
       }
     }
 
@@ -2891,11 +3036,19 @@ async function doSimulateDay() {
       return;
     }
 
-    const dailyPrompt = typeof buildDailyInteractionPrompt === 'function'
-      ? buildDailyInteractionPrompt(result)
-      : (typeof buildCoachDailyPrompt === 'function' ? buildCoachDailyPrompt(result) : null);
+    let postgameRoute = null;
+    if (result.isGame && typeof routePostgameEvents === 'function') {
+      postgameRoute = routePostgameEvents(result);
+    }
+    const dailyPrompt = result.isGame
+      ? (postgameRoute?.forcedPrompt || null)
+      : (typeof buildDailyInteractionPrompt === 'function'
+        ? buildDailyInteractionPrompt(result)
+        : (typeof buildCoachDailyPrompt === 'function' ? buildCoachDailyPrompt(result) : null));
     if (dailyPrompt) {
+      if (typeof hideLoading === 'function') hideLoading();
       await showCoachChoiceModal(dailyPrompt, result, { mandatory: true });
+      if (typeof showLoading === 'function') showLoading();
       updateHeader();
       renderHome();
       if ($('rosterPage').classList.contains('active')) renderRoster();
@@ -2905,21 +3058,21 @@ async function doSimulateDay() {
 
     G._latestDayResult = result;
 
-    // ========== 剧情引擎（优先，独立超时） ==========
-    const storyPromise = typeof generateDailyStoryByLLM === 'function'
-      ? generateDailyStoryByLLM(result, { deferRender: true }).catch(e => { console.warn('剧情生成失败:', e); return null; })
+    // ========== 本地模板剧情（优先，独立超时） ==========
+    const storyPromise = typeof generateDailyStoryByTemplate === 'function'
+      ? generateDailyStoryByTemplate(result, { deferRender: true }).catch(e => { console.warn('剧情生成失败:', e); return null; })
       : Promise.resolve(null);
 
     // ========== 战报 + 推文并行（不阻塞剧情） ==========
-    const recapPromise = (result.isGame && typeof generateMatchRecapByLLM === 'function')
-      ? generateMatchRecapByLLM(result).catch(e => { console.warn('战报生成失败:', e); return null; })
+    const recapPromise = (result.isGame && typeof generateMatchRecapByTemplate === 'function')
+      ? generateMatchRecapByTemplate(result).catch(e => { console.warn('战报生成失败:', e); return null; })
       : Promise.resolve(null);
 
     const tweetsPromise = typeof generateDailySocialTweetsSmart === 'function'
-      ? generateDailySocialTweetsSmart(result).catch(e => { console.warn('推文生成失败:', e); G.social.lastLLMError = String(e?.message || e || ''); return []; })
+      ? generateDailySocialTweetsSmart(result).catch(e => { console.warn('推文生成失败:', e); return []; })
       : Promise.resolve([]);
 
-    // 剧情先完成（渲染到面板），然后等战报和推文
+    // 模板剧情先完成（渲染到面板），然后等战报和推文
     await storyPromise;
     const settled = await Promise.allSettled([recapPromise, tweetsPromise]);
     const recapResult = settled[0];
@@ -2942,21 +3095,21 @@ async function doSimulateDay() {
   }
 }
 
-async function retryDayLLMContent() {
+async function retryDayContent() {
   const result = G._latestDayResult;
   if (!result) { renderHome(); return; }
   if (typeof showLoading === 'function') showLoading();
   try {
-    const storyP = typeof generateDailyStoryByLLM === 'function'
-      ? generateDailyStoryByLLM(result, { deferRender: true }).catch(e => { console.warn('剧情补生成失败:', e); })
+    const storyP = typeof generateDailyStoryByTemplate === 'function'
+      ? generateDailyStoryByTemplate(result, { deferRender: true }).catch(e => { console.warn('剧情重试失败:', e); })
       : Promise.resolve();
-    const recapP = (result.isGame && typeof generateMatchRecapByLLM === 'function')
-      ? generateMatchRecapByLLM(result, { force: true }).then(r => {
+    const recapP = (result.isGame && typeof generateMatchRecapByTemplate === 'function')
+      ? generateMatchRecapByTemplate(result, { force: true }).then(r => {
           if (r?.ok && r.recap) { result.gameRecap = r.recap; G._latestGameRecap = r.recap; }
-        }).catch(e => { console.warn('战报补生成失败:', e); })
+        }).catch(e => { console.warn('战报重试失败:', e); })
       : Promise.resolve();
     const tweetsP = typeof generateDailySocialTweetsSmart === 'function'
-      ? generateDailySocialTweetsSmart(result, { force: true }).catch(e => { console.warn('推文补生成失败:', e); })
+      ? generateDailySocialTweetsSmart(result, { force: true }).catch(e => { console.warn('推文重试失败:', e); })
       : Promise.resolve();
     await storyP;
     await Promise.allSettled([recapP, tweetsP]);
@@ -3031,7 +3184,6 @@ function showCoachChoiceModal(prompt, result = null, opts = {}) {
   const promptObj = prompt && typeof prompt === 'object' ? prompt : null;
   if (!promptObj || !Array.isArray(promptObj.choices) || !promptObj.choices.length) return Promise.resolve(null);
   const mandatory = !!opts?.mandatory;
-  const freeTextMode = String(promptObj.inputMode || '').toLowerCase() === 'free_text';
   return new Promise(resolve => {
     const modalBg = $('modalBg');
     const cleanup = () => modalBg?.removeEventListener('click', bgHandler, true);
@@ -3047,23 +3199,15 @@ function showCoachChoiceModal(prompt, result = null, opts = {}) {
     };
     modalBg?.addEventListener('click', bgHandler, true);
 
-    const renderOutcome = (choice, outcome, submittedText = '') => {
+    const renderOutcome = (choice, outcome) => {
       const summaryHtml = buildDailyChoiceOutcomeSummary(promptObj);
-      const submittedSafe = String(submittedText || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
       showModal(`
         <div class="modal-hd coach-prompt-head">
           <h3>${promptObj.title}</h3>
           ${mandatory ? '' : '<button class="modal-x" id="coachChoiceCloseBtn">✕</button>'}
         </div>
         <div class="coach-prompt-lead">${promptObj.desc || '教练组希望你给出明确态度。'}</div>
-        ${submittedText ? `<div class="coach-prompt-panel">
-          <div class="coach-prompt-panel-kicker">你的回答</div>
-          <div class="coach-prompt-submitted">${submittedSafe}</div>
-        </div>` : ''}
-        <div class="coach-prompt-outcome${submittedText ? ' mt-16' : ''}">
+        <div class="coach-prompt-outcome">
           <div class="coach-prompt-outcome-title">${choice?.title || '已完成沟通'}</div>
           ${choice?.badge ? `<div class="coach-prompt-outcome-badge">${choice.badge}</div>` : ''}
           <div class="coach-prompt-outcome-copy">${outcome?.text || '这次沟通已经产生影响。'}</div>
@@ -3087,78 +3231,6 @@ function showCoachChoiceModal(prompt, result = null, opts = {}) {
         };
       }
     };
-
-    if (freeTextMode) {
-      showModal(`
-        <div class="modal-hd coach-prompt-head">
-          <h3>${promptObj.title || '教练事件'}</h3>
-          ${mandatory ? '' : '<button class="modal-x" id="coachChoiceCloseBtn">✕</button>'}
-        </div>
-        <div class="coach-prompt-lead">${promptObj.desc || '教练组希望你给出明确态度。'}</div>
-        <div class="coach-prompt-panel">
-          <div class="coach-prompt-panel-kicker">自己打字回答</div>
-          <div class="coach-prompt-panel-copy">系统会识别你的语气、立场、情商和团队倾向。强硬、圆滑、团队化、要球、替体系背书，都会得到不同反馈。</div>
-          <textarea id="coachFreeTextInput" class="form-control coach-prompt-textarea mt-12" rows="6" placeholder="${promptObj.placeholder || '输入你的回答……'}"></textarea>
-        </div>
-        <div class="coach-prompt-section mt-16">
-          <div class="coach-prompt-section-title">可识别的表达方向</div>
-          <div class="coach-prompt-section-sub">点一下会把这个方向的表述自动填进输入框，你也可以继续自己改。</div>
-          <div class="grid g3 coach-prompt-choice-grid">
-            ${promptObj.choices.map((choice, index) => `
-              <button class="choice-card coach-prompt-choice" type="button" data-coach-fill="${index}">
-                <div class="coach-prompt-choice-title">${choice.title || `方向${index + 1}`}</div>
-                <div class="coach-prompt-choice-detail">${choice.detail || '会影响你和教练组的关系。'}</div>
-                ${choice.badge ? `<div class="mt-12"><span class="badge b-cyan coach-prompt-choice-badge">${choice.badge}</span></div>` : ''}
-              </button>
-            `).join('')}
-          </div>
-        </div>
-        <div id="coachChoiceHint" class="coach-prompt-hint mt-16">${mandatory ? '你需要先表态，今天的流程才会继续。' : '你可以强硬、圆滑、团队化，系统会按文本判定结果。'}</div>
-        <div class="grid g2 mt-16 coach-prompt-actions">
-          ${mandatory ? '' : '<button class="btn btn-danger" id="coachChoiceCancelBtn">先不沟通</button>'}
-          <button class="btn btn-gold" id="coachChoiceSubmitBtn" style="width:100%">${mandatory ? '提交态度' : '发送给教练'}</button>
-        </div>
-      `, { className: 'modal-coach-prompt' });
-
-      if (!mandatory) {
-        const closeBtn = $('coachChoiceCloseBtn');
-        if (closeBtn) closeBtn.onclick = () => finish(null);
-        const cancelBtn = $('coachChoiceCancelBtn');
-        if (cancelBtn) cancelBtn.onclick = () => finish(null);
-      }
-
-      document.querySelectorAll('[data-coach-fill]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const idx = parseNum(btn.getAttribute('data-coach-fill'), -1);
-          const choice = promptObj.choices[idx];
-          const box = $('coachFreeTextInput');
-          if (!choice || !box) return;
-          box.value = `${choice.title}：${choice.detail || ''}`.trim();
-          box.focus();
-        });
-      });
-
-      const submitBtn = $('coachChoiceSubmitBtn');
-      if (submitBtn) {
-        submitBtn.onclick = async () => {
-          const box = $('coachFreeTextInput');
-          const hint = $('coachChoiceHint');
-          const text = String(box?.value || '').trim();
-          if (!text) {
-            if (hint) hint.textContent = '先输入你的态度，再继续。';
-            return;
-          }
-          submitBtn.disabled = true;
-          submitBtn.textContent = '判定中...';
-          const outcome = typeof resolveCoachPromptTextResponse === 'function'
-            ? await resolveCoachPromptTextResponse(promptObj, text, result)
-            : { ok: true, text: '教练已经听到了你的表态。' };
-          const choice = promptObj.choices.find(item => String(item?.id || '').trim() === String(outcome?.choiceId || '').trim()) || { title: '已完成沟通' };
-          renderOutcome(choice, outcome, text);
-        };
-      }
-      return;
-    }
 
     showModal(`
       <div class="modal-hd">
@@ -3227,8 +3299,8 @@ async function doResolveDailySocialGate() {
   G._phoneComposeResult = {
     ok: !!res?.ok,
     message: res?.ok
-      ? `补生成完成：${res?.count || 0} 条`
-      : (res?.message || '补生成失败，请检查模型设置后重试')
+      ? `模板舆情已补齐：${res?.count || 0} 条`
+      : (res?.message || '模板舆情补齐失败，请重试')
   };
   renderHome();
   if ($('phonePage').classList.contains('active')) renderPhone();
@@ -3339,14 +3411,15 @@ async function doPlayoffGame() {
         oppPts: parseNum(res?.st?.oppPts, 0),
         st: res.st,
         grade: res.grade,
+        gradeScore: res.gradeScore,
         flow: res.flow || null
       }
     };
 
-    if (typeof generateDailyStoryByLLM === 'function') {
+    if (typeof generateDailyStoryByTemplate === 'function') {
       res.isPlayoffs = true;
       res.playoffRoundName = ['', '首轮', '次轮', '分区决赛', '总决赛'][G.playoffs.round];
-      await generateDailyStoryByLLM({
+      await generateDailyStoryByTemplate({
         isGame: true,
         gameResult: res,
         type: 'playoffGame'
@@ -4086,8 +4159,8 @@ function renderRoster() {
       </div>
     </div>
     <div class="t-2 fs-sm mt-12" style="padding:8px;background:rgba(0,0,0,.2);border-radius:6px">
-      <span style="color:var(--cyan)">进攻加成:</span> ${coachFx.offPct >= 0 ? '+' : ''}${(coachFx.offPct * 100).toFixed(1)}% | 
-      <span style="color:var(--cyan)">防守加成:</span> ${coachFx.defPct >= 0 ? '+' : ''}${(coachFx.defPct * 100).toFixed(1)}% | 
+      <span style="color:var(--cyan)">进攻加成:</span> ${coachFx.offPct >= 0 ? '+' : ''}${(coachFx.offPct * 100).toFixed(1)}% |
+      <span style="color:var(--cyan)">防守加成:</span> ${coachFx.defPct >= 0 ? '+' : ''}${(coachFx.defPct * 100).toFixed(1)}% |
       <span style="color:var(--cyan)">XP加成:</span> ${coachFx.xpPct >= 0 ? '+' : ''}${(coachFx.xpPct * 100).toFixed(1)}%
     </div>
     <div class="t-2 fs-sm mt-12" style="padding:8px;background:rgba(255,255,255,.04);border-radius:6px">
@@ -4651,73 +4724,6 @@ function getPhoneTab() {
   const tab = String(G._phoneTab || 'feed');
   return allowed.has(tab) ? tab : 'feed';
 }
-function getPhoneLlmDraft() {
-  if (!G._phoneLlmDraft || typeof G._phoneLlmDraft !== 'object') {
-    const llm = G.social?.llm || {};
-    G._phoneLlmDraft = {
-      enabled: !!llm.enabled,
-      baseUrl: String(llm.baseUrl || 'https://api.openai.com/v1').trim(),
-      model: String(llm.model || 'gpt-4.1-mini').trim(),
-      imageModel: String(llm.imageModel || '').trim(),
-      apiKey: String(llm.apiKey || '').trim(),
-      tweetImagesEnabled: !!G.social?.tweetImagesEnabled
-    };
-  }
-  return G._phoneLlmDraft;
-}
-function syncPhoneLlmDraftFromDom() {
-  const draft = getPhoneLlmDraft();
-  draft.enabled = parseNum($('phoneLlmEnabled')?.value, draft.enabled ? 1 : 0) === 1;
-  draft.baseUrl = String($('phoneLlmBase')?.value || draft.baseUrl || 'https://api.openai.com/v1').trim();
-  draft.model = String($('phoneLlmModel')?.value || draft.model || 'gpt-4.1-mini').trim();
-  draft.imageModel = String($('phoneLlmImageModel')?.value || draft.imageModel || '').trim();
-  draft.apiKey = String($('phoneLlmKey')?.value || draft.apiKey || '').trim();
-  draft.tweetImagesEnabled = $('phoneTweetImagesEnabled')?.checked === true;
-  return draft;
-}
-function renderPhoneLLMTab() {
-  const draft = getPhoneLlmDraft();
-  const models = Array.isArray(G.social?.llmModels) ? G.social.llmModels : [];
-  const resultMsg = G._phoneLlmResult ? `<div class="ev ${G._phoneLlmResult.ok ? 'pos' : 'neg'}" style="margin-bottom:10px">${G._phoneLlmResult.message}</div>` : '';
-  return `
-  <div class="card" style="margin:0">
-    <div class="card-title">🤖 AI 与模型</div>
-    ${resultMsg}
-    <div class="grid g2">
-      <div>
-        <label class="t-2 fs-sm">启用</label>
-        <select id="phoneLlmEnabled" class="form-control" onchange="syncPhoneLlmDraftFromDom()">
-          <option value="1" ${draft.enabled ? 'selected' : ''}>启用</option>
-          <option value="0" ${!draft.enabled ? 'selected' : ''}>关闭</option>
-        </select>
-      </div>
-      <div>
-        <label class="t-2 fs-sm">文字模型</label>
-        <input id="phoneLlmModel" class="form-control" list="phoneLlmModelList" value="${draft.model || 'gpt-4.1-mini'}" oninput="syncPhoneLlmDraftFromDom()">
-        <datalist id="phoneLlmModelList">${models.map(m => `<option value="${m}"></option>`).join('')}</datalist>
-      </div>
-    </div>
-    <label class="t-2 fs-sm mt-12">Base URL</label>
-    <input id="phoneLlmBase" class="form-control" value="${draft.baseUrl || 'https://api.openai.com/v1'}" oninput="syncPhoneLlmDraftFromDom()">
-    <label class="t-2 fs-sm mt-12">图片模型</label>
-    <input id="phoneLlmImageModel" class="form-control" value="${draft.imageModel || ''}" placeholder="gpt-image-1 / gemini-3.1-flash-image-preview" oninput="syncPhoneLlmDraftFromDom()">
-    <label class="t-2 fs-sm mt-12">API Key</label>
-    <input id="phoneLlmKey" class="form-control" type="password" value="${draft.apiKey || ''}" placeholder="sk-... / AIza..." oninput="syncPhoneLlmDraftFromDom()">
-    <label class="flex ai-c gap-8 pointer mt-12">
-      <input type="checkbox" id="phoneTweetImagesEnabled" ${draft.tweetImagesEnabled ? 'checked' : ''} onchange="syncPhoneLlmDraftFromDom()">
-      <span>开启 AI 推文配图</span>
-    </label>
-    <div class="t-2 fs-sm mt-8">开启后，AI 生成的推文会尝试附带图片；失败时自动回退为纯文字。</div>
-    <div class="grid g2 mt-16">
-      <button class="btn btn-pri" onclick="doPhoneSaveLLMSettings()">保存</button>
-      <button class="btn btn-cyan" onclick="doPhoneTestLLMConnectivity()">测试并读取模型</button>
-    </div>
-    <div class="mt-12">
-      ${G.social?.lastLLMError ? `<div class="t-2 fs-sm">最近错误：${G.social.lastLLMError}</div>` : ''}
-      <div class="t-2 fs-sm mt-8">这里改完会直接作用于游戏内剧情、采访判定、推文生成和图片生图。</div>
-    </div>
-  </div>`;
-}
 function getSocialAvatarInitial(text = '') {
   const clean = String(text || '').replace(/^@+/, '').trim();
   if (!clean) return '球';
@@ -4739,7 +4745,7 @@ function renderBrandLogoThumb(logo, label = '品牌', className = 'brand-logo-th
 }
 function getPostVisualBadge(post = {}) {
   const status = String(post.imageStatus || '').trim().toLowerCase();
-  if (status === 'llm') return { label: '模型图', cls: 'b-cyan' };
+  if (status === 'svg') return { label: 'SVG图', cls: 'b-cyan' };
   if (String(post.image || '').trim()) return { label: '品牌图', cls: 'b-pri' };
   if (String(post.logo || '').trim()) return { label: '品牌LOGO', cls: 'b-gold' };
   return null;
@@ -4787,17 +4793,7 @@ function renderPhoneFeedTab() {
   const relationView = typeof buildSocialRelationshipFeedView === 'function' ? buildSocialRelationshipFeedView(4) : null;
   const rivalInfo = typeof getUpcomingRivalMatchupInfo === 'function' ? getUpcomingRivalMatchupInfo() : null;
   const feedStatus = G._phoneFeedResult ? `<div class="ev ${G._phoneFeedResult.ok ? 'pos' : 'neg'}" style="margin:0">${G._phoneFeedResult.message}</div>` : '';
-  const feedTools = `
-    <div class="card" style="margin-bottom:10px">
-      <div class="flex fb gap-16" style="align-items:flex-start;flex-wrap:wrap">
-        <div style="min-width:0;flex:1">
-          <div class="fw-b">当天舆情控制台</div>
-          <div class="t-2 fs-sm mt-8">会重新生成当天的非玩家推文，并重建当日商业动态。适合在文案太死板、重复发帖或模型切换后重新刷一遍。</div>
-        </div>
-        <button class="btn btn-gold" ${G._phoneGenerating ? 'disabled' : ''} onclick="doPhoneGenerateTweets()">${G._phoneGenerating ? '重新生成中...' : '重新生成当天舆情'}</button>
-      </div>
-      ${feedStatus ? `<div class="mt-12">${feedStatus}</div>` : ''}
-    </div>`;
+  const feedNotice = feedStatus ? `<div class="card" style="margin-bottom:10px">${feedStatus}</div>` : '';
   const relationCard = relationView ? `
     <div class="card" style="margin-bottom:10px">
       <div class="card-title">球星关系网</div>
@@ -4829,17 +4825,18 @@ function renderPhoneFeedTab() {
     </div>` : '';
   if (!timeline.length) {
     return `
-    ${feedTools}
+    ${feedNotice}
     ${relationCard}
     <div class="card" style="margin:0">
-      <div class="t-2">今日推文尚未生成。</div>
-      <button class="btn btn-gold mt-12" onclick="doPhoneGenerateTweets()">补生成当天推文</button>
+      <div class="fw-b">暂无舆情动态</div>
+      <div class="t-2 fs-sm mt-8">推进日程后，系统会自动写入本地模板推文和商业动态。这里不再提供手动生成按钮。</div>
     </div>`;
   }
-  return feedTools + relationCard + timeline.map(post => {
+  return feedNotice + relationCard + timeline.map(post => {
     const replied = !!(G.social?.playerRepliedPostIds?.[String(post.id)]);
     const comments = Array.isArray(post.comments) ? post.comments.slice(0, 6) : [];
     const relationBadge = typeof getSocialRelationshipBadgeForPost === 'function' ? getSocialRelationshipBadgeForPost(post) : null;
+    const replyOptions = typeof getPlayerReplyOptions === 'function' ? getPlayerReplyOptions(post.id) : [];
     const visualBadge = getPostVisualBadge(post);
     const avatar = renderSocialPostAvatar(post);
     return `
@@ -4870,21 +4867,39 @@ function renderPhoneFeedTab() {
       </div>` : ''}
       ${replied ? '<div class="t-2 fs-sm mt-12">你已回复过这条推文</div>' : `
       <div class="mt-12">
-        <textarea id="phoneReply_${post.id}" class="form-control" rows="2" placeholder="回复这条推文（每条仅一次）"></textarea>
-        <button class="btn btn-cyan mt-12" onclick="doPhoneReply(${post.id})">发送回复</button>
+        <div class="t-2 fs-sm mb-8">选择回复口径（每条仅一次）</div>
+        <div class="grid g2">
+          ${replyOptions.map(opt => `
+            <button class="choice-card" style="text-align:left" onclick="doPhoneReply(${post.id}, '${opt.id}')">
+              <div class="fw-b">${opt.title}</div>
+              <div class="t-2 fs-sm mt-8">${opt.detail}</div>
+              ${opt.badge ? `<div class="mt-8"><span class="badge b-cyan">${opt.badge}</span></div>` : ''}
+            </button>
+          `).join('') || '<div class="t-2 fs-sm">这条动态暂时不能回复。</div>'}
+        </div>
       </div>`}
     </div>`;
   }).join('');
 }
 function renderPhoneComposeTab() {
   const tip = G._phoneComposeResult ? `<div class="ev ${G._phoneComposeResult.ok ? 'pos' : 'neg'}">${G._phoneComposeResult.message}</div>` : '';
+  const options = typeof getPlayerTweetOptions === 'function' ? getPlayerTweetOptions() : [];
+  const used = options.length ? parseNum(options[0].used, 0) : 0;
+  const limit = options.length ? parseNum(options[0].limit, 3) : 3;
   return `
   <div class="card" style="margin:0">
-    <div class="card-title">✍️ 发布推文</div>
+    <div class="card-title">✍️ 选择发声口径</div>
     ${tip}
-    <textarea id="phoneComposeInput" class="form-control" rows="5" placeholder="输入你的推文，建议结合比赛与团队内容（当天最多3条）"></textarea>
-    <div class="t-2 fs-sm mt-12">规则：发言会影响声望与信任；挑衅/逼宫倾向会明显降低信任。</div>
-    <button class="btn btn-gold mt-12" onclick="doPhonePostTweet()">发布</button>
+    <div class="t-2 fs-sm mt-8">当天已发 ${used}/${limit} 条。发声会影响声望、信任、球星关系和更衣室观感。</div>
+    <div class="grid g2 mt-12">
+      ${options.map(opt => `
+        <button class="choice-card" style="text-align:left" ${opt.disabled ? 'disabled' : ''} onclick="doPhonePostTweet('${opt.id}')">
+          <div class="fw-b">${opt.title}</div>
+          <div class="t-2 fs-sm mt-8">${opt.detail}</div>
+          ${opt.badge ? `<div class="mt-8"><span class="badge b-gold">${opt.badge}</span></div>` : ''}
+        </button>
+      `).join('') || '<div class="t-2 fs-sm">社媒系统未加载。</div>'}
+    </div>
   </div>`;
 }
 function renderPhoneEndorseTab() {
@@ -5072,8 +5087,7 @@ function renderPhone() {
   else if (tab === 'compose') content = renderPhoneComposeTab();
   else if (tab === 'market') content = renderPhoneMarketTab();
   else if (tab === 'endorse') content = renderPhoneEndorseTab();
-  else if (tab === 'llm') content = renderPhoneLLMTab();
-  else content = renderPhoneInboxTab();
+else content = renderPhoneInboxTab();
 
   const pendingTradeBanner = G.pendingTrade ? `
     <div class="ev neu" style="margin-bottom:10px">
@@ -5095,59 +5109,27 @@ function renderPhone() {
       <div style="padding:10px 12px">
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
           ${tabBtn('feed', '推文流')}
-          ${tabBtn('compose', '发推')}
+          ${tabBtn('compose', '发声')}
           ${tabBtn('market', '商城')}
           ${tabBtn('endorse', '代言')}
           ${tabBtn('inbox', '消息')}
-          ${tabBtn('llm', '模型')}
-        </div>
+</div>
         ${pendingTradeBanner}
         <div style="max-height:72vh;overflow:auto;padding-right:2px">${content}</div>
       </div>
     </div>
   </div>`;
 }
-async function doPhonePostTweet() {
-  const text = $('phoneComposeInput')?.value || '';
-  if (typeof postPlayerTweetAsync === 'function') {
-    G._phoneComposeResult = { ok: false, message: '正在发布并等待AI评估...' };
-    renderPhone();
-    try {
-      const res = await postPlayerTweetAsync(text);
-      const src = res.llmUsed ? '(AI评估)' : '(本地评估)';
-      G._phoneComposeResult = { ok: !!res.ok, message: res.ok ? `发布成功${src}：${res.impact?.label || '已生效'}` : (res.message || '发布失败') };
-      if (res.ok) updateHeader();
-    } catch (e) {
-      G._phoneComposeResult = { ok: false, message: `发布失败: ${e?.message || e}` };
-    }
-    renderPhone();
-    return;
-  }
-  if (typeof postPlayerTweet !== 'function') return;
-  const res = postPlayerTweet(text);
+function doPhonePostTweet(choiceId) {
+  if (typeof postPlayerTweetChoice !== 'function') return;
+  const res = postPlayerTweetChoice(choiceId);
   G._phoneComposeResult = { ok: !!res.ok, message: res.ok ? `发布成功：${res.impact?.label || '已生效'}` : (res.message || '发布失败') };
   if (res.ok) updateHeader();
   renderPhone();
 }
-async function doPhoneReply(postId) {
-  const box = $(`phoneReply_${postId}`);
-  const text = box ? box.value : '';
-  if (typeof replyToSocialPostAsync === 'function') {
-    G._phoneComposeResult = { ok: false, message: '正在回复并等待AI评估...' };
-    renderPhone();
-    try {
-      const res = await replyToSocialPostAsync(postId, text);
-      const src = res.llmUsed ? '(AI评估)' : '(本地评估)';
-      G._phoneComposeResult = { ok: !!res.ok, message: res.ok ? `回复成功${src}：${res.impact?.label || '已生效'}` : (res.message || '回复失败') };
-      if (res.ok) updateHeader();
-    } catch (e) {
-      G._phoneComposeResult = { ok: false, message: `回复失败: ${e?.message || e}` };
-    }
-    renderPhone();
-    return;
-  }
-  if (typeof replyToSocialPost !== 'function') return;
-  const res = replyToSocialPost(postId, text);
+function doPhoneReply(postId, choiceId) {
+  if (typeof replyToSocialPostChoice !== 'function') return;
+  const res = replyToSocialPostChoice(postId, choiceId);
   G._phoneComposeResult = { ok: !!res.ok, message: res.ok ? `回复成功：${res.impact?.label || '已生效'}` : (res.message || '回复失败') };
   if (res.ok) updateHeader();
   renderPhone();
@@ -5237,42 +5219,14 @@ async function doPhoneGenerateTweets() {
   try {
     const added = await regenerateTodaySocialTweets();
     const count = Array.isArray(added) ? added.length : 0;
-    G._phoneFeedResult = { ok: true, message: `重新生成完成：${count} 条当天舆情已刷新` };
+    G._phoneFeedResult = { ok: true, message: `模板刷新完成：${count} 条当天舆情已更新` };
   } catch (e) {
-    G._phoneFeedResult = { ok: false, message: `重新生成失败: ${e?.message || e}` };
+    G._phoneFeedResult = { ok: false, message: `模板刷新失败: ${e?.message || e}` };
   } finally {
     G._phoneGenerating = false;
   }
   renderPhone();
 }
-function doPhoneSaveLLMSettings() {
-  if (typeof saveSocialLLMSettings !== 'function') return;
-  const draft = syncPhoneLlmDraftFromDom();
-  saveSocialLLMSettings(draft);
-  G._phoneLlmResult = { ok: true, message: '游戏内模型设置已保存' };
-  if ($('settingsPage')?.classList.contains('active')) renderSettings();
-  else renderPhone();
-}
-async function doPhoneTestLLMConnectivity() {
-  if (typeof saveSocialLLMSettings !== 'function' || typeof testSocialLLMConnectivity !== 'function') return;
-  const draft = syncPhoneLlmDraftFromDom();
-  saveSocialLLMSettings(draft);
-  const res = await testSocialLLMConnectivity();
-  const suffix = res.ok ? (Array.isArray(res.models) && res.models.length ? `，已加载 ${res.models.length} 个模型` : '') : '';
-  G._phoneLlmResult = { ok: !!res.ok, message: `${res.message || (res.ok ? '连接成功' : '连接失败')}${suffix}` };
-  G._phoneLlmDraft = {
-    ...getPhoneLlmDraft(),
-    enabled: !!G.social?.llm?.enabled,
-    baseUrl: String(G.social?.llm?.baseUrl || draft.baseUrl || '').trim(),
-    model: String(G.social?.llm?.model || draft.model || '').trim(),
-    imageModel: String(G.social?.llm?.imageModel || draft.imageModel || '').trim(),
-    apiKey: String(G.social?.llm?.apiKey || draft.apiKey || '').trim(),
-    tweetImagesEnabled: !!G.social?.tweetImagesEnabled
-  };
-  if ($('settingsPage')?.classList.contains('active')) renderSettings();
-  else renderPhone();
-}
-
 function doAcceptTradeOffer() {
   executePlayerTrade(G.pendingTrade);
   G.pendingTrade = null;
@@ -5606,9 +5560,7 @@ function renderCommerceShoe() {
       ${upgradeBlock}
 
       <div class="mt-16">
-        <div class="fw-b mb-8">球鞋外形提示词（可选）</div>
-        <textarea id="shoeImageHint_${cid}" class="form-control" rows="2" placeholder="例：黑金配色，鞋面有龙纹，低帮设计，镂空侧翼" style="font-size:.85em">${shoe.imagePrompt ? '' : ''}</textarea>
-        <button class="btn btn-cyan mt-12" onclick="doCommerceGenShoeImage('${cid}')">🎨 生成/更新球鞋图片</button>
+        <button class="btn btn-cyan" onclick="doCommerceGenShoeImage('${cid}')">🎨 生成/更新球鞋图片</button>
       </div>
     </div>`;
   }).join('');
@@ -5735,39 +5687,11 @@ function doCommerceUpgradeShoe(contractId) {
 }
 async function doCommerceGenShoeImage(contractId) {
   if (typeof generateSignatureShoeImageForOffer !== 'function') return;
-  const hintEl = document.getElementById('shoeImageHint_' + contractId);
-  const extraHint = hintEl ? hintEl.value.trim() : '';
   G._commerceShoeResult = { ok: true, message: '正在生成图片...' };
   renderCommerce();
   try {
-    let res;
-    if (extraHint && typeof resolveEndorsementContract === 'function' && typeof buildSignatureShoeImagePrompt === 'function' && typeof generateSignatureShoeImageByLLM === 'function' && typeof updateSignatureShoeProject === 'function') {
-      const contract = resolveEndorsementContract(contractId);
-      const shoe = contract ? getSignatureShoeCurrentState(contract) : null;
-      if (contract && shoe) {
-        const basePrompt = buildSignatureShoeImagePrompt(contract, shoe);
-        const fullPrompt = basePrompt + '. Custom appearance: ' + extraHint;
-        const llm = G.social?.llm || {};
-        const baseUrl = typeof normalizeLLMBaseUrl === 'function' ? normalizeLLMBaseUrl(llm.baseUrl) : (llm.baseUrl || '');
-        const isGemini = typeof isGoogleGeminiEndpoint === 'function' && isGoogleGeminiEndpoint(baseUrl);
-        const defaultModel = isGemini ? 'gemini-3.1-flash-image-preview' : 'gpt-image-1';
-        const imageModel = (llm.imageModel || '').trim() || defaultModel;
-        const llmResult = await generateSignatureShoeImageByLLM(fullPrompt, { model: imageModel });
-        const image = llmResult.ok && llmResult.image ? llmResult.image : typeof buildSignatureShoeFallbackImage === 'function' ? buildSignatureShoeFallbackImage(contract, shoe) : '';
-        res = updateSignatureShoeProject(contract, {
-          image,
-          imagePrompt: fullPrompt,
-          imageModel: llmResult.ok ? (llmResult.model || imageModel) : 'fallback',
-          imageStatus: llmResult.ok ? 'llm' : 'fallback',
-          imageUpdatedAt: Date.now()
-        }, { action: '签名鞋生图', detail: extraHint, buzz: true });
-        res = { ok: !!res.ok, message: llmResult.ok ? `图片已生成（${llmResult.model || imageModel}）` : `已使用本地样图：${llmResult.message || ''}` };
-      } else {
-        res = await generateSignatureShoeImageForOffer(contractId);
-      }
-    } else {
-      res = await generateSignatureShoeImageForOffer(contractId);
-    }
+    // SVG image generation
+    const res = await generateSignatureShoeImageForOffer(contractId);
     G._commerceShoeResult = { ok: !!res.ok, message: res.message || (res.ok ? '图片已生成' : '生成失败') };
   } catch (e) {
     G._commerceShoeResult = { ok: false, message: `生成失败：${e?.message || e}` };
@@ -5805,26 +5729,29 @@ function renderRegularSeasonAction() {
   if (isToday) {
     const effortMode = G._effortMode || 'normal';
     html = `
-      <div class="home-phase-bar home-phase-match">
-        <div class="home-phase-copy">
-          <div class="home-phase-kicker">Game Night</div>
-          <div class="home-phase-title">第 ${G.gameNum + 1} 场常规赛 vs ${opp?.z || '对手'}</div>
-          <div class="home-phase-note">
-            ${game?.home ? '主场作战' : '客场作战'}${fatigueCtx ? ` · ${fatigueCtx.summary}` : ''} · ${staminaMeta}<br>
-            ${injuryMeta}<br>
-            ${latestSummary}
+      <div class="home-phase-stack">
+        <div class="home-phase-bar home-phase-match">
+          <div class="home-phase-copy">
+            <div class="home-phase-kicker">Game Night</div>
+            <div class="home-phase-title">第 ${G.gameNum + 1} 场常规赛 vs ${opp?.z || '对手'}</div>
+            <div class="home-phase-note">
+              ${game?.home ? '主场作战' : '客场作战'}${fatigueCtx ? ` · ${fatigueCtx.summary}` : ''} · ${staminaMeta}<br>
+              ${injuryMeta}<br>
+              ${latestSummary}
+            </div>
+          </div>
+          <div class="home-phase-controls">
+            <select id="effortSel" class="home-select" onchange="G._effortMode=this.value">
+              <option value="slack" ${effortMode === 'slack' ? 'selected' : ''}>保留体能</option>
+              <option value="normal" ${effortMode === 'normal' ? 'selected' : ''}>标准负荷</option>
+              <option value="hard" ${effortMode === 'hard' ? 'selected' : ''}>全力冲击</option>
+            </select>
+            <button class="btn btn-gold home-phase-btn" ${simBusy ? 'disabled' : ''} onclick="G._effortMode=$('effortSel').value; doSimulateDay()">
+              ${simBusy ? '处理中...' : '开始比赛'}
+            </button>
           </div>
         </div>
-        <div class="home-phase-controls">
-          <select id="effortSel" class="home-select" onchange="G._effortMode=this.value">
-            <option value="slack" ${effortMode === 'slack' ? 'selected' : ''}>保留体能</option>
-            <option value="normal" ${effortMode === 'normal' ? 'selected' : ''}>标准负荷</option>
-            <option value="hard" ${effortMode === 'hard' ? 'selected' : ''}>全力冲击</option>
-          </select>
-          <button class="btn btn-gold home-phase-btn" ${simBusy ? 'disabled' : ''} onclick="G._effortMode=$('effortSel').value; doSimulateDay()">
-            ${simBusy ? '处理中...' : '开始比赛'}
-          </button>
-        </div>
+        ${renderPregamePlanPicker(game, opp)}
       </div>
     `;
   } else {
@@ -5924,7 +5851,7 @@ function renderPhone() {
             ${sideStat('球星尊重', parseNum(relationView.respectCount, 0))}
           </div>
           ${pendingTradeBanner}
-          <div class="terminal-note">当前账号会把你的采访、主动发声和回复球星全部写入长期舆论。商业合作请去商业中心，模型与 AI 设置请去设置页。</div>
+          <div class="terminal-note">当前账号会把你的采访、主动发声和回复球星全部写入长期舆论。商业合作请去商业中心。</div>
         </aside>
         <section class="terminal-screen">
           <div class="terminal-toolbar">
@@ -6038,13 +5965,6 @@ function renderCommerce() {
 function renderSettings() {
   if (typeof ensureSocialState === 'function') ensureSocialState();
   const pg = $('settingsPage');
-  const llm = G.social?.llm || {};
-  const models = Array.isArray(G.social?.llmModels) ? G.social.llmModels : [];
-  const status = llm.enabled ? '在线' : '关闭';
-  const textModel = String(llm.model || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
-  const imageModel = String(llm.imageModel || '').trim() || '未设置';
-  const baseUrl = String(llm.baseUrl || 'https://api.openai.com/v1').trim();
-  const baseLabel = baseUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '') || '--';
   const statCard = (label, value) => `
     <div class="subpage-stat-card">
       <div class="subpage-stat-label">${label}</div>
@@ -6055,21 +5975,18 @@ function renderSettings() {
       <div class="terminal-stat-label">${label}</div>
       <div class="terminal-stat-value">${value}</div>
     </div>`;
-  const modelListHtml = models.length
-    ? `<div class="t-2 fs-sm mt-8">已读取模型：${models.slice(0, 6).join('、')}${models.length > 6 ? ` 等 ${models.length} 个` : ''}</div>`
-    : '<div class="t-2 fs-sm mt-8">尚未读取模型列表，可点击测试连通性更新。</div>';
   pg.innerHTML = `
     <div class="subpage-shell">
       <section class="subpage-hero">
         <div>
           <div class="subpage-kicker">System Control</div>
           <div class="subpage-title">设置</div>
-          <div class="subpage-copy">模型、AI 推文配图和系统级偏好统一放在这里。商业功能已经全部回到商业中心，存档管理固定在最底部的存档页。</div>
+          <div class="subpage-copy">系统设置与导航。商业功能在商业中心，存档管理固定在最底部的存档页。</div>
         </div>
         <div class="subpage-stat-grid">
-          ${statCard('AI 终端', status)}
-          ${statCard('文字模型', textModel)}
-          ${statCard('图片模型', imageModel)}
+          ${statCard('剧情引擎', '本地')}
+          ${statCard('推文生成', '本地')}
+          ${statCard('图片生成', '本地')}
         </div>
       </section>
       <div class="terminal-shell">
@@ -6077,17 +5994,14 @@ function renderSettings() {
           <div class="terminal-brand">
             <div class="terminal-kicker">Control Deck</div>
             <div class="terminal-title">系统设置</div>
-            <div class="terminal-copy">这里负责模型连接和系统级开关，不再和手机社媒、商业经营混在一起。</div>
+            <div class="terminal-copy">所有内容均由本地引擎生成，无需外部 API。</div>
           </div>
           <div class="terminal-stat-grid">
-            ${sideStat('接口', baseLabel)}
-            ${sideStat('AI 推文配图', G.social?.tweetImagesEnabled ? '已开启' : '已关闭')}
-            ${sideStat('最近错误', G.social?.lastLLMError ? '有记录' : '无')}
             ${sideStat('存档页', '最底部')}
           </div>
           <div class="terminal-note">
             <div class="fw-b mb-8">页面分工</div>
-            <div class="t-2 fs-sm">手机页只保留社媒与消息。</div>
+            <div class="t-2 fs-sm">手机页保留社媒与消息。</div>
             <div class="t-2 fs-sm mt-8">商业中心负责代言、签名鞋、资产和消费。</div>
             <div class="t-2 fs-sm mt-8">存档管理固定放在导航最底部。</div>
           </div>
@@ -6095,20 +6009,16 @@ function renderSettings() {
         <section class="terminal-screen">
           <div class="terminal-toolbar">
             <div>
-              <div class="fw-b">AI 与系统配置</div>
-              <div class="terminal-toolbar-meta">当前修改会直接作用于游戏内剧情、采访判定、推文生成和 AI 配图。</div>
+              <div class="fw-b">系统说明</div>
+              <div class="terminal-toolbar-meta">所有游戏内容由本地引擎生成，无需联网或配置 API。</div>
             </div>
           </div>
           <div class="terminal-content terminal-scroll">
             <div style="display:grid;gap:14px">
-              ${renderPhoneLLMTab()}
               <div class="card" style="margin:0">
-                <div class="card-title">系统说明</div>
-                <div class="t-2 fs-sm">当前文字模型：${textModel}</div>
-                <div class="t-2 fs-sm mt-8">当前图片模型：${imageModel}</div>
-                <div class="t-2 fs-sm mt-8">当前接口：${baseUrl}</div>
-                ${modelListHtml}
-                ${G.social?.lastLLMError ? `<div class="ev neg mt-12" style="margin-bottom:0">最近错误：${G.social.lastLLMError}</div>` : '<div class="ev pos mt-12" style="margin-bottom:0">最近没有记录到模型连接错误。</div>'}
+                <div class="card-title">本地模式</div>
+                <div class="t-2 fs-sm">剧情、战报、推文等均由本地文本池和规则引擎生成。</div>
+                <div class="t-2 fs-sm mt-8">无需 API Key，无需联网，零延迟。</div>
                 <div class="grid g2 mt-16">
                   <button class="btn btn-pri" onclick="navTo('commerce')">前往商业中心</button>
                   <button class="btn btn-s" onclick="navTo('save')">前往存档页</button>
@@ -6121,12 +6031,547 @@ function renderSettings() {
     </div>`;
 }
 
+// ============ AUTO CAREER UI OVERRIDES ============
+function applyAutoCareerNavigation() {
+  const setCopy = (page, title, sub) => {
+    const btn = document.querySelector(`.nav-btn[data-p="${page}"]`);
+    if (!btn) return;
+    const titleEl = btn.querySelector('.nav-btn-title');
+    const subEl = btn.querySelector('.nav-btn-sub');
+    if (titleEl) titleEl.textContent = title;
+    if (subEl) subEl.textContent = sub;
+  };
+  setCopy('home', '周报', '驾驶舱');
+  setCopy('upgrade', '成长', '自动');
+  setCopy('trade', '交易', '只读');
+  setCopy('phone', '社媒', '只读');
+  setCopy('commerce', '商业', '自动');
+  setCopy('awards', '荣誉', '档案');
+  setCopy('history', '百大', '历史');
+  setCopy('settings', '设置', 'LLM');
+}
+
+function renderAutoText(value) {
+  if (Array.isArray(value)) return value.map(renderAutoText).join('');
+  const text = String(value || '').trim();
+  if (!text) return '<div class="t-2 fs-sm">暂无</div>';
+  return `<div class="auto-text-block">${text.replace(/\n+/g, '<br>')}</div>`;
+}
+
+function renderAutoReportCard(entry = null) {
+  const report = entry?.report || null;
+  if (!report) {
+    return `
+      <section class="card home-panel auto-week-report">
+        <div class="card-title home-section-title">LLM 周报</div>
+        <div class="home-empty">还没有周报。配置 LLM 后点击“模拟下一周”。</div>
+      </section>`;
+  }
+  return `
+    <section class="card home-panel auto-week-report">
+      <div class="card-title home-section-title">LLM 周报 · Week ${parseNum(entry.weekIndex, 0)}</div>
+      <div class="auto-report-headline">${report.headline}</div>
+      ${renderAutoText(report.weeklyStory)}
+      <div class="auto-report-grid">
+        <div><div class="fw-b">联盟</div>${renderAutoText(report.leagueNotes)}</div>
+        <div><div class="fw-b">交易</div>${renderAutoText(report.tradeNotes)}</div>
+        <div><div class="fw-b">商业</div>${renderAutoText(report.endorsementNotes)}</div>
+        <div><div class="fw-b">历史排名</div>${renderAutoText(report.rankNarrative)}</div>
+      </div>
+      <div class="auto-player-arc">${renderAutoText(report.playerArc)}</div>
+    </section>`;
+}
+
+function renderAutoWeeklyFacts() {
+  const ranking = typeof updateLiveHistoricalRanking === 'function' ? updateLiveHistoricalRanking() : null;
+  const last = G.autoCareer?.weeklyReports?.[0] || null;
+  const weekGames = last?.facts?.week?.games || [];
+  const decisions = (G.autoCareer?.autoDecisionLog || []).slice(0, 8);
+  const gaps = ranking?.gaps || {};
+  return `
+    <section class="card home-panel auto-week-facts">
+      <div class="card-title home-section-title">本周事实包</div>
+      <div class="auto-rank-strip">
+        <div><span>实时百大</span><b>#${ranking?.userRank || '--'}</b></div>
+        <div><span>Legacy</span><b>${ranking?.liveEntry?.legacyScore || '--'}</b></div>
+        <div><span>距第10</span><b>${gaps.rank10 ?? '--'}</b></div>
+        <div><span>距第100</span><b>${gaps.rank100 ?? '--'}</b></div>
+      </div>
+      ${weekGames.length ? `<div class="auto-list mt-12">${weekGames.map(g => `
+        <div class="auto-list-row">
+          <div><b>${g.win ? '胜' : '负'} ${g.opponent}</b><span>${g.score}</span></div>
+          <div>${g.line.pts}分 ${g.line.reb}板 ${g.line.ast}助 · ${g.line.grade || '--'}</div>
+        </div>`).join('')}</div>` : '<div class="home-empty mt-12">最近一周还没有比赛事实。</div>'}
+      <div class="auto-list mt-12">
+        ${decisions.length ? decisions.map(d => `<div class="auto-list-row"><div><b>${d.type}</b><span>S${d.season} D${d.day}</span></div><div>${d.text}</div></div>`).join('') : '<div class="home-empty">暂无自动决策记录</div>'}
+      </div>
+    </section>`;
+}
+
+function renderRegularSeasonAction() {
+  const container = $('homeActionContainer');
+  if (!container) return;
+  if (typeof ensureAutoCareerState === 'function') ensureAutoCareerState();
+  if (!G.gameDays || G.gameDays.length === 0) generateGameDays();
+  const status = typeof getAutoCareerLLMConfigStatus === 'function'
+    ? getAutoCareerLLMConfigStatus()
+    : { ok: false, model: '', baseURL: '', hasApiKey: false };
+  const ranking = typeof updateLiveHistoricalRanking === 'function' ? updateLiveHistoricalRanking() : null;
+  const nextGameDayNum = typeof getNextGameDay === 'function' ? getNextGameDay() : -1;
+  const daysToGame = nextGameDayNum >= 0 ? Math.max(0, nextGameDayNum - G.dayNum) : 0;
+  const busy = !!G._simulatingWeek;
+  const latestError = G.autoCareer?.lastError?.message || '';
+  container.innerHTML = `
+    <div class="auto-week-dashboard">
+      <div class="auto-week-kicker">AUTO CAREER</div>
+      <div class="auto-week-title">全自动周推进</div>
+      <div class="auto-week-note">
+        Week ${parseNum(G.autoCareer?.weekIndex, 0) + 1} · 第 ${G.dayNum + 1} 天 · ${nextGameDayNum >= 0 ? `距下一场 ${daysToGame} 天` : '等待赛季节点'}<br>
+        LLM：${status.ok ? `${status.model || '已配置'} / ${status.hasApiKey ? 'Key 已保存' : 'Key 缺失'}` : '未配置，不能提交本周'}<br>
+        历史百大实时排名：#${ranking?.userRank || '--'} · Legacy ${ranking?.liveEntry?.legacyScore || '--'}
+      </div>
+      ${latestError ? `<div class="auto-week-error">${latestError}</div>` : ''}
+      <button class="btn btn-gold home-phase-btn auto-week-button" ${busy ? 'disabled' : ''} onclick="doSimulateCareerWeek()">
+        ${busy ? 'LLM 周报生成中...' : '模拟下一周'}
+      </button>
+      <button class="btn btn-pri btn-sm auto-week-settings" onclick="openAutoCareerLLMSettingsModal()">LLM / 历史档案设置</button>
+    </div>`;
+}
+
+async function doSimulateCareerWeek() {
+  if (G._simulatingWeek) return;
+  if (typeof ensureAutoCareerState === 'function') ensureAutoCareerState();
+  renderHome();
+  const result = typeof simulateCareerWeek === 'function'
+    ? await simulateCareerWeek()
+    : { ok: false, message: '自动生涯模拟函数未加载' };
+  updateHeader();
+  if (result.ok) {
+    renderHome();
+    if ($('statsPage')?.classList.contains('active')) renderStats();
+    if ($('matchesPage')?.classList.contains('active')) renderMatchCenter();
+    if ($('commercePage')?.classList.contains('active')) renderCommerce();
+    if ($('tradePage')?.classList.contains('active')) renderTrade();
+    if ($('historyPage')?.classList.contains('active')) renderHistory();
+    return;
+  }
+  renderHome();
+  showModal(`
+    <div class="modal-hd"><h3>本周未提交</h3><button class="modal-x" onclick="hideModal()">×</button></div>
+    <div class="t-2 mb-16">${result.message || 'LLM 调用失败，模拟已回滚。'}</div>
+    <div class="grid g2">
+      <button class="btn btn-gold" onclick="hideModal();doSimulateCareerWeek()">重试本周</button>
+      <button class="btn btn-pri" onclick="hideModal();openAutoCareerLLMSettingsModal()">检查 LLM 设置</button>
+    </div>
+  `);
+}
+
+function renderUpgrade() {
+  if (typeof ensureAutoCareerState === 'function') ensureAutoCareerState();
+  const p = G.player;
+  const ledger = G.autoCareer?.developmentLedger || {};
+  const currentOvr = typeof ovr === 'function' ? ovr(p.attrs || {}) : parseNum(p.rating, 70);
+  const target = typeof getAutoUserAnnualOvrTarget === 'function' ? getAutoUserAnnualOvrTarget() : 0;
+  const badgeBonuses = typeof getBadgeAttrBonuses === 'function' ? getBadgeAttrBonuses(p) : {};
+  const radarValues = ATTRS.map(a => Math.min(parseNum(p.attrs[a.k], 50) + Math.round(parseNum(badgeBonuses[a.k], 0)), 99));
+  const radarSVG = typeof buildRadarSVG === 'function' ? buildRadarSVG(radarValues, ATTRS.map(a => a.n)) : '';
+  $('upgradePage').innerHTML = `
+    <div class="subpage-shell">
+      <section class="subpage-hero">
+        <div>
+          <div class="subpage-kicker">Auto Development</div>
+          <div class="subpage-title">自动成长档案</div>
+          <div class="subpage-copy">手动 XP 加点已关闭。属性会按年龄、潜力、当前 OVR 和赛季阶段自动增长或衰退。</div>
+        </div>
+        <div class="subpage-stat-grid">
+          <div class="subpage-stat-card"><div class="subpage-stat-label">OVR</div><div class="subpage-stat-value">${currentOvr}</div></div>
+          <div class="subpage-stat-card"><div class="subpage-stat-label">POT</div><div class="subpage-stat-value">${parseNum(p.potential, 0)}</div></div>
+          <div class="subpage-stat-card"><div class="subpage-stat-label">年度趋势</div><div class="subpage-stat-value">${target >= 0 ? '+' : ''}${target}</div></div>
+          <div class="subpage-stat-card"><div class="subpage-stat-label">周累计</div><div class="subpage-stat-value">${parseNum(ledger.carry, 0).toFixed(2)}</div></div>
+        </div>
+      </section>
+      ${radarSVG ? `<div class="card" style="text-align:center"><div class="card-title">属性雷达图</div>${radarSVG}</div>` : ''}
+      <div class="card">
+        <div class="card-title">属性明细</div>
+        <div class="auto-attr-grid">
+          ${ATTRS.map(at => {
+            const v = parseNum(p.attrs?.[at.k], 50);
+            const bonus = Math.round(parseNum(badgeBonuses[at.k], 0));
+            return `<div class="auto-attr-row"><span>${at.n}</span><div class="bar"><div class="bar-fill ${barClass(v + bonus)}" style="width:${clamp(v + bonus, 0, 99)}%"></div></div><b>${v}${bonus > 0 ? `(+${bonus})` : ''}</b></div>`;
+          }).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">自动成长日志</div>
+        ${(G.autoCareer?.autoDecisionLog || []).filter(x => x.type === 'development').slice(0, 12).map(x => `<div class="ev neu"><b>S${x.season} D${x.day}</b><div class="t-2 fs-sm mt-8">${x.text}</div></div>`).join('') || '<div class="t-2">暂无成长变动。</div>'}
+      </div>
+    </div>`;
+}
+
+function renderTrade() {
+  if (typeof recalcPlayerTradeValue === 'function') recalcPlayerTradeValue();
+  const tradeLog = (G.aiTradeLog || []).slice(-20).reverse();
+  const decisions = (G.autoCareer?.autoDecisionLog || []).filter(x => x.type === 'trade').slice(0, 12);
+  $('tradePage').innerHTML = `
+    <div class="subpage-shell">
+      <section class="subpage-hero">
+        <div>
+          <div class="subpage-kicker">Trade Desk</div>
+          <div class="subpage-title">交易观察台</div>
+          <div class="subpage-copy">主动交易请求已关闭。管理层询价、AI 交易和你的去留判断会在周模拟中自动完成。</div>
+        </div>
+        <div class="subpage-stat-grid">
+          <div class="subpage-stat-card"><div class="subpage-stat-label">当前球队</div><div class="subpage-stat-value">${G.team?.a || '--'}</div></div>
+          <div class="subpage-stat-card"><div class="subpage-stat-label">交易价值</div><div class="subpage-stat-value">${G.player.tradeValue || '--'}</div></div>
+          <div class="subpage-stat-card"><div class="subpage-stat-label">截止日</div><div class="subpage-stat-value">D${G.tradeDeadline}</div></div>
+        </div>
+      </section>
+      <div class="grid g2">
+        <div class="card">
+          <div class="card-title">自动去留决策</div>
+          ${decisions.length ? decisions.map(d => `<div class="ev neu"><b>S${d.season} D${d.day}</b><div class="t-2 fs-sm mt-8">${d.text}</div></div>`).join('') : '<div class="t-2">暂无涉及玩家的交易决策。</div>'}
+        </div>
+        <div class="card">
+          <div class="card-title">联盟交易流</div>
+          ${tradeLog.length ? tradeLog.map(t => `<div class="ev neu"><b>S${t.season} D${t.day}</b><div class="t-2 fs-sm mt-8">${teamNameFallback(t.fromTeamId)} ↔ ${teamNameFallback(t.toTeamId)} · ${(t.players || []).join(' / ')}</div></div>`).join('') : '<div class="t-2">暂无联盟交易。</div>'}
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderPhone() {
+  if (typeof ensureSocialState === 'function') ensureSocialState();
+  const pg = $('phonePage');
+  const posts = typeof getSocialTimeline === 'function' ? getSocialTimeline(30) : (G.social?.posts || []).slice(0, 30);
+  const inbox = Array.isArray(G.phone) ? G.phone.slice(0, 30) : [];
+  pg.innerHTML = `
+    <div class="subpage-shell">
+      <section class="subpage-hero">
+        <div>
+          <div class="subpage-kicker">Social Readout</div>
+          <div class="subpage-title">社媒与通讯</div>
+          <div class="subpage-copy">主动发声和手动回复已关闭。LLM 周报会根据事实包解释舆论，社媒动态只作为只读记录。</div>
+        </div>
+        <div class="subpage-stat-grid">
+          <div class="subpage-stat-card"><div class="subpage-stat-label">动态</div><div class="subpage-stat-value">${posts.length}</div></div>
+          <div class="subpage-stat-card"><div class="subpage-stat-label">消息</div><div class="subpage-stat-value">${inbox.length}</div></div>
+        </div>
+      </section>
+      <div class="grid g2">
+        <div class="card">
+          <div class="card-title">舆情流</div>
+          ${posts.length ? posts.map(post => `<div class="social-post-card"><div class="social-post-author-line"><b>${post.author || post.persona || '账号'}</b><span class="badge b-pri">只读</span></div><div class="social-post-text mt-12">${post.text || ''}</div></div>`).join('') : '<div class="t-2">暂无社媒动态。</div>'}
+        </div>
+        <div class="card">
+          <div class="card-title">通讯记录</div>
+          ${inbox.length ? inbox.map(msg => `<div class="ev neu"><b>${msg.from || '系统'}</b><div class="t-2 fs-sm mt-8">${msg.text || msg.msg || ''}</div></div>`).join('') : '<div class="t-2">暂无消息。</div>'}
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderCommerce() {
+  if (typeof ensureEconomyState === 'function') ensureEconomyState();
+  const view = typeof buildEndorsementOffersView === 'function' ? buildEndorsementOffersView() : null;
+  const shop = typeof buildEconomyShopView === 'function' ? buildEconomyShopView() : null;
+  const summary = view?.summary || {};
+  const active = view?.activeDeals || [];
+  const decisions = (G.autoCareer?.autoDecisionLog || []).filter(x => x.type === 'endorsement' || x.type === 'signature_shoe').slice(0, 12);
+  $('commercePage').innerHTML = `
+    <div class="subpage-shell">
+      <section class="subpage-hero">
+        <div>
+          <div class="subpage-kicker">Commercial Autopilot</div>
+          <div class="subpage-title">商业动态</div>
+          <div class="subpage-copy">代言签约、签名鞋事件和商业投入由自动周模拟处理。这里保留财务、品牌与流水只读视图。</div>
+        </div>
+        <div class="subpage-stat-grid">
+          <div class="subpage-stat-card"><div class="subpage-stat-label">现金</div><div class="subpage-stat-value">$${phoneFmtM(shop?.cash || 0)}</div></div>
+          <div class="subpage-stat-card"><div class="subpage-stat-label">代言</div><div class="subpage-stat-value">${active.length}/${summary.maxActiveDeals || 8}</div></div>
+          <div class="subpage-stat-card"><div class="subpage-stat-label">市场分</div><div class="subpage-stat-value">${parseNum(summary.marketScore, 0).toFixed(1)}</div></div>
+        </div>
+      </section>
+      <div class="grid g2">
+        <div class="card">
+          <div class="card-title">已签约品牌</div>
+          ${active.length ? active.map(deal => `<div class="ev pos endorse-active-card"><div class="endorse-offer-head">${renderBrandLogoThumb(deal.logo, deal.brand, 'brand-logo-thumb brand-logo-thumb-lg')}<div class="endorse-offer-main"><b>${deal.brand}</b><div class="t-2 fs-xs">${deal.category} · ${deal.product}</div></div><span class="badge b-ok">生效</span></div><div class="t-2 fs-sm mt-8">剩余 ${parseNum(deal.remainingDays, 0)} 天 · 实时收入 $${phoneFmtM(deal.totalIncome)} · 累计 $${phoneFmtM(deal.earned)}</div>${deal.shoe ? `<div class="t-2 fs-sm mt-8">签名鞋：${deal.shoe.name || '已生成'} · L${deal.shoe.level || 1}</div>` : ''}</div>`).join('') : '<div class="t-2">暂无活跃代言。</div>'}
+        </div>
+        <div class="card">
+          <div class="card-title">自动商业记录</div>
+          ${decisions.length ? decisions.map(d => `<div class="ev neu"><b>S${d.season} D${d.day}</b><div class="t-2 fs-sm mt-8">${d.text}</div></div>`).join('') : '<div class="t-2">暂无自动商业动作。</div>'}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">财务流水</div>
+        ${(G.economy?.logs || []).slice(0, 18).map(l => `<div class="t-2 fs-sm mb-8">S${l.season || ''} D${l.day || ''} ${l.text}</div>`).join('') || '<div class="t-2">暂无流水。</div>'}
+      </div>
+    </div>`;
+}
+
+function renderHistory() {
+  if (typeof ensureAutoCareerState === 'function') ensureAutoCareerState();
+  const ranking = typeof getHistoricalRankingView === 'function' ? getHistoricalRankingView() : null;
+  const live = ranking?.liveEntry || {};
+  const gaps = ranking?.gaps || {};
+  const retired = (G.historicalTop100?.retiredUserCareers || []).slice().sort((a, b) => parseNum(a.rank, 999) - parseNum(b.rank, 999));
+  const eraYear = parseNum(ranking?.asOfYear, parseNum(G.startYear, G.year || 2025));
+  const eraEntries = typeof getHistoricalArchiveEntriesForYear === 'function'
+    ? getHistoricalArchiveEntriesForYear(G.historicalTop100, eraYear)
+    : (ranking?.topEntries || []);
+  const archiveEntries = Array.isArray(G.historicalTop100?.entries) ? G.historicalTop100.entries : [];
+  const sourceCoverage = LEAGUE?.historicalDb?.manifest?.sourceCoverage || {};
+  const liveHonors = typeof normalizeUserHonorCounter === 'function' ? normalizeUserHonorCounter(live.honors || null) : (live.honors || {});
+  const honorSummary = live.honorSummary || (typeof buildPlayerHonorsSummary === 'function' ? buildPlayerHonorsSummary(liveHonors) : '暂无荣誉');
+  const honorSeasons = Array.isArray(live.honorSeasons) ? live.honorSeasons : [];
+  const honorBadges = [
+    ['rings', '总冠军'],
+    ['mvp', 'MVP'],
+    ['fmvp', 'FMVP'],
+    ['dpoy', 'DPOY'],
+    ['roy', 'ROY'],
+    ['allStar', '全明星'],
+    ['allStarMvp', '全明星MVP'],
+    ['allNba1', '一阵'],
+    ['allNba2', '二阵'],
+    ['allNba3', '三阵'],
+    ['allDefensive', '一防'],
+    ['scoring', '得分王'],
+    ['rebound', '篮板王'],
+    ['assist', '助攻王'],
+    ['block', '盖帽王'],
+    ['steal', '抢断王'],
+    ['sixthMan', '最佳第六人']
+  ].filter(([key]) => parseNum(liveHonors[key], 0) > 0);
+  const historyHonorRef = entry => {
+    const h = typeof normalizeUserHonorCounter === 'function' ? normalizeUserHonorCounter(entry?.honors || null) : (entry?.honors || {});
+    const labels = [
+      ['rings', '冠'],
+      ['mvp', 'MVP'],
+      ['fmvp', 'FMVP'],
+      ['dpoy', 'DPOY'],
+      ['allNba1', '一阵'],
+      ['allStar', '全明星']
+    ]
+      .filter(([key]) => parseNum(h[key], 0) > 0)
+      .map(([key, label]) => `${label}x${parseNum(h[key], 0)}`);
+    return escapeAutoCareerAttr(labels.length ? labels.join(' / ') : '暂无主要荣誉');
+  };
+  const page = $('historyPage');
+  if (!page) return;
+  page.innerHTML = `
+    <div class="subpage-shell">
+      <section class="subpage-hero">
+        <div>
+          <div class="subpage-kicker">Historical Top 100</div>
+          <div class="subpage-title">历史百大生涯巅峰</div>
+          <div class="subpage-copy">${eraYear} 时代排名只读取当年前已发生的履历；实时 Legacy Score 会随荣誉、累计数据、巅峰三年和商业影响更新，退役后写入历史档案并在二周目保留。</div>
+        </div>
+        <div class="subpage-stat-grid">
+          <div class="subpage-stat-card"><div class="subpage-stat-label">当前排名</div><div class="subpage-stat-value">#${ranking?.userRank || '--'}</div></div>
+          <div class="subpage-stat-card"><div class="subpage-stat-label">Legacy</div><div class="subpage-stat-value">${live.legacyScore || '--'}</div></div>
+          <div class="subpage-stat-card"><div class="subpage-stat-label">Peak</div><div class="subpage-stat-value">${live.peakScore || '--'}</div></div>
+        </div>
+      </section>
+      <div class="card">
+        <div class="card-title">差距</div>
+        <div class="auto-rank-strip">
+          <div><span>第1</span><b>${gaps.rank1 ?? '--'}</b></div>
+          <div><span>第10</span><b>${gaps.rank10 ?? '--'}</b></div>
+          <div><span>第25</span><b>${gaps.rank25 ?? '--'}</b></div>
+          <div><span>第50</span><b>${gaps.rank50 ?? '--'}</b></div>
+          <div><span>第100</span><b>${gaps.rank100 ?? '--'}</b></div>
+        </div>
+      </div>
+      <div class="grid g3">
+        <div class="card">
+          <div class="card-title">时代排名</div>
+          <div class="t-2 fs-sm">开档年 ${eraYear} · ${eraEntries.length || 0} 个席位 · 禁止未来荣誉穿越</div>
+          <div class="mt-12">${eraEntries.slice(0, 3).map(e => `<div class="t-2 fs-sm">#${e.rank} ${e.name} · ${e.legacyScore}</div>`).join('') || '<div class="t-2 fs-sm">历史库未加载</div>'}</div>
+        </div>
+        <div class="card">
+          <div class="card-title">当前档案</div>
+          <div class="t-2 fs-sm">档案版本 ${G.historicalTop100?.version || 1} · 真实数据计算 ${archiveEntries.length || 0} 人 · 退役玩家 ${retired.length}</div>
+          <div class="mt-12 t-2 fs-sm">来源：${sourceCoverage.rosters || '本地历史档案'} / ${sourceCoverage.rookies || '真实新秀库'}</div>
+        </div>
+        <div class="card">
+          <div class="card-title">数据覆盖</div>
+          <div class="t-2 fs-sm">常规赛：${sourceCoverage.regularSeason || '--'}</div>
+          <div class="t-2 fs-sm mt-8">季后赛：${sourceCoverage.playoffs || '--'}</div>
+          <div class="t-2 fs-sm mt-8">交易/薪资缺口会显示为空，不生成假数据。</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">游戏荣誉同步</div>
+        <div class="t-2 fs-sm mb-12">历史档案使用荣誉页同源数据：<span class="fw-b">${honorSummary}</span></div>
+        <div class="mb-16">
+          ${honorBadges.length ? honorBadges.map(([key, label]) => `<span class="badge b-gold">${label} x${parseNum(liveHonors[key], 0)}</span> `).join('') : '<span class="t-2 fs-sm">暂无已归档荣誉</span>'}
+        </div>
+        <div class="auto-list">
+          ${honorSeasons.length ? honorSeasons.slice().reverse().map(s => `
+            <div class="auto-list-row">
+              <div><b>${s.year || '--'} 赛季${s.champion ? ' · 总冠军' : ''}</b><span>${s.teamName || getTeam(s.team)?.z || '--'} · ${s.wins || 0}-${s.losses || 0}</span></div>
+              <div>${(s.awards || []).map(a => `<span class="badge b-gold">${a}</span>`).join(' ')}</div>
+            </div>
+          `).join('') : '<div class="t-2 fs-sm">退役或赛季结算后，MVP、FMVP、最佳阵容、全明星、总冠军等会从游戏荣誉记录写入这里。</div>'}
+        </div>
+      </div>
+      <div class="grid g2">
+        <div class="card">
+          <div class="card-title">时代 Top 100 + 玩家实时排名</div>
+          <div class="tbl"><table><thead><tr><th>#</th><th>球员</th><th>Legacy</th><th>荣誉参考</th><th>来源</th></tr></thead><tbody>
+            ${(ranking?.topEntries || []).slice(0, 100).map(e => `<tr class="${e.id === live.id ? 'self-row' : ''}"><td>${e.rank}</td><td>${escapeAutoCareerAttr(e.name)}</td><td>${e.legacyScore}</td><td>${historyHonorRef(e)}</td><td>${e.source === 'user' ? '玩家' : e.source === 'historical_db' ? '历史库' : e.source === 'roster_aggregate' ? '名单聚合' : '真实数据'}</td></tr>`).join('')}
+          </tbody></table></div>
+        </div>
+        <div class="card">
+          <div class="card-title">退役玩家存档</div>
+          ${retired.length ? retired.map(e => `<div class="ev pos"><div class="flex fb"><b>#${e.rank} ${e.name}</b><span class="badge b-gold">${e.legacyScore}</span></div><div class="t-2 fs-sm mt-8">${e.team || '--'} · ${e.seasons || 0}季 · ${e.retired ? '已退役' : '现役'}</div><div class="t-2 fs-sm mt-8">${e.honorSummary || '暂无荣誉'}</div></div>`).join('') : '<div class="t-2">暂无退役玩家生涯。退役结算后会写入这里。</div>'}
+          <div class="grid g2 mt-16">
+            <button class="btn btn-pri" onclick="exportHistoricalArchiveFromUI()">导出 historical_top100.json</button>
+            <label class="btn btn-cyan main-menu-file">导入历史档案<input type="file" accept=".json" onchange="importHistoricalArchiveFromInput(this)"></label>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function escapeAutoCareerAttr(value = '') {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function renderAutoCareerLLMSettingsForm(prefix = 'autoLlm', opts = {}) {
+  if (typeof ensureAutoCareerState === 'function') ensureAutoCareerState();
+  const cfg = typeof getAutoCareerLLMConfig === 'function' ? getAutoCareerLLMConfig() : {};
+  const status = typeof getAutoCareerLLMConfigStatus === 'function' ? getAutoCareerLLMConfigStatus() : { ok: false, hasApiKey: false, model: '' };
+  const compact = !!opts.compact;
+  const resultId = `${prefix}SettingsResult`;
+  const fields = `
+    <div class="form-group"><label>baseURL</label><input id="${prefix}BaseURL" class="form-control" value="${escapeAutoCareerAttr(cfg.baseURL || '')}" placeholder="https://api.openai.com/v1"></div>
+    <div class="form-group"><label>model</label><input id="${prefix}Model" class="form-control" value="${escapeAutoCareerAttr(cfg.model || '')}" placeholder="gpt-4.1-mini"></div>
+    <div class="form-group"><label>apiKey</label><input id="${prefix}ApiKey" type="password" class="form-control" value="${escapeAutoCareerAttr(cfg.apiKey || '')}" placeholder="sk-..."></div>
+    <div class="grid g2">
+      <div class="form-group"><label>temperature</label><input id="${prefix}Temperature" type="number" step="0.05" min="0" max="2" class="form-control" value="${escapeAutoCareerAttr(cfg.temperature ?? 0.75)}"></div>
+      <div class="form-group"><label>maxTokens</label><input id="${prefix}MaxTokens" type="number" step="100" min="300" max="8000" class="form-control" value="${escapeAutoCareerAttr(cfg.maxTokens ?? 1800)}"></div>
+    </div>
+  `;
+  return `
+    <div class="auto-llm-settings-form ${compact ? 'compact' : ''}" data-llm-prefix="${prefix}">
+      <div class="auto-llm-status-row">
+        <span class="badge ${status.ok ? 'b-ok' : 'b-war'}">${status.ok ? 'Ready' : 'Missing'}</span>
+        <span class="t-2 fs-sm">${status.model || '未设置模型'} · ${status.hasApiKey ? 'Key 已保存' : 'Key 缺失'}</span>
+      </div>
+      ${fields}
+      <button class="btn btn-gold" onclick="saveAutoCareerLLMSettings('${prefix}')">${opts.saveLabel || '保存 LLM 设置'}</button>
+      <div id="${resultId}" class="mt-12"></div>
+    </div>
+  `;
+}
+
+function openAutoCareerLLMSettingsModal() {
+  showModal(`
+    <div class="modal-hd"><h3>LLM 设置</h3><button class="modal-x" onclick="hideModal()">×</button></div>
+    <div class="t-2 mb-16">周报和退役结算必须使用 OpenAI 兼容接口。保存后会立即同步到本地配置。</div>
+    ${renderAutoCareerLLMSettingsForm('modalAutoLlm')}
+    <div class="grid g2 mt-16">
+      <button class="btn btn-pri" onclick="hideModal();navTo('settings')">打开完整设置页</button>
+      <button class="btn btn-s" onclick="hideModal()">关闭</button>
+    </div>
+  `);
+}
+
+function renderSettings() {
+  if (typeof ensureAutoCareerState === 'function') ensureAutoCareerState();
+  const status = typeof getAutoCareerLLMConfigStatus === 'function' ? getAutoCareerLLMConfigStatus() : { ok: false };
+  $('settingsPage').innerHTML = `
+    <div class="subpage-shell">
+      <section class="subpage-hero">
+        <div>
+          <div class="subpage-kicker">LLM Control</div>
+          <div class="subpage-title">自动生涯设置</div>
+          <div class="subpage-copy">周报与退役结算只使用 OpenAI 兼容接口。配置缺失或 JSON 失败时，本周模拟会回滚并允许重试。</div>
+        </div>
+        <div class="subpage-stat-grid">
+          <div class="subpage-stat-card"><div class="subpage-stat-label">LLM</div><div class="subpage-stat-value">${status.ok ? 'Ready' : 'Missing'}</div></div>
+          <div class="subpage-stat-card"><div class="subpage-stat-label">历史档案</div><div class="subpage-stat-value">${G.historicalTop100?.entries?.length || 0}</div></div>
+        </div>
+      </section>
+      <div class="grid g2">
+        <div class="card">
+          <div class="card-title">OpenAI 兼容接口</div>
+          ${renderAutoCareerLLMSettingsForm('autoLlm')}
+        </div>
+        <div class="card">
+          <div class="card-title">historical_top100.json</div>
+          <div class="t-2 fs-sm">当前档案版本 ${G.historicalTop100?.version || 1}，记录 ${G.historicalTop100?.entries?.length || 0} 个 Top100 席位，退役玩家 ${G.historicalTop100?.retiredUserCareers?.length || 0} 个。</div>
+          <div class="grid g2 mt-16">
+            <button class="btn btn-pri" onclick="exportHistoricalArchiveFromUI()">导出历史百大</button>
+            <label class="btn btn-cyan main-menu-file">导入历史百大<input type="file" accept=".json" onchange="importHistoricalArchiveFromInput(this)"></label>
+          </div>
+          <button class="btn btn-s mt-16" onclick="navTo('history')">查看历史百大页面</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function saveAutoCareerLLMSettings(prefix = 'autoLlm') {
+  const cfg = {
+    baseURL: $(`${prefix}BaseURL`)?.value || '',
+    model: $(`${prefix}Model`)?.value || '',
+    apiKey: $(`${prefix}ApiKey`)?.value || '',
+    temperature: $(`${prefix}Temperature`)?.value || 0.75,
+    maxTokens: $(`${prefix}MaxTokens`)?.value || 1800
+  };
+  if (typeof saveAutoCareerLLMConfig === 'function') saveAutoCareerLLMConfig(cfg, true);
+  const box = $(`${prefix}SettingsResult`);
+  if (box) box.innerHTML = '<div class="ev pos">LLM 设置已保存。下一周模拟将使用真实接口；测试环境可注入 window.__autoCareerLLMMock。</div>';
+  if ($('homePage')?.classList.contains('active')) renderRegularSeasonAction();
+}
+
+function exportHistoricalArchiveFromUI() {
+  try {
+    const json = typeof serializeHistoricalArchive === 'function' ? serializeHistoricalArchive() : JSON.stringify(G.historicalTop100 || {}, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'historical_top100.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('导出失败: ' + (e?.message || e));
+  }
+}
+
+function importHistoricalArchiveFromInput(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (typeof loadHistoricalArchiveObject === 'function') loadHistoricalArchiveObject(data);
+      alert('历史百大档案已导入');
+      if ($('historyPage')?.classList.contains('active')) renderHistory();
+      if ($('settingsPage')?.classList.contains('active')) renderSettings();
+    } catch (err) {
+      alert('导入失败: ' + (err?.message || err));
+    }
+  };
+  reader.readAsText(file);
+  input.value = '';
+}
+
 // ============ SAVE PAGE ============
 function buildSaveObj() {
   const saveObj = { ...G };
-  // 保留 API Key 到 localStorage，不写入存档文件
+  // 清理旧版远程文本配置，不写入存档文件。
   if (saveObj.social?.llm) {
-    saveObj.social = { ...saveObj.social, llm: { ...saveObj.social.llm, apiKey: '' } };
+    delete saveObj.social.llm;
   }
   if (saveObj.results && saveObj.results.length > 50) saveObj.results = saveObj.results.slice(-50);
   delete saveObj.tradeOffers;
@@ -6134,12 +6579,13 @@ function buildSaveObj() {
   delete saveObj.pendingUserTrade;
   // 清理临时状态
   delete saveObj._simulatingDay;
+  delete saveObj._simulatingWeek;
+  delete saveObj._retiring;
   delete saveObj._latestDayResult;
   delete saveObj._latestGameRecap;
   delete saveObj._gameRecapMap;
   delete saveObj._gameEvent;
   delete saveObj._effortMode;
-  delete saveObj._mainMenuLLMResult;
   delete saveObj._phoneComposeResult;
   delete saveObj._phoneShopResult;
   delete saveObj._phoneEndorseResult;
@@ -6241,7 +6687,15 @@ function renderSave() {
   }
 }
 
-function applySaveData(data) {
+async function applySaveData(data) {
+  let leagueReference = null;
+  if (data?._leagueTeams && typeof buildLeagueReferenceState === 'function') {
+    try {
+      leagueReference = await buildLeagueReferenceState(parseNum(data.startYear, data.year || G.year || 2025));
+    } catch (e) {
+      console.warn('build league reference failed', e);
+    }
+  }
   // ---- 恢复联盟数据（队友、名单、教练等） ----
   if (data._leagueTeams && typeof data._leagueTeams === 'object') {
     LEAGUE.teams = {};
@@ -6268,6 +6722,13 @@ function applySaveData(data) {
   delete G._leagueTeams;
   delete G._leagueCoaches;
   delete G._leagueRookiesBySeason;
+
+  if (leagueReference && typeof repairLeagueTeamsFromReference === 'function') {
+    const repaired = repairLeagueTeamsFromReference(leagueReference);
+    if (repaired?.repairedTeams?.length) {
+      console.info('league team mapping repaired from reference', repaired);
+    }
+  }
 
   // 重新计算所有球队强度（修复旧存档未包含玩家的问题）
   if (LEAGUE.loaded && LEAGUE.teams) {
@@ -6306,9 +6767,12 @@ function applySaveData(data) {
   if (typeof migrateLegacyCommercialSocialState === 'function') migrateLegacyCommercialSocialState();
   if (typeof ensureCoachRelationshipState === 'function') ensureCoachRelationshipState();
   if (typeof ensureCoachDynamicsState === 'function') ensureCoachDynamicsState();
+  if (typeof ensureGameplayState === 'function') ensureGameplayState();
+  if (typeof ensureAutoCareerState === 'function') ensureAutoCareerState();
   if (typeof ensureLeagueBadges === 'function') ensureLeagueBadges();
   if (typeof enforceLeagueRosterCap === 'function') enforceLeagueRosterCap(15);
   ensureLeagueStateShape();
+  if (typeof repairLeagueGameDetailsBoxScores === 'function') repairLeagueGameDetailsBoxScores();
   if (!G.leagueSeason.round && !Object.keys(G.leagueSeason.teamRecords || {}).length) {
     initLeagueSeasonState();
   }
@@ -6339,12 +6803,12 @@ function saveGame(slot) {
   }
 }
 
-function loadGame(slot) {
+async function loadGame(slot) {
   const d = localStorage.getItem('nba_save_slot_' + slot);
   if (!d) { alert(`存档 ${slot} 为空！`); return; }
   try {
     const data = JSON.parse(d);
-    applySaveData(data);
+    await applySaveData(data);
     alert(`存档 ${slot} 读取成功！`);
   } catch (e) {
     console.error('Load failed', e);
@@ -6400,6 +6864,7 @@ function setMainNavigationVisible(visible) {
   const shell = document.querySelector('.shell-main');
   if (nav) nav.style.display = visible ? 'flex' : 'none';
   if (shell) shell.classList.toggle('shell-main-nav-hidden', !visible);
+  if (visible && typeof applyAutoCareerNavigation === 'function') applyAutoCareerNavigation();
 }
 
 // Post-render VFX hooks — called after each page render
@@ -6444,7 +6909,7 @@ function _vfxPostRender(page, pg) {
 }
 
 function navTo(page) {
-  if (G._simulatingDay) return;
+  if (G._simulatingDay || G._simulatingWeek) return;
   setMainNavigationVisible(true);
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -6455,7 +6920,7 @@ function navTo(page) {
   const renderers = {
     home: renderHome, stats: renderStats,
     matches: renderMatchCenter, roster: renderRoster, upgrade: renderUpgrade, trade: renderTrade, awards: renderAwards,
-    phone: renderPhone, commerce: renderCommerce, settings: renderSettings, save: renderSave
+    history: renderHistory, phone: renderPhone, commerce: renderCommerce, settings: renderSettings, save: renderSave
   };
   if (renderers[page]) renderers[page]();
   // Post-render VFX hooks
@@ -6477,126 +6942,9 @@ function startNewGame() {
   $('createPage').classList.add('active');
 }
 
-const MAIN_MENU_LLM_DRAFT_KEY = 'nba_mainmenu_llm_draft';
-function readMainMenuLLMDraft() {
-  try {
-    const raw = localStorage.getItem(MAIN_MENU_LLM_DRAFT_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (!data || typeof data !== 'object') return null;
-    return {
-      enabled: typeof data.enabled === 'boolean' ? data.enabled : undefined,
-      baseUrl: typeof data.baseUrl === 'string' ? data.baseUrl : undefined,
-      model: typeof data.model === 'string' ? data.model : undefined,
-      imageModel: typeof data.imageModel === 'string' ? data.imageModel : undefined,
-      apiKey: typeof data.apiKey === 'string' ? data.apiKey : undefined,
-      tweetImagesEnabled: typeof data.tweetImagesEnabled === 'boolean' ? data.tweetImagesEnabled : undefined,
-      presets: data.presets && typeof data.presets === 'object' ? data.presets : undefined
-    };
-  } catch (e) {
-    return null;
-  }
-}
-function writeMainMenuLLMDraft({ enabled, baseUrl, model, imageModel, apiKey, tweetImagesEnabled, presets } = {}) {
-  try {
-    const payload = {
-      enabled: typeof enabled === 'boolean' ? enabled : false,
-      baseUrl: String(baseUrl || '').trim(),
-      model: String(model || '').trim(),
-      imageModel: String(imageModel || '').trim(),
-      tweetImagesEnabled: typeof tweetImagesEnabled === 'boolean' ? tweetImagesEnabled : false,
-      apiKey: String(apiKey || '').trim()
-    };
-    if (presets !== undefined) {
-      payload.presets = typeof normalizeLLMPresetConfig === 'function'
-        ? normalizeLLMPresetConfig(presets)
-        : presets;
-    }
-    localStorage.setItem(MAIN_MENU_LLM_DRAFT_KEY, JSON.stringify(payload));
-  } catch (e) { }
-}
-function collectMainMenuLLMPresetValues() {
-  const presets = {
-    enabled: $('menuLlmPresetEnabled')?.checked !== false,
-    antiTalk: $('menuLlmPresetAntiTalk')?.checked !== false,
-    strictTurnTaking: $('menuLlmPresetStrictTurnTaking')?.checked === true,
-    styleEnabled: $('menuLlmPresetStyleEnabled')?.checked !== false,
-    style: $('menuLlmPresetStyle')?.value || '白描',
-    antiOmniscience: $('menuLlmPresetAntiOmniscience')?.checked !== false,
-    antiVariable: $('menuLlmPresetAntiVariable')?.checked !== false,
-    emotionControl: $('menuLlmPresetEmotionControl')?.checked !== false,
-    roleHope: $('menuLlmPresetRoleHope')?.checked !== false,
-    gameInteraction: $('menuLlmPresetGameInteraction')?.checked !== false,
-    dataFirst: $('menuLlmPresetDataFirst')?.checked !== false
-  };
-  return typeof normalizeLLMPresetConfig === 'function'
-    ? normalizeLLMPresetConfig(presets)
-    : presets;
-}
-function collectMainMenuLLMFormValues() {
-  const enabled = parseNum($('menuLlmEnabled')?.value, 0) === 1;
-  const baseUrl = $('menuLlmBase')?.value || 'https://api.openai.com/v1';
-  const model = $('menuLlmModel')?.value || 'gpt-4.1-mini';
-  const imageModel = $('menuLlmImageModel')?.value || '';
-  const apiKey = $('menuLlmKey')?.value || '';
-  const tweetImagesEnabled = $('menuTweetImagesEnabled')?.checked === true;
-  const presets = collectMainMenuLLMPresetValues();
-  return { enabled, baseUrl, model, imageModel, apiKey, tweetImagesEnabled, presets };
-}
-function persistMainMenuLLMDraft() {
-  writeMainMenuLLMDraft(collectMainMenuLLMFormValues());
-}
-
 function renderMainMenu() {
   if (typeof ensureSocialState === 'function') ensureSocialState();
-  const llm = G.social?.llm || {
-    enabled: false,
-    baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4.1-mini',
-    imageModel: '',
-    apiKey: '',
-    presets: {
-      enabled: true,
-      antiTalk: true,
-      strictTurnTaking: false,
-      styleEnabled: true,
-      style: '白描',
-      antiOmniscience: true,
-      antiVariable: true,
-      emotionControl: true,
-      roleHope: true,
-      gameInteraction: true,
-      dataFirst: true
-    }
-  };
-  const draft = readMainMenuLLMDraft();
-  const presetView = typeof normalizeLLMPresetConfig === 'function'
-    ? normalizeLLMPresetConfig(draft?.presets || llm.presets || {})
-    : {
-      enabled: true,
-      antiTalk: true,
-      strictTurnTaking: false,
-      styleEnabled: true,
-      style: '白描',
-      antiOmniscience: true,
-      antiVariable: true,
-      emotionControl: true,
-      roleHope: true,
-      gameInteraction: true,
-      dataFirst: true
-    };
-  const presetStyleOptions = ['白描', 'TG推荐文风', 'TG推荐文风2', '纯爱文风', '轻小说文风', '热血', '数据流', '纪实', '吐槽'];
-  const llmView = {
-    enabled: typeof draft?.enabled === 'boolean' ? draft.enabled : !!llm.enabled,
-    baseUrl: draft?.baseUrl || llm.baseUrl || 'https://api.openai.com/v1',
-    model: draft?.model || llm.model || 'gpt-4.1-mini',
-    imageModel: draft?.imageModel || llm.imageModel || '',
-    apiKey: draft?.apiKey || llm.apiKey || '',
-    tweetImagesEnabled: typeof draft?.tweetImagesEnabled === 'boolean' ? draft.tweetImagesEnabled : !!G.social?.tweetImagesEnabled,
-    presets: presetView
-  };
-  const modelOptions = Array.isArray(G.social?.llmModels) ? G.social.llmModels : [];
-  const llmResult = G._mainMenuLLMResult ? `<div class="nba-llm-result ${G._mainMenuLLMResult.ok ? 'success' : 'error'}">${G._mainMenuLLMResult.message}</div>` : '';
+  if (typeof ensureAutoCareerState === 'function') ensureAutoCareerState();
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   setMainNavigationVisible(false);
   $('mainMenuPage').classList.add('active');
@@ -6694,81 +7042,20 @@ function renderMainMenu() {
       <!-- 右侧配置区 -->
       <div class="nba-config-section">
         <div class="nba-config-header">
-          <div class="nba-config-title">⚙️ AI 配置</div>
-          <div class="nba-config-status ${llmView.enabled ? 'active' : ''}">${llmView.enabled ? '● 已启用' : '○ 未启用'}</div>
+          <div class="nba-config-title">LLM 设置</div>
         </div>
-
         <div class="nba-config-body">
-          <div class="nba-config-row">
-            <label>AI 模型</label>
-            <select id="menuLlmEnabled" class="nba-select" onchange="persistMainMenuLLMDraft()">
-              <option value="1" ${llmView.enabled ? 'selected' : ''}>启用</option>
-              <option value="0" ${!llmView.enabled ? 'selected' : ''}>关闭</option>
-            </select>
+          <div class="nba-config-card">
+            <div class="nba-config-card-title">OpenAI 兼容接口</div>
+            <div class="nba-config-copy">选秀后的周报和退役结算必须使用真实 LLM。这里保存后，开档进入生涯会自动带入。</div>
+            ${renderAutoCareerLLMSettingsForm('mainMenuAutoLlm', { compact: true, saveLabel: '保存 LLM' })}
           </div>
-
-          <div class="nba-config-row">
-            <label>Model</label>
-            <input id="menuLlmModel" class="nba-input" list="menuLlmModelList" value="${llmView.model || 'gpt-4.1-mini'}" oninput="persistMainMenuLLMDraft()" />
-            <datalist id="menuLlmModelList">${modelOptions.map(m => `<option value="${m}"></option>`).join('')}</datalist>
+          <div class="nba-config-card">
+            <div class="nba-config-card-title">历史档案</div>
+            <div class="nba-config-copy">历史百大与退役玩家档案会在生涯内的“百大/设置”页面导入导出。</div>
           </div>
-
-          <div class="nba-config-row">
-            <label>Base URL</label>
-            <input id="menuLlmBase" class="nba-input" value="${llmView.baseUrl || 'https://api.openai.com/v1'}" oninput="persistMainMenuLLMDraft()" />
-          </div>
-
-          <div class="nba-config-row">
-            <label>图片模型</label>
-            <input id="menuLlmImageModel" class="nba-input" value="${llmView.imageModel || ''}" placeholder="可选" oninput="persistMainMenuLLMDraft()" />
-          </div>
-
-          <div class="nba-config-row">
-            <label>API Key</label>
-            <input id="menuLlmKey" class="nba-input" type="password" value="${llmView.apiKey || ''}" placeholder="sk-..." oninput="persistMainMenuLLMDraft()" />
-          </div>
-
-          <label class="nba-checkbox-row">
-            <input type="checkbox" id="menuTweetImagesEnabled" ${llmView.tweetImagesEnabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-            <span class="nba-checkbox-label">AI 推文配图</span>
-          </label>
-
-          <div class="nba-config-actions">
-            <button class="nba-btn secondary" onclick="doMainMenuSaveLLMSettings()">保存设置</button>
-            <button class="nba-btn outline" onclick="doMainMenuTestLLMConnectivity()">测试连接</button>
-          </div>
-
-          ${llmResult}
-
-          <details class="nba-advanced">
-            <summary>TGbreak 预设</summary>
-            <div class="nba-advanced-body">
-              <label class="nba-checkbox-row">
-                <input type="checkbox" id="menuLlmPresetEnabled" ${presetView.enabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()">
-                <span>启用预设</span>
-              </label>
-              <div class="nba-preset-grid">
-                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetAntiTalk" ${presetView.antiTalk ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>防抢话</span></label>
-                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetStrictTurnTaking" ${presetView.strictTurnTaking ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>超级防抢话</span></label>
-                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetStyleEnabled" ${presetView.styleEnabled ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>启用文风</span></label>
-                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetGameInteraction" ${presetView.gameInteraction ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>比赛互动</span></label>
-                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetDataFirst" ${presetView.dataFirst ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>数据优先</span></label>
-                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetAntiOmniscience" ${presetView.antiOmniscience ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>防全知</span></label>
-                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetAntiVariable" ${presetView.antiVariable ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>防变量出错</span></label>
-                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetEmotionControl" ${presetView.emotionControl ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>防极端情绪</span></label>
-                <label class="nba-checkbox-row mini"><input type="checkbox" id="menuLlmPresetRoleHope" ${presetView.roleHope ? 'checked' : ''} onchange="persistMainMenuLLMDraft()"><span>角色防绝望</span></label>
-              </div>
-              <div class="nba-config-row mt-8">
-                <label>文风</label>
-                <select id="menuLlmPresetStyle" class="nba-select" onchange="persistMainMenuLLMDraft()">
-                  ${presetStyleOptions.map(style => `<option value="${style}" ${presetView.style === style ? 'selected' : ''}>${style}</option>`).join('')}
-                </select>
-              </div>
-            </div>
-          </details>
+          <div class="nba-version">v1.3.0 · Auto Career</div>
         </div>
-
-        <div class="nba-version">v1.3.0 · Local Save</div>
       </div>
     </div>
   `;
@@ -7143,159 +7430,62 @@ function renderMainMenu() {
         color: #aaa;
       }
 
-      .nba-config-status {
-        font-size: 11px;
-        padding: 4px 10px;
-        border-radius: 20px;
-        background: rgba(255,255,255,0.05);
-        color: #666;
-      }
-
-      .nba-config-status.active {
-        background: rgba(34,197,94,0.2);
-        color: #22c55e;
-      }
-
       .nba-config-body {
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: 14px;
       }
 
-      .nba-config-row {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
+      .nba-config-card {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 8px;
+        padding: 14px;
       }
 
-      .nba-config-row label {
-        font-size: 11px;
-        font-weight: 500;
-        color: #666;
-        text-transform: uppercase;
+      .nba-config-card-title {
+        font-size: 14px;
+        font-weight: 800;
         letter-spacing: 1px;
+        color: #fbbf27;
+        margin-bottom: 8px;
       }
 
-      .nba-input, .nba-select {
-        width: 100%;
-        padding: 10px 14px;
-        background: rgba(255,255,255,0.05);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 6px;
-        color: #fff;
-        font-size: 13px;
-        transition: all 0.2s ease;
+      .nba-config-copy {
+        font-size: 12px;
+        line-height: 1.55;
+        color: #a8adbd;
+        margin-bottom: 12px;
       }
 
-      .nba-input:focus, .nba-select:focus {
-        outline: none;
-        border-color: rgba(251,191,39,0.5);
-        background: rgba(255,255,255,0.08);
-      }
-
-      .nba-input::placeholder {
-        color: #444;
-      }
-
-      .nba-checkbox-row {
+      .auto-llm-status-row {
         display: flex;
         align-items: center;
-        gap: 10px;
-        cursor: pointer;
+        gap: 8px;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+      }
+
+      .auto-llm-settings-form.compact .form-group {
+        margin-bottom: 10px;
+      }
+
+      .auto-llm-settings-form.compact .form-control {
+        padding: 9px 10px;
+        border-radius: 8px;
         font-size: 13px;
-        color: #aaa;
       }
 
-      .nba-checkbox-row.mini {
-        font-size: 11px;
-        color: #888;
+      .auto-llm-settings-form.compact .grid.g2 {
+        gap: 8px;
       }
 
-      .nba-checkbox-row input[type="checkbox"] {
-        width: 16px;
-        height: 16px;
-        accent-color: #fbbf27;
-      }
-
-      .nba-config-actions {
-        display: flex;
-        gap: 12px;
-      }
-
-      .nba-btn {
-        flex: 1;
-        padding: 12px 20px;
-        font-size: 13px;
-        font-weight: 600;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-
-      .nba-btn.secondary {
-        background: #fbbf27;
-        color: #000;
-      }
-
-      .nba-btn.outline {
-        background: transparent;
-        border: 1px solid rgba(255,255,255,0.2);
-        color: #888;
+      .auto-llm-settings-form.compact .btn {
+        width: 100%;
       }
 
       .nba-btn:hover {
         transform: translateY(-1px);
-      }
-
-      .nba-llm-result {
-        padding: 12px;
-        border-radius: 6px;
-        font-size: 12px;
-        text-align: center;
-      }
-
-      .nba-llm-result.success {
-        background: rgba(34,197,94,0.1);
-        color: #22c55e;
-        border: 1px solid rgba(34,197,94,0.2);
-      }
-
-      .nba-llm-result.error {
-        background: rgba(239,68,68,0.1);
-        color: #ef4444;
-        border: 1px solid rgba(239,68,68,0.2);
-      }
-
-      .nba-advanced {
-        border: 1px solid rgba(255,255,255,0.05);
-        border-radius: 8px;
-        overflow: hidden;
-      }
-
-      .nba-advanced summary {
-        padding: 12px 16px;
-        font-size: 12px;
-        color: #666;
-        cursor: pointer;
-        background: rgba(255,255,255,0.02);
-      }
-
-      .nba-advanced summary:hover {
-        background: rgba(255,255,255,0.05);
-      }
-
-      .nba-advanced-body {
-        padding: 16px;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
-
-      .nba-preset-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
       }
 
       .nba-version {
@@ -7331,25 +7521,6 @@ function renderMainMenu() {
 
   $('mainMenuPage').innerHTML = menuHtml;
 }
-function doMainMenuSaveLLMSettings() {
-  if (typeof saveSocialLLMSettings !== 'function') return;
-  const values = collectMainMenuLLMFormValues();
-  writeMainMenuLLMDraft(values);
-  saveSocialLLMSettings(values);
-  G._mainMenuLLMResult = { ok: true, message: '主页模型设置已保存' };
-  renderMainMenu();
-}
-async function doMainMenuTestLLMConnectivity() {
-  if (typeof saveSocialLLMSettings !== 'function' || typeof testSocialLLMConnectivity !== 'function') return;
-  const values = collectMainMenuLLMFormValues();
-  writeMainMenuLLMDraft(values);
-  saveSocialLLMSettings(values);
-  const res = await testSocialLLMConnectivity();
-  const suffix = res.ok ? (Array.isArray(res.models) && res.models.length ? `，已加载 ${res.models.length} 个模型` : '') : '';
-  G._mainMenuLLMResult = { ok: !!res.ok, message: `${res.message || (res.ok ? '连接成功' : '连接失败')}${suffix}` };
-  renderMainMenu();
-}
-
 async function exportSave() {
   try {
     const saveObj = buildSaveObj();
@@ -7377,11 +7548,11 @@ function importSave(input) {
   const file = input.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = function (e) {
+  reader.onload = async function (e) {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.player || !data.year) throw new Error("无效的存档文件");
-      applySaveData(data);
+      await applySaveData(data);
       alert('存档导入成功！');
     } catch (err) {
       console.error(err);
@@ -7395,7 +7566,6 @@ function importSave(input) {
 // Start the game
 async function bootstrap() {
   await loadLeagueData({ startYear: G.startYear });
-  if (typeof loadTGBreakPromptSource === 'function') await loadTGBreakPromptSource();
   renderMainMenu();
 }
 bootstrap();
@@ -7520,124 +7690,99 @@ function showEventOutcomeModal(evtData) {
     };
   });
 }
-// ============ RETIREMENT (LLM POWERED) ============
+// ============ RETIREMENT ============
 async function forceRetire() {
-  $('gamePage').innerHTML = `<div class="card tc"><div class="card-title">光荣退役中...</div><div class="t-2 mt-12">正在由大模型生成生涯四极管评价，请稍候...</div></div>`;
-  switchPage('home');
-
-  ensureSocialState();
-  const llm = G.social.llm || {};
-  
-  let llmSummary = null;
-  if (llm.enabled && llm.apiKey) {
-    const baseUrl = normalizeLLMBaseUrl(llm.baseUrl);
-    const model = String(llm.model || 'gpt-4.1-mini');
-    
-    let honorsText = (G.awards || []).join('、');
-    if (!honorsText) honorsText = "无";
-    
-    const sysPrompt = `你是一个体育媒体的 AI 故事引擎。玩家即将退役，请根据玩家的生涯数据、荣誉、拥有的奢侈品属性等，生成一份"退役总结报告"。
-要求必须返回合法的 JSON 格式。包含四个视角的锐评以及总分：
-{
-  "media": "媒体视角的评价(客观带点夸张)...",
-  "players": "球员视角的评价(敬佩或敌意)...",
-  "fans": "粉丝视角的评价(狂热回忆)...",
-  "critics": "毒舌球评人的评价(挑剔但承认伟大)...",
-  "message": "最后的总评语...",
-  "score": 98 // 生涯总分 0-100
-}`;
-
-    let luxury = "无";
-    if (typeof getLuxuryItemsNames === 'function') luxury = getLuxuryItemsNames();
-
-    const promptContext = `玩家姓名: ${G.player.name}
-生涯赛季数: ${G.careerStats.length}
-累计荣誉: ${honorsText}
-奢侈品资产: ${luxury}
-
-请给出这名 ${G.player.age} 岁球员的退役定论。`;
-
-    let raw = "";
-    try {
-      if (isGoogleGeminiEndpoint(baseUrl)) {
-        const modelName = normalizeModelNameForGemini(model);
-        const endpoint = `${baseUrl}/models/${encodeURIComponent(modelName)}:generateContent`;
-        const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint, { jsonBody: true });
-        const payload = {
-          systemInstruction: { parts: [{ text: sysPrompt }] },
-          contents: [{ role: 'user', parts: [{ text: promptContext }] }],
-          generationConfig: { temperature: 0.7, responseMimeType: 'application/json' }
-        };
-        const res = await (typeof fetchWithTimeout === 'function' ? fetchWithTimeout : fetch)(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
-        const data = await readJSONResponseSafe(res, '退役生成');
-        raw = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text).join('') || '';
-      } else {
-        const payload = {
-          model,
-          temperature: 0.7,
-          messages: [
-            { role: 'system', content: sysPrompt },
-            { role: 'user', content: promptContext }
-          ]
-        };
-        const endpoint = `${baseUrl}/chat/completions`;
-        const req = buildLLMRequestConfig(baseUrl, llm.apiKey, endpoint);
-        const res = await (typeof fetchWithTimeout === 'function' ? fetchWithTimeout : fetch)(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(payload) }, 45000);
-        const data = await readJSONResponseSafe(res, '退役生成');
-        raw = data?.choices?.[0]?.message?.content || '';
-      }
-      
-      const parsed = tryParseJSONText(raw.replace(/^\\s*\`\`\`json/i, '').replace(/^\\s*\`\`\`/i, '').replace(/\`\`\`\\s*$/, '').trim());
-      if (parsed) llmSummary = parsed;
-    } catch(e) { console.error('Retire LLM error:', e); }
+  if (G._retiring) return;
+  if (typeof ensureAutoCareerState === 'function') ensureAutoCareerState();
+  if (typeof hasAutoCareerLLMConfig === 'function' && !hasAutoCareerLLMConfig()) {
+    showModal(`
+      <div class="modal-hd"><h3>无法退役结算</h3><button class="modal-x" onclick="hideModal()">×</button></div>
+      <div class="t-2 mb-16">退役评价和最终历史排名必须由真实 LLM JSON 生成。请先在设置中填写 LLM 配置。</div>
+      <button class="btn btn-gold" onclick="hideModal();openAutoCareerLLMSettingsModal()">前往设置</button>
+    `);
+    return;
   }
-
-  // Fallback summary if LLM failed
-  if (!llmSummary) {
-    llmSummary = {
-      media: "他是一个数据刷子，还是真正的赢家？历史会给出答案。",
-      players: "和他对位很难受，但退役后我会想念他的。",
-      fans: "永远的传奇！我会一直穿着他的球衣。",
-      critics: "不够完美，但在他的时代，他留下了属于自己的印记。",
-      message: "传奇落幕，江湖再见。",
-      score: 85
-    };
+  G._retiring = true;
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  $('gamePage').classList.add('active');
+  $('gamePage').innerHTML = `<div class="card tc"><div class="card-title">退役结算中</div><div class="t-2 mt-12">正在等待 LLM 生成媒体、球员、球迷、杂志和历史委员会评价...</div></div>`;
+  try {
+    const summary = typeof generateAutoRetirementSummaryByLLM === 'function'
+      ? await generateAutoRetirementSummaryByLLM()
+      : null;
+    if (!summary) throw new Error('退役 LLM 结算函数未加载');
+    const ranking = typeof finalizeUserHistoricalCareer === 'function'
+      ? finalizeUserHistoricalCareer(summary)
+      : null;
+    summary.ranking = ranking || summary.ranking || null;
+    G.phase = 'retired';
+    renderRetirement(summary);
+  } catch (e) {
+    $('homePage').classList.add('active');
+    $('gamePage').classList.remove('active');
+    showModal(`
+      <div class="modal-hd"><h3>退役未提交</h3><button class="modal-x" onclick="hideModal()">×</button></div>
+      <div class="t-2 mb-16">${e?.message || e}</div>
+      <div class="grid g2">
+        <button class="btn btn-gold" onclick="hideModal();forceRetire()">重试退役结算</button>
+        <button class="btn btn-pri" onclick="hideModal();openAutoCareerLLMSettingsModal()">检查 LLM 设置</button>
+      </div>
+    `);
+  } finally {
+    G._retiring = false;
   }
-  
-  renderRetirement(llmSummary);
 }
 
 function renderRetirement(summary) {
+  const ranking = summary?.ranking || {};
+  const rankText = ranking.userRank || summary?.ranking?.rank || '--';
+  const scoreText = summary?.score || ranking.liveEntry?.legacyScore || '--';
   $('gamePage').innerHTML = `
   <div class="card tc">
-    <div class="card-title fc fc-center" style="color:var(--gold);font-size:24px;">🐐 生涯落幕 - 退役仪式</div>
+    <div class="card-title fc fc-center" style="color:var(--gold);font-size:24px;">生涯落幕 - 退役仪式</div>
     <div class="fs-lg fw-b mt-12">${G.player.name} 正式宣布退役</div>
-    
+    <div class="auto-rank-strip mt-16">
+      <div><span>最终历史排名</span><b>#${rankText}</b></div>
+      <div><span>Legacy Score</span><b>${scoreText}</b></div>
+      <div><span>巅峰分</span><b>${ranking.liveEntry?.peakScore || '--'}</b></div>
+    </div>
+
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0;text-align:left;">
       <div style="background:rgba(255,255,255,.05);padding:10px;border-radius:8px;border-left:3px solid #17a2b8;">
-        <div class="fw-b" style="color:#17a2b8;margin-bottom:6px">📺 媒体评价</div>
+        <div class="fw-b" style="color:#17a2b8;margin-bottom:6px">媒体评价</div>
         <div class="t-2 fs-sm">${summary.media}</div>
       </div>
       <div style="background:rgba(255,255,255,.05);padding:10px;border-radius:8px;border-left:3px solid #fd7e14;">
-        <div class="fw-b" style="color:#fd7e14;margin-bottom:6px">🏀 球员评价</div>
+        <div class="fw-b" style="color:#fd7e14;margin-bottom:6px">球员评价</div>
         <div class="t-2 fs-sm">${summary.players}</div>
       </div>
       <div style="background:rgba(255,255,255,.05);padding:10px;border-radius:8px;border-left:3px solid #e83e8c;">
-        <div class="fw-b" style="color:#e83e8c;margin-bottom:6px">📣 粉丝评价</div>
+        <div class="fw-b" style="color:#e83e8c;margin-bottom:6px">球迷评价</div>
         <div class="t-2 fs-sm">${summary.fans}</div>
       </div>
       <div style="background:rgba(255,255,255,.05);padding:10px;border-radius:8px;border-left:3px solid #6f42c1;">
-        <div class="fw-b" style="color:#6f42c1;margin-bottom:6px">🧐 球评人评价</div>
+        <div class="fw-b" style="color:#6f42c1;margin-bottom:6px">球评人评价</div>
         <div class="t-2 fs-sm">${summary.critics}</div>
       </div>
+      <div style="background:rgba(255,255,255,.05);padding:10px;border-radius:8px;border-left:3px solid #fdb927;">
+        <div class="fw-b" style="color:#fdb927;margin-bottom:6px">杂志封面评语</div>
+        <div class="t-2 fs-sm">${summary.magazine}</div>
+      </div>
+      <div style="background:rgba(255,255,255,.05);padding:10px;border-radius:8px;border-left:3px solid #28a745;">
+        <div class="fw-b" style="color:#28a745;margin-bottom:6px">历史委员会</div>
+        <div class="t-2 fs-sm">${summary.legacyCommittee}</div>
+      </div>
     </div>
-    
+
     <div style="margin-top:20px;padding:15px;background:rgba(253,185,39,.1);border:1px solid var(--gold);border-radius:8px;">
-      <div class="fs-xl fw-b t-gold" style="font-size:32px;margin-bottom:8px">总分：${summary.score}</div>
-      <div class="t-2">${summary.message}</div>
+      <div class="fs-xl fw-b t-gold" style="font-size:32px;margin-bottom:8px">历史排名：#${rankText}</div>
+      <div class="t-2">${summary.finalMessage}</div>
     </div>
-    
-    <button class="btn btn-primary mt-16" onclick="location.reload()" style="width:100%">重头再来 (重新开始)</button>
+
+    <div class="grid g2 mt-16">
+      <button class="btn btn-pri" onclick="exportHistoricalArchiveFromUI()">导出历史百大 JSON</button>
+      <button class="btn btn-gold" onclick="location.reload()">二周目重新开始</button>
+    </div>
   </div>
   `;
 }
