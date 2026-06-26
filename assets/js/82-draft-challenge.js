@@ -59,6 +59,7 @@
   };
 
   const state = {
+    screen: 'main_menu',
     stage: 'spin',
     selected: [],
     pendingPlayer: null,
@@ -90,8 +91,23 @@
     simPercent: document.getElementById('simPercent'),
     simProgressBar: document.getElementById('simProgressBar'),
     resultsGrid: document.getElementById('resultsGrid'),
-    challengeRecord: document.getElementById('challengeRecord')
+    challengeRecord: document.getElementById('challengeRecord'),
+    startGameBtn: document.getElementById('startGameBtn'),
+    screenMainMenu: document.getElementById('screenMainMenu'),
+    screenDraftRoom: document.getElementById('screenDraftRoom'),
+    screenResults: document.getElementById('screenResults'),
+    backToMenuBtn: document.getElementById('backToMenuBtn')
   };
+
+  function switchScreen(screenId) {
+    el.screenMainMenu.classList.toggle('hidden', screenId !== 'main_menu');
+    el.screenMainMenu.classList.toggle('active', screenId === 'main_menu');
+    el.screenDraftRoom.classList.toggle('hidden', screenId !== 'draft_room');
+    el.screenDraftRoom.classList.toggle('active', screenId === 'draft_room');
+    el.screenResults.classList.toggle('hidden', screenId !== 'results');
+    el.screenResults.classList.toggle('active', screenId === 'results');
+    state.screen = screenId;
+  }
 
   function safeText(value) {
     return typeof escapeHtml === 'function' ? escapeHtml(value) : String(value ?? '');
@@ -719,14 +735,9 @@
   }
 
   function candidateStatTiles(player) {
-    const attrs = player.attrs || {};
-    const options = player.positionOptions || positionOptionsForPlayer(player);
-    const primary = options[0] || parseNum(player.pos, 3);
-    const statA = primary <= 2 ? ['三分', attrs.shotExt] : primary >= 4 ? ['内线', attrs.shotInt] : ['进攻', player.att];
-    const statB = primary <= 2 ? ['传球', attrs.pass] : primary >= 4 ? ['篮板', attrs.reb] : ['防守', player.def];
     return [
-      `<div class="stat-tile"><span>${safeText(statA[0])}</span><strong>${parseNum(statA[1], 0)}</strong></div>`,
-      `<div class="stat-tile"><span>${safeText(statB[0])}</span><strong>${parseNum(statB[1], 0)}</strong></div>`,
+      `<div class="stat-tile"><span>进攻</span><strong>${parseNum(player.att, 0)}</strong></div>`,
+      `<div class="stat-tile"><span>防守</span><strong>${parseNum(player.def, 0)}</strong></div>`,
       `<div class="stat-tile"><span>OVR</span><strong>${ratingOf(player)}</strong></div>`
     ].join('');
   }
@@ -1127,6 +1138,7 @@
     if (state.busy || selectedCount() < 5 || !state.selectedCoach) return;
     state.busy = true;
     state.stage = 'simulating';
+    switchScreen('results');
     setButtons();
     el.simulationPanel.hidden = false;
     el.resultsGrid.innerHTML = '';
@@ -1240,6 +1252,14 @@
     const avgFit = result.selectedStats.length
       ? result.selectedStats.reduce((sum, item) => sum + parseNum(item.player.coachFit?.score, 0), 0) / result.selectedStats.length
       : 0;
+
+    const getPos = posShort => result.selectedStats.find(s => s.player.chosenSlotShort === posShort)?.player;
+    const pg = getPos('PG');
+    const sg = getPos('SG');
+    const sf = getPos('SF');
+    const pf = getPos('PF');
+    const c = getPos('C');
+
     if (profile.avgRating >= 88) positives.push('首发个人能力足以碾压大多数 2025 常规赛对手。');
     if (profile.spacing >= 82) positives.push('外线空间拉满，模拟中更容易打出高进攻效率。');
     if (profile.creation >= 80) positives.push('持球和传导稳定，减少了单点哑火风险。');
@@ -1248,6 +1268,14 @@
     if (avgFit >= 2) positives.push(`${result.coach?.name || '主教练'} 的 ${coachFx.systemLabel || '体系'} 与首发适配度高，强化点能直接进入模拟。`);
     if (coachFx.threeRateMult >= 1.08) positives.push('教练鼓励外线和空间，适合三分与持球点多的阵容。');
     if (coachFx.paintRateMult >= 1.08) positives.push('教练强调内线回合，能放大终结和篮板优势。');
+
+    // Advanced Positional Evaluation
+    if (pg && sg && pg.att >= 85 && sg.att >= 85) positives.push('【后场双枪】后场进攻火力冠绝联盟，能够轻易撕碎对手防线。');
+    if (c && c.def >= 88) positives.push('【禁区大闸】拥有绝对的禁区防守核心，内线固若金汤。');
+    if (sf && pf && sf.def >= 80 && pf.def >= 80 && sf.att >= 80 && pf.att >= 80) positives.push('【全能锋线群】锋线群攻防一体，极具现代篮球的换防与冲击力。');
+    if (pg && (pg.attrs?.pass >= 85 || pg.att >= 85) && c && c.att >= 85) positives.push('【内外连线】强力控卫与内线猛兽的组合，挡拆战术极具杀伤力。');
+    if (pg && sg && sf && pf && c && [pg, sg, sf, pf, c].every(p => p.att >= 80)) positives.push('【五星连珠】首发五人皆有出色的得分能力，对手防不胜防。');
+
     if (profile.spacing < 74) negatives.push('空间不足，遇到强护框队时进攻上限会被压低。');
     if (profile.creation < 74) negatives.push('组织点偏少，关键场次容易变成低效单打。');
     if (profile.rebounding < 74) negatives.push('篮板保护一般，82-0 挑战最怕被弱队靠二次进攻偷一场。');
@@ -1255,6 +1283,10 @@
     if (avgFit <= -1) negatives.push('教练体系压制了部分首发的自然打法，强点不能完全释放。');
     if (parseNum(coachFx.threeRateMult, 1) <= 0.95 && profile.spacing >= 82) negatives.push('教练减少外线权重，会压低空间型阵容的进攻上限。');
     if (parseNum(record.w, 0) < 82) negatives.push('82 场全胜容错为零，即便强队也会被赛程疲劳和单场波动击穿。');
+
+    if (pg && pg.attrs && pg.attrs.pass < 75 && pg.att < 80) negatives.push('【缺乏大脑】控卫组织和进攻能力偏弱，进攻端容易陷入停滞。');
+    if (c && c.def < 75) negatives.push('【万人捅】首发中锋护框能力堪忧，禁区形同虚设。');
+
     if (!positives.length) positives.push('阵容没有明显断点，胜场主要来自五个位置都能贡献正向价值。');
     if (!negatives.length) negatives.push('主要风险来自模拟随机性和替补阶段，而不是首发结构。');
     return { rank, positives, negatives };
@@ -1435,13 +1467,25 @@
     el.simPercent.textContent = '0%';
     el.simProgressBar.style.width = '0%';
     el.simStatus.textContent = '等待模拟';
+    switchScreen('main_menu');
     renderAll();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  function startCareer() {
+    switchScreen('draft_room');
+    rollTeamYear();
+  }
+
   function bind() {
     buildTeamOptions();
+    switchScreen('main_menu');
     renderAll();
+    el.startGameBtn.addEventListener('click', startCareer);
+    el.backToMenuBtn.addEventListener('click', () => {
+      if (state.stage !== 'spin' && !confirm('返回主菜单将重置当前挑战进度，确定吗？')) return;
+      resetChallenge();
+    });
     el.rollButton.addEventListener('click', () => rollTeamYear());
     el.rerollButton.addEventListener('click', () => {
       if (state.rerollsLeft > 0 && state.currentPool && state.stage === 'player_select') rollTeamYear({ consumeReroll: true });

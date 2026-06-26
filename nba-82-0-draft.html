@@ -10,80 +10,124 @@
 </head>
 
 <body>
-  <main class="draft-app" id="draftApp">
-    <section class="draft-shell" aria-label="82胜抽卡挑战">
-      <header class="draft-topbar">
-        <a class="draft-back-link" href="nba-career-simulator.html">Career Sim</a>
-        <div class="draft-title-block">
-          <p class="draft-kicker">2025 League Season Challenge</p>
-          <h1>82胜抽卡挑战</h1>
+  <main class="manager-app" id="draftApp">
+    <div class="dynamic-svg-bg" aria-hidden="true">
+      <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="hex-grid" width="60" height="103.923" patternUnits="userSpaceOnUse" patternTransform="scale(1.5)">
+            <path d="M30 0l30 17.32v34.64L30 69.28 0 51.96V17.32z" stroke="rgba(255,255,255,0.02)" stroke-width="1" fill="none" />
+          </pattern>
+          <radialGradient id="glow-grad-1" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.15" />
+            <stop offset="100%" stop-color="#00f2fe" stop-opacity="0" />
+          </radialGradient>
+          <radialGradient id="glow-grad-2" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.1" />
+            <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+          </radialGradient>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#hex-grid)" />
+        <circle cx="20%" cy="30%" r="400" fill="url(#glow-grad-1)" class="svg-orb orb-1" />
+        <circle cx="85%" cy="75%" r="500" fill="url(#glow-grad-2)" class="svg-orb orb-2" />
+      </svg>
+    </div>
+
+    <!-- Screen 1: Main Menu -->
+    <section id="screenMainMenu" class="screen-view active">
+      <div class="menu-content">
+        <div class="menu-logo-placeholder"></div>
+        <p class="menu-kicker">2025 League Season Challenge</p>
+        <h1 class="menu-title">82胜抽卡挑战</h1>
+        <p class="menu-subtitle">组建你的最强阵容，挑战历史级别的 82胜0负</p>
+        <button class="manager-btn massive primary" id="startGameBtn" type="button">开始执教 (START CAREER)</button>
+      </div>
+    </section>
+
+    <!-- Screen 2: Draft Room -->
+    <section id="screenDraftRoom" class="screen-view hidden">
+      <header class="manager-topbar glass-panel">
+        <div class="topbar-left">
+          <button class="manager-back-link" id="backToMenuBtn" type="button">返回主菜单</button>
+          <h2>选秀室 / Draft Room</h2>
         </div>
-        <div class="draft-record-pill" id="challengeRecord">目标 82-0</div>
+        <div class="topbar-right">
+          <div class="challenge-record" id="challengeRecord">目标 82-0</div>
+        </div>
       </header>
 
-      <section class="draft-status-band" id="statusBand">
-        <div>
-          <span class="status-label">当前阶段</span>
-          <strong id="currentSlotLabel">抽取球队/年份</strong>
-        </div>
-        <div>
-          <span class="status-label">随机来源</span>
-          <strong id="sourceLabel">等待抽取</strong>
-        </div>
-        <div>
-          <span class="status-label">免费重抽</span>
-          <strong id="rerollLabel">1 次</strong>
-        </div>
-        <div>
-          <span class="status-label">挑战队</span>
-          <strong>新球队</strong>
-        </div>
-      </section>
-
-      <section class="draft-layout">
-        <section class="draft-main-panel" aria-label="抽卡候选">
-          <div class="panel-heading">
+      <div class="draft-room-layout">
+        <!-- Left: Action Zone -->
+        <section class="action-zone" aria-label="操作区">
+          <header class="action-header">
             <div>
-              <p class="panel-kicker" id="roundKicker">第 1 / 5 轮</p>
-              <h2 id="poolTitle">先抽取球队和年份</h2>
+              <p class="action-kicker" id="roundKicker">第 1 / 5 轮</p>
+              <h2 class="action-title" id="poolTitle">先抽取球队和年份</h2>
             </div>
-            <div class="draft-actions">
-              <button class="btn secondary" id="rerollButton" type="button">免费重抽年份/球队</button>
-              <button class="btn primary" id="rollButton" type="button">抽取候选</button>
-              <button class="btn primary" id="simulateButton" type="button" hidden>模拟赛季</button>
-              <button class="btn secondary" id="restartButton" type="button" hidden>重新开始</button>
+          </header>
+
+          <div class="action-status-bar" id="statusBand">
+            <div class="status-box">
+              <span class="status-label">当前阶段</span>
+              <strong id="currentSlotLabel">抽取球队/年份</strong>
+            </div>
+            <div class="status-box">
+              <span class="status-label">随机来源</span>
+              <strong id="sourceLabel">等待抽取</strong>
+            </div>
+            <div class="status-box">
+              <span class="status-label">免费重抽</span>
+              <strong id="rerollLabel">1 次</strong>
             </div>
           </div>
 
-          <div class="candidate-grid" id="candidateGrid"></div>
-          <div class="draft-empty" id="emptyState">
-            <strong>先抽取球队和年份</strong>
-            <span>抽中来源后选择球员，再按球员可打位置落位；五个位置完成后选择教练。</span>
+          <div class="action-content">
+            <div class="candidate-grid" id="candidateGrid"></div>
+            <div class="draft-empty" id="emptyState">
+              <strong>先抽取球队和年份</strong>
+              <span>抽中来源后选择球员，再按球员可打位置落位；五个位置完成后选择教练。</span>
+            </div>
           </div>
+
+          <footer class="action-footer">
+            <button class="manager-btn secondary" id="rerollButton" type="button">免费重抽</button>
+            <button class="manager-btn primary" id="rollButton" type="button">抽取候选</button>
+            <button class="manager-btn massive success" id="simulateButton" type="button" hidden>开始模拟赛季</button>
+          </footer>
         </section>
 
-        <aside class="lineup-panel" aria-label="已选阵容">
-          <div class="panel-heading tight">
-            <div>
-              <p class="panel-kicker">Lineup</p>
-              <h2>挑战阵容</h2>
-            </div>
-          </div>
+        <!-- Right: Roster Sidebar -->
+        <aside class="roster-sidebar" aria-label="阵容战术板">
+          <header class="sidebar-header">
+            <h2>战术板 & 阵容</h2>
+            <p>2025 Challenge Roster</p>
+          </header>
           <div class="lineup-list" id="lineupList"></div>
           <div class="lineup-summary" id="lineupSummary">先完成五个位置选择，再锁定教练。</div>
         </aside>
-      </section>
+      </div>
+    </section>
 
-      <section class="simulation-panel" id="simulationPanel" hidden>
-        <div class="sim-progress">
-          <div class="sim-progress-copy">
-            <span id="simStatus">等待模拟</span>
-            <strong id="simPercent">0%</strong>
+    <!-- Screen 3: Results -->
+    <section id="screenResults" class="screen-view hidden">
+      <div class="results-layout">
+        <header class="results-header">
+          <h1>赛季总结</h1>
+          <p>2025 赛季模拟已完成</p>
+        </header>
+        <section class="simulation-panel" id="simulationPanel" hidden>
+          <div class="sim-progress">
+            <div class="sim-progress-copy">
+              <span id="simStatus">等待模拟</span>
+              <strong id="simPercent">0%</strong>
+            </div>
+            <div class="sim-progress-track"><div id="simProgressBar"></div></div>
           </div>
-          <div class="sim-progress-track"><div id="simProgressBar"></div></div>
-        </div>
-        <div class="results-grid" id="resultsGrid"></div>
-      </section>
+          <div class="results-grid" id="resultsGrid"></div>
+        </section>
+        <footer class="results-footer">
+          <button class="manager-btn massive primary" id="restartButton" type="button" hidden>重新开启挑战 (RESTART)</button>
+        </footer>
+      </div>
     </section>
   </main>
 
