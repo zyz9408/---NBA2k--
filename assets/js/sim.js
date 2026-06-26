@@ -2949,6 +2949,25 @@ function buildMatchupSimulationPlans(homeProfile, awayProfile, opts = {}) {
   return { homePlan, awayPlan, overtimes, homeOtPeriods, awayOtPeriods };
 }
 
+function estimateLeagueThreePctForRow(attrs, rating, pos, oppRating, coachFx = null, gameMod = null) {
+  const shotExt = clamp(parseNum(attrs?.shotExt, 55), 20, 99);
+  const variancePct = gameMod?.varianceTag === 'hot' ? 0.012 : gameMod?.varianceTag === 'cold' ? -0.014 : 0;
+  const coachPct = clamp((parseNum(coachFx?.threeRateMult, 1) - 1) * 0.045, -0.014, 0.018);
+  const posPct = parseNum(pos, 3) <= 2 ? 0.006 : parseNum(pos, 3) === 3 ? 0.002 : -0.008;
+  const cap = shotExt >= 94 ? 0.445 : shotExt >= 88 ? 0.425 : shotExt >= 80 ? 0.405 : shotExt >= 72 ? 0.385 : 0.360;
+  return clamp(
+    0.305
+    + (shotExt - 70) * 0.0035
+    + (parseNum(rating, 65) - 75) * 0.0011
+    - (parseNum(oppRating, 75) - 75) * 0.0010
+    + coachPct
+    + posPct
+    + variancePct,
+    0.245,
+    cap
+  );
+}
+
 function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = false, sourcePlayer = null, coachFx = null, teamPlan = null, gameMod = null } = {}) {
   const isSelf = !!player.isSelf;
   const simPlayer = sourcePlayer || player;
@@ -3015,6 +3034,7 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
   let fgPts = Math.max(0, targetPts - ftm);
   let tpm = 0;
   let fgm = 0;
+  const targetThreePct = estimateLeagueThreePctForRow(attrs, rating, pos, oppRating, teamCoachFx, gameMod);
 
   if (fgPts > 0) {
     const maxTpm = Math.floor(fgPts / 3);
@@ -3030,8 +3050,14 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
 
   const varianceEfficiency = 1 - (parseNum(gameMod?.efficiencyShift, 0) * 1.8);
   const efficiencyFactor = teamPlan ? clamp((1.08 - ((parseNum(teamPlan?.efg, 0.52) - 0.52) * 0.9)) * varianceEfficiency, 0.84, 1.16) : clamp(varianceEfficiency, 0.86, 1.16);
-  const fga = clamp(Math.max(fgm + rng(1, 4), Math.round(minutes * 0.42 * planPaceFactor * efficiencyFactor) + rng(-1, 3), tpm + rng(1, 3)), Math.max(fgm, tpm), 28);
-  const tpa = clamp(Math.max(tpm, Math.round(fga * clamp((pos <= 2 ? 0.44 : pos === 3 ? 0.34 : 0.22) * threeShareMult, 0.10, 0.65) + rng(-1, 1))), tpm, fga);
+  let fga = clamp(Math.max(fgm + rng(1, 4), Math.round(minutes * 0.42 * planPaceFactor * efficiencyFactor) + rng(-1, 3), tpm + rng(1, 3)), Math.max(fgm, tpm), 28);
+  let tpa = clamp(Math.max(tpm, Math.round(fga * clamp((pos <= 2 ? 0.44 : pos === 3 ? 0.34 : 0.22) * threeShareMult, 0.10, 0.65) + rng(-1, 1))), tpm, fga);
+  if (tpm > 0) {
+    tpa = Math.max(tpa, Math.ceil(tpm / targetThreePct));
+  }
+  const twoMade = Math.max(0, fgm - tpm);
+  fga = clamp(Math.max(fga, tpa + twoMade + rng(0, 2)), Math.max(fgm, tpa), 34);
+  tpa = clamp(tpa, tpm, fga);
 
   row.fta = fta;
   row.ftm = ftm;

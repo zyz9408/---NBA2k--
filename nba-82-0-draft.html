@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>82胜抽卡挑战 | NBA Career Simulator</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="assets/css/82-draft-challenge.css?v=20260626">
+</head>
+
+<body>
+  <main class="draft-app" id="draftApp">
+    <section class="draft-shell" aria-label="82胜抽卡挑战">
+      <header class="draft-topbar">
+        <a class="draft-back-link" href="nba-career-simulator.html">Career Sim</a>
+        <div class="draft-title-block">
+          <p class="draft-kicker">2025 League Season Challenge</p>
+          <h1>82胜抽卡挑战</h1>
+        </div>
+        <div class="draft-record-pill" id="challengeRecord">目标 82-0</div>
+      </header>
+
+      <section class="draft-status-band" id="statusBand">
+        <div>
+          <span class="status-label">当前阶段</span>
+          <strong id="currentSlotLabel">抽取球队/年份</strong>
+        </div>
+        <div>
+          <span class="status-label">随机来源</span>
+          <strong id="sourceLabel">等待抽取</strong>
+        </div>
+        <div>
+          <span class="status-label">免费重抽</span>
+          <strong id="rerollLabel">1 次</strong>
+        </div>
+        <div>
+          <span class="status-label">挑战队</span>
+          <strong>新球队</strong>
+        </div>
+      </section>
+
+      <section class="draft-layout">
+        <section class="draft-main-panel" aria-label="抽卡候选">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-kicker" id="roundKicker">第 1 / 5 轮</p>
+              <h2 id="poolTitle">先抽取球队和年份</h2>
+            </div>
+            <div class="draft-actions">
+              <button class="btn secondary" id="rerollButton" type="button">免费重抽年份/球队</button>
+              <button class="btn primary" id="rollButton" type="button">抽取候选</button>
+              <button class="btn primary" id="simulateButton" type="button" hidden>模拟赛季</button>
+              <button class="btn secondary" id="restartButton" type="button" hidden>重新开始</button>
+            </div>
+          </div>
+
+          <div class="candidate-grid" id="candidateGrid"></div>
+          <div class="draft-empty" id="emptyState">
+            <strong>先抽取球队和年份</strong>
+            <span>抽中来源后选择球员，再按球员可打位置落位；五个位置完成后选择教练。</span>
+          </div>
+        </section>
+
+        <aside class="lineup-panel" aria-label="已选阵容">
+          <div class="panel-heading tight">
+            <div>
+              <p class="panel-kicker">Lineup</p>
+              <h2>挑战阵容</h2>
+            </div>
+          </div>
+          <div class="lineup-list" id="lineupList"></div>
+          <div class="lineup-summary" id="lineupSummary">先完成五个位置选择，再锁定教练。</div>
+        </aside>
+      </section>
+
+      <section class="simulation-panel" id="simulationPanel" hidden>
+        <div class="sim-progress">
+          <div class="sim-progress-copy">
+            <span id="simStatus">等待模拟</span>
+            <strong id="simPercent">0%</strong>
+          </div>
+          <div class="sim-progress-track"><div id="simProgressBar"></div></div>
+        </div>
+        <div class="results-grid" id="resultsGrid"></div>
+      </section>
+    </section>
+  </main>
+
+  <div class="modal-bg" id="modalBg">
+    <div class="modal" id="modalBox"></div>
+  </div>
+
+  <script src="assets/js/core.js?v=20260414nollm"></script>
+  <script src="assets/js/text-pools.js?v=20260429templates"></script>
+  <script src="assets/js/text-pools-extra.js?v=20260429templates2"></script>
+  <script src="assets/js/text-pools-long.js?v=20260429longtemplates"></script>
+  <script src="assets/js/sim.js?v=20260615auto"></script>
+  <script src="assets/js/82-draft-challenge.js?v=20260626"></script>
+</body>
+
+</html>
