@@ -80,7 +80,10 @@ assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for
   'ensureHistoricalSeasonStatsForYear',
   'mergeHistoricalSeasonPack',
   'player_seasons_${seasonYear}.json',
-  'estimatePlayerAverages',
+  'STOCKS_TRACKED_FROM_YEAR = 1974',
+  "UNTRACKED_STAT_TEXT = '未统计'",
+  'hasRealCandidateAverages',
+  '.filter(player => hasRealCandidateAverages(player))',
   'loadRosterSeason',
   'rowToPlayer',
   'loadLeagueData({ startYear: state.challengeYear, strictRoster: true })',
@@ -97,6 +100,8 @@ assert.ok(!script.includes('targetTeamSelect'), 'challenge script should not dep
 assert.ok(!script.includes('联盟排名</h3>'), 'challenge results should not render full league standings table');
 assert.ok(script.includes('玩家球队排名'), 'challenge results should show only the player team ranking summary');
 assert.ok(!script.includes("return { pts: '--', reb: '--', ast: '--', stl: '--', blk: '--' }"), 'challenge candidates should never fall back to all-empty stat lines');
+assert.ok(!script.includes('estimatePlayerAverages'), 'challenge candidate stats must not be estimated from ratings');
+assert.ok(!script.includes("source: 'estimate'"), 'challenge candidate stats must not expose fabricated estimate rows');
 assert.ok(!script.includes('year + 1, year - 1'), 'historical stats lookup should not borrow adjacent seasons');
 assert.ok(!script.includes('{ code: 19,'), 'rosters19 is an all-time/legend roster and should not be used as a real NBA season');
 [
@@ -123,6 +128,9 @@ assert.ok(historicalStatsJson['2024']?.['Victor Wembanyama'], 'Victor Wembanyama
 assert.equal(historicalStatsJson['2012']?.['LeBron James']?.PTS, 27.1, '2011-2012 LeBron James stats should use the 2012 season row');
 assert.equal(historicalStatsJson['2006']?.['Kobe Bryant']?.PTS, 35.4, '2005-2006 Kobe Bryant stats should use the 2006 season row');
 assert.equal(historicalStatsJson['1972']?.['Kareem Abdul-Jabbar']?.PTS, 34.8, '1971-1972 Kareem Abdul-Jabbar stats should use the 1972 season row');
+assert.equal(historicalStatsJson['1972']?.['Walt Frazier']?.PTS, 23.2, '1971-1972 Walt Frazier points should use the exact real season row');
+assert.equal(historicalStatsJson['1972']?.['Walt Frazier']?.REB, 6.7, '1971-1972 Walt Frazier rebounds should use the exact real season row');
+assert.equal(historicalStatsJson['1972']?.['Walt Frazier']?.AST, 5.8, '1971-1972 Walt Frazier assists should use the exact real season row');
 assert.ok((historicalPlayerSeason1984.rows || historicalPlayerSeason1984).some(row => row.name === 'Isaiah Thomas' && row.seasonEndYear === 1984 && row.ppg === 21.3), 'full 1984 historical season pack should provide missing exact Isaiah Thomas stats');
 
 [

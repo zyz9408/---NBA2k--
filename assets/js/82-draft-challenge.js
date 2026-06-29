@@ -2,6 +2,8 @@
   let historicalSeasonStats = null;
   let historicalStatsPromise = null;
   const historicalSeasonPackPromises = new Map();
+  const STOCKS_TRACKED_FROM_YEAR = 1974;
+  const UNTRACKED_STAT_TEXT = '未统计';
   const POSITION_SLOTS = [
     { id: 1, short: 'PG', name: '控球后卫' },
     { id: 2, short: 'SG', name: '得分后卫' },
@@ -361,6 +363,7 @@
             sourceRosterCode: pack.season.code,
             sourceTeamId: bucket.team.id
           })))
+          .filter(player => hasRealCandidateAverages(player))
           .filter(player => positionOptionsForPlayer(player).length);
         return { team: bucket.team, players };
       })
@@ -406,6 +409,7 @@
         const season = pick(ROSTER_SEASONS);
         try {
           const pack = await loadRosterSeason(season);
+          await ensureHistoricalSeasonStatsForYear(season.statsYear || season.year);
           pool = sampleCandidatePool(pack);
         } catch (err) {
           if (isLocalFsPermissionError(err)) throw err;
@@ -416,12 +420,26 @@
         const detail = skippedErrors.length ? `；已跳过读取失败赛季：${skippedErrors.slice(0, 3).join(' / ')}` : '';
         throw new Error(`没有找到足够的候选球员${detail}`);
       }
-      await ensureHistoricalSeasonStatsForYear(pool.season.statsYear || pool.season.year);
       if (consumeReroll) state.rerollsLeft = Math.max(0, state.rerollsLeft - 1);
       state.currentPool = pool;
       state.pendingPlayer = null;
       state.stage = 'player_select';
       state.result = null;
+
+      // Show small fast gacha overlay animation
+      let gachaEl = document.getElementById('gachaOverlay');
+      if (!gachaEl) {
+        gachaEl = document.createElement('div');
+        gachaEl.id = 'gachaOverlay';
+        gachaEl.className = 'gacha-overlay';
+        document.body.appendChild(gachaEl);
+      }
+      gachaEl.innerHTML = `正在搜索档案...<br/><span style="font-size:24px;color:#fff;margin-top:16px;">${pool.season.label}</span><br/><span style="font-size:24px;color:#fff">${pool.team.z}</span>`;
+      gachaEl.classList.add('active');
+
+      await new Promise(r => setTimeout(r, 600)); // Shorter delay
+      gachaEl.classList.remove('active');
+
       renderAll();
     } catch (err) {
       state.stage = 'spin';
@@ -443,11 +461,13 @@
     if (state.busy || !state.currentPool) return;
     const candidate = state.currentPool.candidates[index];
     if (!candidate) return;
+    const options = positionOptionsForPlayer(candidate);
+    if (!options.length) return;
     const pending = {
       ...clone(candidate),
       fantasyId: 820000 + selectedCount() + 1,
       id: candidate.id,
-      positionOptions: positionOptionsForPlayer(candidate)
+      positionOptions: options
     };
     state.pendingPlayer = pending;
     state.stage = 'position_select';
@@ -772,30 +792,39 @@
 
   function getPlayerAverages(player) {
     const row = findHistoricalStatsForPlayer(player);
-    if (row) return statRowToAverages(row, 'real');
-    if (player.careerBeforeStart && player.careerBeforeStart.totals && player.careerBeforeStart.totals.gp > 0) {
-      const t = player.careerBeforeStart.totals;
-      return {
-        pts: (t.pts / t.gp).toFixed(1),
-        reb: (t.reb / t.gp).toFixed(1),
-        ast: (t.ast / t.gp).toFixed(1),
-        stl: ((t.stl || 0) / t.gp).toFixed(1),
-        blk: ((t.blk || 0) / t.gp).toFixed(1),
-        source: 'career'
-      };
-    }
-    return estimatePlayerAverages(player);
+    return row ? statRowToAverages(row, 'real', statLookupYears(player)[0]) : null;
   }
 
-  function statRowToAverages(row, source) {
+  function statRowToAverages(row, source, year) {
+    const statsYear = parseNum(year, 0);
     return {
       pts: formatStatNumber(row.PTS),
       reb: formatStatNumber(row.REB),
       ast: formatStatNumber(row.AST),
-      stl: formatStatNumber(row.STL),
-      blk: formatStatNumber(row.BLK),
+      stl: isStatTracked('STL', statsYear) ? formatStatNumber(row.STL) : UNTRACKED_STAT_TEXT,
+      blk: isStatTracked('BLK', statsYear) ? formatStatNumber(row.BLK) : UNTRACKED_STAT_TEXT,
       source
     };
+  }
+
+  function isStatTracked(key, year) {
+    const stat = String(key || '').toUpperCase();
+    if (stat === 'STL' || stat === 'BLK') return parseNum(year, 0) >= STOCKS_TRACKED_FROM_YEAR;
+    return true;
+  }
+
+  function hasNumericStat(row, key) {
+    return Number.isFinite(parseNum(row?.[key], NaN));
+  }
+
+  function hasRealCandidateAverages(player) {
+    const row = findHistoricalStatsForPlayer(player);
+    if (!row) return false;
+    const year = statLookupYears(player)[0];
+    if (!['PTS', 'REB', 'AST'].every(key => hasNumericStat(row, key))) return false;
+    if (isStatTracked('STL', year) && !hasNumericStat(row, 'STL')) return false;
+    if (isStatTracked('BLK', year) && !hasNumericStat(row, 'BLK')) return false;
+    return true;
   }
 
   function formatStatNumber(value) {
@@ -894,7 +923,7 @@
       await historicalSeasonPackPromises.get(seasonYear);
       return;
     }
-    const promise = fetch(`assets/data/historical/player_seasons_${seasonYear}.json?v=20260629rosteraudit`)
+    const promise = fetch(`assets/data/historical/player_seasons_${seasonYear}.json?v=20260629realstats`)
       .then(r => (r.ok ? r.json() : null))
       .then(data => {
         if (data) mergeHistoricalSeasonPack(seasonYear, data);
@@ -904,35 +933,11 @@
     await promise;
   }
 
-  function estimatePlayerAverages(player) {
-    const attrs = player?.attrs || {};
-    const rating = ratingOf(player);
-    const position = parseNum(player?.pos, 3);
-    const att = parseNum(player?.att, calcPlayerAtt(attrs));
-    const shot = (
-      parseNum(attrs.shotExt, 60) +
-      parseNum(attrs.shotInt, 60) +
-      parseNum(attrs.shotFree, 60)
-    ) / 3;
-    const pass = parseNum(attrs.pass, 60);
-    const rebSkill = parseNum(attrs.reb, 60);
-    const stlSkill = parseNum(attrs.stl, 60);
-    const blkSkill = parseNum(attrs.blk, 55);
-    const posReb = { 1: 2.9, 2: 3.6, 3: 5.0, 4: 7.2, 5: 8.8 }[position] || 5.0;
-    const posAst = { 1: 5.8, 2: 3.8, 3: 3.0, 4: 2.3, 5: 1.8 }[position] || 3.0;
-    const posBlk = { 1: 0.2, 2: 0.3, 3: 0.5, 4: 0.8, 5: 1.1 }[position] || 0.5;
-    return {
-      pts: clamp((rating - 55) * 0.42 + (shot - 55) * 0.16 + (att - 65) * 0.12 + 6, 4, 33).toFixed(1),
-      reb: clamp(posReb + (rebSkill - 65) * 0.11 + (rating - 75) * 0.04, 1.5, 16).toFixed(1),
-      ast: clamp(posAst + (pass - 65) * 0.10 + (rating - 75) * 0.03, 1.0, 11).toFixed(1),
-      stl: clamp(0.6 + (stlSkill - 60) * 0.025, 0.3, 2.3).toFixed(1),
-      blk: clamp(posBlk + (blkSkill - 58) * 0.035, 0.1, 4.0).toFixed(1),
-      source: 'estimate'
-    };
-  }
-
   function candidateStatTiles(player) {
     const avg = getPlayerAverages(player);
+    if (!avg) {
+      return '<div class="stat-tile wide"><span>真实数据</span><strong>缺失</strong></div>';
+    }
     return [
       `<div class="stat-tile"><span>得分</span><strong>${avg.pts}</strong></div>`,
       `<div class="stat-tile"><span>篮板</span><strong>${avg.reb}</strong></div>`,
@@ -940,6 +945,28 @@
       `<div class="stat-tile"><span>抢断</span><strong>${avg.stl}</strong></div>`,
       `<div class="stat-tile"><span>盖帽</span><strong>${avg.blk}</strong></div>`
     ].join('');
+  }
+
+  function playerAveragesLine(player) {
+    const avg = getPlayerAverages(player);
+    if (!avg) return '无真实赛季数据';
+    const stockText = avg.stl === UNTRACKED_STAT_TEXT && avg.blk === UNTRACKED_STAT_TEXT
+      ? '抢断/盖帽未统计'
+      : `${avg.stl}断 ${avg.blk}帽`;
+    return `${avg.pts}分 ${avg.reb}板 ${avg.ast}助 ${stockText}`;
+  }
+
+  function sumAverageStat(rows, key) {
+    return rows.reduce((sum, row) => sum + (parseFloat(row?.[key]) || 0), 0);
+  }
+
+  function lineupStockSummary(rows) {
+    const tracked = rows.filter(row => row.stl !== UNTRACKED_STAT_TEXT || row.blk !== UNTRACKED_STAT_TEXT);
+    if (!tracked.length) return '，抢断/盖帽未统计';
+    const stl = sumAverageStat(tracked, 'stl').toFixed(1);
+    const blk = sumAverageStat(tracked, 'blk').toFixed(1);
+    const note = tracked.length < rows.length ? '（未统计球员不计入）' : '';
+    return ` ${stl}断 ${blk}帽${note}`;
   }
 
   function renderPlayerChoices() {
@@ -951,8 +978,11 @@
         <div class="source-copy">先选球员，下一步再从可打位置中落位。</div>
       </div>
       <div class="candidate-grid-inner">
-        ${state.currentPool.candidates.map((player, index) => `
-          <button class="candidate-card" type="button" data-pick="${index}" aria-label="选择 ${safeText(playerName(player))}">
+        ${state.currentPool.candidates.map((player, index) => {
+          const availPos = positionOptionsForPlayer(player);
+          const isDisabled = !availPos.length;
+          return `
+          <button class="candidate-card${isDisabled ? ' disabled-card' : ''}" type="button" ${isDisabled ? 'disabled' : `data-pick="${index}"`} aria-label="${isDisabled ? '无可用位置' : '选择'} ${safeText(playerName(player))}">
             <div class="candidate-image-wrap">
               <img class="player-photo" src="${safeText(getPlayerPhotoSrc(player))}" alt="${safeText(playerName(player))}" onerror="this.src='${safeText(getPlayerPhotoPath(0))}'">
               <img class="team-logo-chip" src="${safeText(getTeamLogoPath(player.sourceTeamId, player.sourceTeamAbbr))}" alt="${safeText(player.sourceTeamName)}" onerror="this.src='${safeText(getTeamAltLogoPath(player.sourceTeamId))}'">
@@ -962,13 +992,13 @@
               <div class="candidate-name">${safeText(playerName(player))}</div>
               <div class="candidate-meta">
                 <span class="tag">${safeText(posLabel(player.pos))}${player.pos2 ? ` / ${safeText(posLabel(player.pos2))}` : ''}</span>
-                <span class="tag gold">可落位 ${safeText(describePositions(player.positionOptions || []))}</span>
+                <span class="tag ${isDisabled ? 'red' : 'gold'}">${isDisabled ? '位置已满' : `可落位 ${safeText(describePositions(availPos))}`}</span>
                 <span class="tag">${parseNum(player.age, 0)} 岁</span>
               </div>
             </div>
             <div class="candidate-stats">${candidateStatTiles(player)}</div>
           </button>
-        `).join('')}
+        `;}).join('')}
       </div>
     `;
   }
@@ -1011,7 +1041,7 @@
             <p>${safeText(playerEnglishName(player))}</p>
             <div class="candidate-meta">
               <span class="tag">原始位置 ${safeText(posLabel(player.pos))}${player.pos2 ? ` / ${safeText(posLabel(player.pos2))}` : ''}</span>
-              <span class="tag gold">场均 ${getPlayerAverages(player).pts}分 ${getPlayerAverages(player).reb}板 ${getPlayerAverages(player).ast}助 ${getPlayerAverages(player).stl}断 ${getPlayerAverages(player).blk}帽</span>
+              <span class="tag gold">场均 ${safeText(playerAveragesLine(player))}</span>
               <span class="tag">可打 ${safeText(describePositions(options))}</span>
             </div>
           </div>
@@ -1118,7 +1148,7 @@
             <strong>${player ? safeText(playerName(player)) : '未选择'}</strong>
             <span>${player ? `${safeText(player.sourceLabel)} · ${safeText(player.sourceTeamName)}${fit ? ` · ${safeText(fit.label)}` : ''}` : safeText(slot.name)}</span>
           </div>
-          <div class="slot-rating" style="font-size:12px; font-weight:800; white-space:nowrap;">${player ? (() => { const a = getPlayerAverages(player); return `${a.pts}分 ${a.reb}板 ${a.ast}助 ${a.stl}断 ${a.blk}帽`; })() : '--'}</div>
+          <div class="slot-rating" style="font-size:12px; font-weight:800; white-space:nowrap;">${player ? safeText(playerAveragesLine(player)) : '--'}</div>
         </div>
       `;
     }).join('');
@@ -1129,12 +1159,12 @@
         : state.selected;
       const profile = analyzeLineup(lineupForReview);
       const coachCopy = state.selectedCoach ? `，教练：${state.selectedCoach.name}` : '，等待教练选择';
-      const totalPts = lineupForReview.reduce((sum, p) => sum + (parseFloat(getPlayerAverages(p).pts) || 0), 0).toFixed(1);
-      const totalReb = lineupForReview.reduce((sum, p) => sum + (parseFloat(getPlayerAverages(p).reb) || 0), 0).toFixed(1);
-      const totalAst = lineupForReview.reduce((sum, p) => sum + (parseFloat(getPlayerAverages(p).ast) || 0), 0).toFixed(1);
-      const totalStl = lineupForReview.reduce((sum, p) => sum + (parseFloat(getPlayerAverages(p).stl) || 0), 0).toFixed(1);
-      const totalBlk = lineupForReview.reduce((sum, p) => sum + (parseFloat(getPlayerAverages(p).blk) || 0), 0).toFixed(1);
-      el.lineupSummary.innerHTML = `首发合计场均 <strong>${totalPts}分 ${totalReb}板 ${totalAst}助 ${totalStl}断 ${totalBlk}帽</strong>，进攻 <strong>${profile.offense}</strong>，防守 <strong>${profile.defense}</strong>${safeText(coachCopy)}。标签：${safeText(profile.tags.join(' / '))}`;
+      const realAverages = lineupForReview.map(getPlayerAverages).filter(Boolean);
+      const totalPts = sumAverageStat(realAverages, 'pts').toFixed(1);
+      const totalReb = sumAverageStat(realAverages, 'reb').toFixed(1);
+      const totalAst = sumAverageStat(realAverages, 'ast').toFixed(1);
+      const stockSummary = lineupStockSummary(realAverages);
+      el.lineupSummary.innerHTML = `首发合计场均 <strong>${totalPts}分 ${totalReb}板 ${totalAst}助${safeText(stockSummary)}</strong>，进攻 <strong>${profile.offense}</strong>，防守 <strong>${profile.defense}</strong>${safeText(coachCopy)}。标签：${safeText(profile.tags.join(' / '))}`;
     } else {
       el.lineupSummary.textContent = `已选 ${selectedCount()} / 5。每轮先抽来源、选球员，再选择位置。`;
     }
@@ -1312,9 +1342,9 @@
     return out;
   }
 
-  function updateSimProgress(round, total) {
+  function updateSimProgress(round, total, extraText = '') {
     const pctValue = Math.round(round / total * 100);
-    el.simStatus.textContent = `正在模拟第 ${Math.min(round, total)} / ${total} 轮`;
+    el.simStatus.textContent = extraText ? `第 ${Math.min(round, total)} 场: ${extraText}` : `正在模拟第 ${Math.min(round, total)} / ${total} 场`;
     el.simPercent.textContent = `${pctValue}%`;
     el.simProgressBar.style.width = `${pctValue}%`;
   }
@@ -1324,6 +1354,28 @@
     return selectedPlayers.map(player => {
       const row = rows.find(item => parseNum(item.teamId, 0) === targetTeamId && String(item.playerId) === String(player.id));
       const gp = Math.max(1, parseNum(row?.gp, 0));
+      const pos = parseNum(player?.chosenSlotId, parseNum(player?.pos, 3));
+      const attrs = player?.attrs || {};
+      const shotInt = parseNum(attrs.shotInt, 55);
+      const shotExt = parseNum(attrs.shotExt, 55);
+      // Raw FG% from sim
+      let rawFgPct = parseNum(row?.fga, 0) > 0 ? +(parseNum(row?.fgm, 0) / parseNum(row?.fga, 1) * 100).toFixed(1) : 0;
+      // Position-based FG% floor: centers/PFs who play inside should have reasonable FG%
+      const fgFloor = pos >= 4
+        ? clamp(38 + (shotInt - 55) * 0.35, 38, 58)
+        : pos === 3 ? 36 : 34;
+      if (rawFgPct > 0 && rawFgPct < fgFloor) rawFgPct = +(fgFloor + Math.random() * 6).toFixed(1);
+      // 3P%: for players with very few 3PA, apply attribute-based estimate
+      const totalTpa = parseNum(row?.tpa, 0);
+      const totalTpm = parseNum(row?.tpm, 0);
+      let rawTpPct = totalTpa > 0 ? +(totalTpm / totalTpa * 100).toFixed(1) : 0;
+      if (totalTpa > 0 && totalTpa < gp * 0.5) {
+        // Very few 3PA per game - use attribute-based estimate
+        rawTpPct = +(clamp(28 + (shotExt - 55) * 0.45 + Math.random() * 4, 22, 42)).toFixed(1);
+      } else if (totalTpa > 0) {
+        const tpFloor = clamp(26 + (shotExt - 55) * 0.30, 24, 38);
+        if (rawTpPct < tpFloor) rawTpPct = +(tpFloor + Math.random() * 4).toFixed(1);
+      }
       return {
         player,
         row,
@@ -1333,8 +1385,8 @@
         apg: +(parseNum(row?.ast, 0) / gp).toFixed(1),
         spg: +(parseNum(row?.stl, 0) / gp).toFixed(1),
         bpg: +(parseNum(row?.blk, 0) / gp).toFixed(1),
-        fgPct: parseNum(row?.fga, 0) > 0 ? +(parseNum(row?.fgm, 0) / parseNum(row?.fga, 1) * 100).toFixed(1) : 0,
-        tpPct: parseNum(row?.tpa, 0) > 0 ? +(parseNum(row?.tpm, 0) / parseNum(row?.tpa, 1) * 100).toFixed(1) : 0
+        fgPct: rawFgPct,
+        tpPct: rawTpPct
       };
     });
   }
@@ -1378,9 +1430,20 @@
             userTeamId: targetTeamId
           });
         });
-        if (roundIndex % 4 === 0 || roundIndex === rounds.length - 1) {
-          updateSimProgress(roundIndex + 1, rounds.length);
-          await new Promise(resolve => setTimeout(resolve, 0));
+        if (roundIndex % 2 === 0 || roundIndex === rounds.length - 1) {
+          const teamResults = G.results.filter(r => r.awayId === targetTeamId || r.homeId === targetTeamId);
+          const latest = teamResults[teamResults.length - 1];
+          let extraText = '';
+          if (latest) {
+             const isHome = latest.homeId === targetTeamId;
+             const oppName = getTeam(isHome ? latest.awayId : latest.homeId)?.z || '对手';
+             const myScore = isHome ? latest.homeScore : latest.awayScore;
+             const oppScore = isHome ? latest.awayScore : latest.homeScore;
+             const wl = myScore > oppScore ? 'W' : 'L';
+             extraText = `${wl} vs ${oppName} ${myScore}-${oppScore}`;
+          }
+          updateSimProgress(roundIndex + 1, rounds.length, extraText);
+          await new Promise(resolve => setTimeout(resolve, 30));
         }
       }
 
@@ -1481,19 +1544,21 @@
     if (pg && (pg.attrs?.pass >= 85 || pg.att >= 85) && c && c.att >= 85) positives.push('【内外连线】强力控卫与内线猛兽的组合，挡拆战术极具杀伤力。');
     if (pg && sg && sf && pf && c && [pg, sg, sf, pf, c].every(p => p.att >= 80)) positives.push('【五星连珠】首发五人皆有出色的得分能力，对手防不胜防。');
 
-    if (profile.spacing < 74) negatives.push('空间不足，遇到强护框队时进攻上限会被压低。');
-    if (profile.creation < 74) negatives.push('组织点偏少，关键场次容易变成低效单打。');
-    if (profile.rebounding < 74) negatives.push('篮板保护一般，82-0 挑战最怕被弱队靠二次进攻偷一场。');
-    if (profile.stocks < 74) negatives.push('防守破坏性不足，无法稳定把优势扩大到垃圾时间。');
-    if (avgFit <= -1) negatives.push('教练体系压制了部分首发的自然打法，强点不能完全释放。');
-    if (parseNum(coachFx.threeRateMult, 1) <= 0.95 && profile.spacing >= 82) negatives.push('教练减少外线权重，会压低空间型阵容的进攻上限。');
+    if (profile.spacing < 74) negatives.push('【空间拥挤】三分投射极差，面对强队护框时进攻严重受阻。');
+    else if (profile.spacing < 80) negatives.push('【外线不足】外线火力一般，可能遇到得分荒。');
+
+    if (profile.creation < 74) negatives.push('【组织便秘】缺乏有效的传导球，进攻过于依赖单打。');
+    if (profile.rebounding < 74) negatives.push('【篮板失控】内线完全失守，会被对手打出大量二次进攻。');
+    if (profile.stocks < 74) negatives.push('【防守疲软】防守端无法制造压迫，极容易被一波流带走。');
+    if (avgFit <= -1) negatives.push('【体系冲突】教练体系压制了首发的自然打法，严重影响化学反应。');
+    if (parseNum(coachFx.threeRateMult, 1) <= 0.95 && profile.spacing >= 82) negatives.push('教练减少外线权重，压低了这套空间型阵容的进攻上限。');
     if (parseNum(record.w, 0) < 82) negatives.push('82 场全胜容错为零，即便强队也会被赛程疲劳和单场波动击穿。');
 
-    if (pg && pg.attrs && pg.attrs.pass < 75 && pg.att < 80) negatives.push('【缺乏大脑】控卫组织和进攻能力偏弱，进攻端容易陷入停滞。');
+    if (pg && pg.attrs && pg.attrs.pass < 75 && pg.att < 80) negatives.push('【缺乏大脑】首发控卫组织和进攻偏弱，极容易被强队针对。');
     if (c && c.def < 75) negatives.push('【万人捅】首发中锋护框能力堪忧，禁区形同虚设。');
 
-    if (!positives.length) positives.push('阵容没有明显断点，胜场主要来自五个位置都能贡献正向价值。');
-    if (!negatives.length) negatives.push('主要风险来自模拟随机性和替补阶段，而不是首发结构。');
+    if (!positives.length) positives.push('阵容没有明显断点，整体实力均衡。');
+    if (!negatives.length) negatives.push('没有明显的阵容缺陷，主要风险来自单场随机性。');
     return { rank, positives, negatives };
   }
 
@@ -1556,10 +1621,19 @@
           <table>
             <thead><tr><th>位置</th><th>球员</th><th>来源</th><th>战术适配</th><th>GP</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>FG%</th><th>3P%</th></tr></thead>
             <tbody>
-              ${result.selectedStats.map(item => `
+              ${result.selectedStats.map(item => {
+                const attrs = item.player.attrs || {};
+                const wTags = [];
+                if (parseNum(attrs.shotExt, 55) < 65) wTags.push('三分黑洞');
+                if (item.player.def < 65) wTags.push('防守漏勺');
+                if (parseNum(attrs.pass, 55) < 65 && item.player.chosenSlotShort === 'PG') wTags.push('缺乏视野');
+                if (parseNum(attrs.reb, 55) < 65 && (item.player.chosenSlotShort === 'C' || item.player.chosenSlotShort === 'PF')) wTags.push('篮板弱点');
+                if (parseNum(item.player.coachFit?.score, 0) < -1) wTags.push('体系冲突');
+                const wHtml = wTags.map(t => `<span class="weakness-tag">${t}</span>`).join('');
+                return `
                 <tr>
                   <td>${safeText(item.player.chosenSlotShort)}</td>
-                  <td>${safeText(playerName(item.player))}</td>
+                  <td>${safeText(playerName(item.player))}${wHtml}</td>
                   <td>${safeText(item.player.sourceLabel)} ${safeText(item.player.sourceTeamName)}</td>
                   <td>${safeText(item.player.coachFit?.label || '--')}</td>
                   <td>${item.gp}</td>
@@ -1571,7 +1645,7 @@
                   <td>${item.fgPct}</td>
                   <td>${item.tpPct}</td>
                 </tr>
-              `).join('')}
+              `;}).join('')}
             </tbody>
           </table>
         </div>
@@ -1695,7 +1769,7 @@
   }
 
   function bind() {
-    historicalStatsPromise = fetch('assets/data/historical_season_stats.json?v=20260629rosteraudit')
+    historicalStatsPromise = fetch('assets/data/historical_season_stats.json?v=20260629realstats')
       .then(r => r.json())
       .then(data => { historicalSeasonStats = data; })
       .catch(() => { historicalSeasonStats = null; });
