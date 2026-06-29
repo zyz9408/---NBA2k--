@@ -11,6 +11,7 @@ const html = read('nba-82-0-draft.html');
 const script = read('assets/js/82-draft-challenge.js');
 const css = read('assets/css/82-draft-challenge.css');
 const sim = read('assets/js/sim.js');
+const historicalStats = read('assets/data/historical_season_stats.json');
 
 assert.doesNotThrow(() => new Function(script), '82-draft-challenge.js should parse as browser JavaScript');
 
@@ -52,9 +53,16 @@ assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for
   'resetChallenge',
   'getCoachEffectsByCoach',
   'applyCoachTacticalFit',
+  'historical_season_stats.json',
+  'findHistoricalStatsForPlayer',
+  'playerStatNames',
+  'player?.nameEn',
+  'player?.altName',
+  'statLookupYears',
+  'estimatePlayerAverages',
   'loadRosterSeason',
   'rowToPlayer',
-  'loadLeagueData({ startYear: 2025, strictRoster: true })',
+  'loadLeagueData({ startYear: state.challengeYear, strictRoster: true })',
   'simulateLeagueMatchup',
   'leagueAwardEntryForSeason',
   'getLeagueTeamRecordsArray',
@@ -67,8 +75,11 @@ assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for
 assert.ok(!script.includes('targetTeamSelect'), 'challenge script should not depend on a carrier-team selector');
 assert.ok(!script.includes('联盟排名</h3>'), 'challenge results should not render full league standings table');
 assert.ok(script.includes('玩家球队排名'), 'challenge results should show only the player team ranking summary');
+assert.ok(!script.includes("return { pts: '--', reb: '--', ast: '--', stl: '--', blk: '--' }"), 'challenge candidates should never fall back to all-empty stat lines');
 assert.ok(sim.includes('estimateLeagueThreePctForRow'), 'league row simulation should estimate realistic three-point percentage');
 assert.ok(sim.includes('Math.ceil(tpm / targetThreePct)'), 'league row simulation should backfill 3PA from target 3P%');
+assert.ok(historicalStats.includes('"Jayson Tatum"'), 'historical season stats should include English-name lookup keys');
+assert.ok(historicalStats.includes('"Victor Wembanyama"'), 'historical season stats should include current era players');
 
 [
   'candidate-grid',

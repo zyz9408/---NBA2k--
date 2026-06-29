@@ -1,4 +1,6 @@
 (function () {
+  let historicalSeasonStats = null;
+  let historicalStatsPromise = null;
   const POSITION_SLOTS = [
     { id: 1, short: 'PG', name: '控球后卫' },
     { id: 2, short: 'SG', name: '得分后卫' },
@@ -8,24 +10,24 @@
   ];
 
   const ROSTER_SEASONS = [
-    { code: 1, year: 2025, label: '2025' },
-    { code: 2, year: 2024, label: '2024' },
-    { code: 3, year: 2023, label: '2023' },
-    { code: 4, year: 2022, label: '2022' },
-    { code: 5, year: 2021, label: '2021' },
-    { code: 6, year: 2020, label: '2020' },
-    { code: 7, year: 2019, label: '2019' },
-    { code: 8, year: 2018, label: '2018' },
-    { code: 9, year: 2017, label: '2017' },
-    { code: 10, year: 2016, label: '2016' },
-    { code: 11, year: 2011, label: '2011' },
-    { code: 12, year: 2009, label: '2009' },
-    { code: 13, year: 2005, label: '2005' },
-    { code: 14, year: 2003, label: '2003' },
-    { code: 15, year: 1996, label: '1996' },
-    { code: 16, year: 1984, label: '1984' },
-    { code: 17, year: 1971, label: '1971' },
-    { code: 19, year: 1959, label: '1959' }
+    { code: 1, year: 2025, label: '2024-2025赛季' },
+    { code: 2, year: 2024, label: '2023-2024赛季' },
+    { code: 3, year: 2023, label: '2022-2023赛季' },
+    { code: 4, year: 2022, label: '2021-2022赛季' },
+    { code: 5, year: 2021, label: '2020-2021赛季' },
+    { code: 6, year: 2020, label: '2019-2020赛季' },
+    { code: 7, year: 2019, label: '2018-2019赛季' },
+    { code: 8, year: 2018, label: '2017-2018赛季' },
+    { code: 9, year: 2017, label: '2016-2017赛季' },
+    { code: 10, year: 2016, label: '2015-2016赛季' },
+    { code: 11, year: 2011, label: '2010-2011赛季' },
+    { code: 12, year: 2009, label: '2008-2009赛季' },
+    { code: 13, year: 2005, label: '2004-2005赛季' },
+    { code: 14, year: 2003, label: '2002-2003赛季' },
+    { code: 15, year: 1996, label: '1995-1996赛季' },
+    { code: 16, year: 1984, label: '1983-1984赛季' },
+    { code: 17, year: 1971, label: '1970-1971赛季' },
+    { code: 19, year: 1959, label: '1958-1959赛季' }
   ];
 
   const FANTASY_TEAM_ID = 31;
@@ -69,7 +71,8 @@
     coachChoices: [],
     selectedCoach: null,
     busy: false,
-    result: null
+    result: null,
+    challengeYear: 2025
   };
 
   const el = {
@@ -96,7 +99,10 @@
     screenMainMenu: document.getElementById('screenMainMenu'),
     screenDraftRoom: document.getElementById('screenDraftRoom'),
     screenResults: document.getElementById('screenResults'),
-    backToMenuBtn: document.getElementById('backToMenuBtn')
+    backToMenuBtn: document.getElementById('backToMenuBtn'),
+    challengeYearHeader: document.getElementById('challengeYearHeader'),
+    rosterYearText: document.getElementById('rosterYearText'),
+    resultYearText: document.getElementById('resultYearText')
   };
 
   function switchScreen(screenId) {
@@ -471,38 +477,31 @@
     state.busy = true;
     renderAll();
     try {
-      await loadLeagueData({ startYear: 2025, strictRoster: true });
-      const pool = (LEAGUE.coaches || [])
-        .filter(coach => coach && coach.name)
-        .map((coach, index) => normalizeCoachChoice(coach, index));
-      const picked = [];
-      const usedNames = new Set();
-      const pushCoach = (coach) => {
-        if (!coach || usedNames.has(String(coach.name))) return;
-        usedNames.add(String(coach.name));
-        picked.push(coach);
-      };
-      ['pace_space', 'perimeter_star', 'interior_star', 'defense', 'seven_seconds', 'triangle', 'balance'].forEach(systemId => {
-        pushCoach(pool.find(coach => coach.systemId === systemId && !usedNames.has(String(coach.name))));
-      });
-      shuffle(pool).forEach(pushCoach);
+      await loadLeagueData({ startYear: state.challengeYear, strictRoster: true });
+      const picked = [
+        normalizeCoachChoice({
+          id: 82001, name: '斯蒂夫-科尔', teamId: FANTASY_TEAM_ID, systemId: 'pace_space',
+          baseShotIntPercent: 30, baseShotTriplePercent: 50, baseOffensive: 50, baseDefense: 30, techLevel: 0, techDev: 0, loyalty: 5
+        }, 0),
+        normalizeCoachChoice({
+          id: 82002, name: '菲尔-杰克逊', teamId: FANTASY_TEAM_ID, systemId: 'triangle',
+          baseShotIntPercent: 45, baseShotTriplePercent: 35, baseOffensive: 50, baseDefense: 40, techLevel: 0, techDev: 0, loyalty: 5
+        }, 1),
+        normalizeCoachChoice({
+          id: 82003, name: '迈克-德安东尼', teamId: FANTASY_TEAM_ID, systemId: 'seven_seconds',
+          baseShotIntPercent: 35, baseShotTriplePercent: 45, baseOffensive: 55, baseDefense: 25, techLevel: 0, techDev: 0, loyalty: 5
+        }, 2),
+        normalizeCoachChoice({
+          id: 82004, name: '查克-戴利', teamId: FANTASY_TEAM_ID, systemId: 'defense',
+          baseShotIntPercent: 45, baseShotTriplePercent: 30, baseOffensive: 35, baseDefense: 55, techLevel: 0, techDev: 0, loyalty: 5
+        }, 3),
+        normalizeCoachChoice({
+          id: 82005, name: '格雷格-波波维奇', teamId: FANTASY_TEAM_ID, systemId: 'balance',
+          baseShotIntPercent: 40, baseShotTriplePercent: 40, baseOffensive: 45, baseDefense: 45, techLevel: 0, techDev: 0, loyalty: 5
+        }, 4)
+      ];
 
-      if (!picked.length) {
-        picked.push(normalizeCoachChoice({
-          id: 8201,
-          name: '临时主教练',
-          teamId: FANTASY_TEAM_ID,
-          systemId: 'balance',
-          baseShotIntPercent: 40,
-          baseShotTriplePercent: 40,
-          baseOffensive: 40,
-          baseDefense: 40,
-          techLevel: 0,
-          techDev: 0,
-          loyalty: 5
-        }, 0));
-      }
-      state.coachChoices = picked.slice(0, 5).map((coach, index) => normalizeCoachChoice(coach, index));
+      state.coachChoices = picked;
     } catch (err) {
       console.error(err);
       el.emptyState.hidden = false;
@@ -692,7 +691,7 @@
     el.currentSlotLabel.textContent = STAGE_LABELS[state.stage] || '抽取球队/年份';
     if (state.stage === 'results') {
       el.roundKicker.textContent = '赛季模拟完成';
-      el.poolTitle.textContent = '2025 赛季结果';
+      el.poolTitle.textContent = `${state.challengeYear} 赛季结果`;
     } else if (state.stage === 'coach_select' || state.stage === 'ready_to_simulate') {
       el.roundKicker.textContent = '5 / 5 个位置完成';
       el.poolTitle.textContent = state.stage === 'coach_select' ? '选择主教练和战术体系' : '阵容与教练已锁定';
@@ -711,7 +710,7 @@
       const summary = coachProfileSummary(state.selectedCoach);
       el.sourceLabel.textContent = `${state.selectedCoach.name} · ${summary.fx.systemLabel}`;
     } else if (state.stage === 'coach_select') {
-      el.sourceLabel.textContent = '2025 教练池';
+      el.sourceLabel.textContent = `${state.challengeYear} 教练池`;
     } else {
       el.sourceLabel.textContent = count >= 5 ? '等待教练选择' : '等待抽取';
     }
@@ -734,11 +733,117 @@
     el.restartButton.disabled = state.busy;
   }
 
-  function candidateStatTiles(player) {
+  function getPlayerAverages(player) {
+    const row = findHistoricalStatsForPlayer(player);
+    if (row) return statRowToAverages(row, 'real');
+    if (player.careerBeforeStart && player.careerBeforeStart.totals && player.careerBeforeStart.totals.gp > 0) {
+      const t = player.careerBeforeStart.totals;
+      return {
+        pts: (t.pts / t.gp).toFixed(1),
+        reb: (t.reb / t.gp).toFixed(1),
+        ast: (t.ast / t.gp).toFixed(1),
+        stl: ((t.stl || 0) / t.gp).toFixed(1),
+        blk: ((t.blk || 0) / t.gp).toFixed(1),
+        source: 'career'
+      };
+    }
+    return estimatePlayerAverages(player);
+  }
+
+  function statRowToAverages(row, source) {
+    return {
+      pts: formatStatNumber(row.PTS),
+      reb: formatStatNumber(row.REB),
+      ast: formatStatNumber(row.AST),
+      stl: formatStatNumber(row.STL),
+      blk: formatStatNumber(row.BLK),
+      source
+    };
+  }
+
+  function formatStatNumber(value) {
+    const n = parseNum(value, NaN);
+    return Number.isFinite(n) ? n.toFixed(1) : '0.0';
+  }
+
+  function statNameKey(value) {
+    return String(value || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+  }
+
+  function playerStatNames(player) {
     return [
-      `<div class="stat-tile"><span>进攻</span><strong>${parseNum(player.att, 0)}</strong></div>`,
-      `<div class="stat-tile"><span>防守</span><strong>${parseNum(player.def, 0)}</strong></div>`,
-      `<div class="stat-tile"><span>OVR</span><strong>${ratingOf(player)}</strong></div>`
+      player?.nameEn,
+      player?.altName,
+      player?.nameBirth,
+      player?.Name,
+      player?.name,
+      player?.nameCn
+    ]
+      .map(name => String(name || '').trim())
+      .filter((name, index, list) => name && list.indexOf(name) === index);
+  }
+
+  function statLookupYears(player) {
+    const year = parseNum(player?.sourceYear || state.challengeYear, 0);
+    return [...new Set([year, year + 1, year - 1])]
+      .filter(candidateYear => candidateYear && historicalSeasonStats?.[candidateYear]);
+  }
+
+  function findHistoricalStatsForPlayer(player) {
+    if (!historicalSeasonStats) return null;
+    const names = playerStatNames(player);
+    if (!names.length) return null;
+    const normalizedNames = names.map(statNameKey).filter(Boolean);
+    for (const year of statLookupYears(player)) {
+      const db = historicalSeasonStats[year];
+      for (const name of names) {
+        if (db[name]) return db[name];
+      }
+      const matchedKey = Object.keys(db).find(key => normalizedNames.includes(statNameKey(key)));
+      if (matchedKey) return db[matchedKey];
+    }
+    return null;
+  }
+
+  function estimatePlayerAverages(player) {
+    const attrs = player?.attrs || {};
+    const rating = ratingOf(player);
+    const position = parseNum(player?.pos, 3);
+    const att = parseNum(player?.att, calcPlayerAtt(attrs));
+    const shot = (
+      parseNum(attrs.shotExt, 60) +
+      parseNum(attrs.shotInt, 60) +
+      parseNum(attrs.shotFree, 60)
+    ) / 3;
+    const pass = parseNum(attrs.pass, 60);
+    const rebSkill = parseNum(attrs.reb, 60);
+    const stlSkill = parseNum(attrs.stl, 60);
+    const blkSkill = parseNum(attrs.blk, 55);
+    const posReb = { 1: 2.9, 2: 3.6, 3: 5.0, 4: 7.2, 5: 8.8 }[position] || 5.0;
+    const posAst = { 1: 5.8, 2: 3.8, 3: 3.0, 4: 2.3, 5: 1.8 }[position] || 3.0;
+    const posBlk = { 1: 0.2, 2: 0.3, 3: 0.5, 4: 0.8, 5: 1.1 }[position] || 0.5;
+    return {
+      pts: clamp((rating - 55) * 0.42 + (shot - 55) * 0.16 + (att - 65) * 0.12 + 6, 4, 33).toFixed(1),
+      reb: clamp(posReb + (rebSkill - 65) * 0.11 + (rating - 75) * 0.04, 1.5, 16).toFixed(1),
+      ast: clamp(posAst + (pass - 65) * 0.10 + (rating - 75) * 0.03, 1.0, 11).toFixed(1),
+      stl: clamp(0.6 + (stlSkill - 60) * 0.025, 0.3, 2.3).toFixed(1),
+      blk: clamp(posBlk + (blkSkill - 58) * 0.035, 0.1, 4.0).toFixed(1),
+      source: 'estimate'
+    };
+  }
+
+  function candidateStatTiles(player) {
+    const avg = getPlayerAverages(player);
+    return [
+      `<div class="stat-tile"><span>得分</span><strong>${avg.pts}</strong></div>`,
+      `<div class="stat-tile"><span>篮板</span><strong>${avg.reb}</strong></div>`,
+      `<div class="stat-tile"><span>助攻</span><strong>${avg.ast}</strong></div>`,
+      `<div class="stat-tile"><span>抢断</span><strong>${avg.stl}</strong></div>`,
+      `<div class="stat-tile"><span>盖帽</span><strong>${avg.blk}</strong></div>`
     ].join('');
   }
 
@@ -811,7 +916,7 @@
             <p>${safeText(playerEnglishName(player))}</p>
             <div class="candidate-meta">
               <span class="tag">原始位置 ${safeText(posLabel(player.pos))}${player.pos2 ? ` / ${safeText(posLabel(player.pos2))}` : ''}</span>
-              <span class="tag gold">OVR ${ratingOf(player)}</span>
+              <span class="tag gold">场均 ${getPlayerAverages(player).pts}分 ${getPlayerAverages(player).reb}板 ${getPlayerAverages(player).ast}助 ${getPlayerAverages(player).stl}断 ${getPlayerAverages(player).blk}帽</span>
               <span class="tag">可打 ${safeText(describePositions(options))}</span>
             </div>
           </div>
@@ -839,7 +944,7 @@
       <div class="coach-grid">
         ${state.coachChoices.map((coach, index) => {
           const summary = coachProfileSummary(coach);
-          const teamName = coach.teamMeta?.z || getTeam(coach.teamId)?.z || '2025 教练池';
+          const teamName = coach.teamMeta?.z || getTeam(coach.teamId)?.z || `${state.challengeYear} 教练池`;
           return `
             <button class="coach-card" type="button" data-coach-choice="${index}">
               <div class="coach-card-head">
@@ -867,7 +972,7 @@
     return `
       <div class="ready-panel">
         <h3>阵容、落位和教练已锁定</h3>
-        <p>${safeText(coach.name)} 的 ${safeText(summary.fx.systemLabel)} 会在模拟前调整首发属性，并作为 82-0 挑战队主教练参与 2025 赛季模拟。</p>
+        <p>${safeText(coach.name)} 的 ${safeText(summary.fx.systemLabel)} 会在模拟前调整首发属性，并作为 82-0 挑战队主教练参与 ${state.challengeYear} 赛季模拟。</p>
         <div class="impact-list">
           <span><strong>强化</strong>${safeText(summary.buffs.join(' / '))}</span>
           <span><strong>削弱</strong>${safeText(summary.nerfs.join(' / '))}</span>
@@ -890,7 +995,7 @@
       el.candidateGrid.innerHTML = '';
       el.emptyState.hidden = false;
       if (state.busy && state.stage === 'coach_select') {
-        el.emptyState.innerHTML = '<strong>正在读取 2025 教练池</strong><span>教练战术会影响首发适配和赛季模拟。</span>';
+        el.emptyState.innerHTML = `<strong>正在读取 ${state.challengeYear} 教练池</strong><span>教练战术会影响首发适配和赛季模拟。</span>`;
       } else {
         el.emptyState.innerHTML = '<strong>先抽取球队和年份</strong><span>抽中来源后选择球员，再按球员可打位置落位。五个位置完成后选择教练。</span>';
       }
@@ -918,7 +1023,7 @@
             <strong>${player ? safeText(playerName(player)) : '未选择'}</strong>
             <span>${player ? `${safeText(player.sourceLabel)} · ${safeText(player.sourceTeamName)}${fit ? ` · ${safeText(fit.label)}` : ''}` : safeText(slot.name)}</span>
           </div>
-          <div class="slot-rating">${player ? ratingOf(player) : '--'}</div>
+          <div class="slot-rating" style="font-size:12px; font-weight:800; white-space:nowrap;">${player ? (() => { const a = getPlayerAverages(player); return `${a.pts}分 ${a.reb}板 ${a.ast}助 ${a.stl}断 ${a.blk}帽`; })() : '--'}</div>
         </div>
       `;
     }).join('');
@@ -929,7 +1034,12 @@
         : state.selected;
       const profile = analyzeLineup(lineupForReview);
       const coachCopy = state.selectedCoach ? `，教练：${state.selectedCoach.name}` : '，等待教练选择';
-      el.lineupSummary.innerHTML = `均值 OVR <strong>${profile.avgRating}</strong>，进攻 <strong>${profile.offense}</strong>，防守 <strong>${profile.defense}</strong>${safeText(coachCopy)}。标签：${safeText(profile.tags.join(' / '))}`;
+      const totalPts = lineupForReview.reduce((sum, p) => sum + (parseFloat(getPlayerAverages(p).pts) || 0), 0).toFixed(1);
+      const totalReb = lineupForReview.reduce((sum, p) => sum + (parseFloat(getPlayerAverages(p).reb) || 0), 0).toFixed(1);
+      const totalAst = lineupForReview.reduce((sum, p) => sum + (parseFloat(getPlayerAverages(p).ast) || 0), 0).toFixed(1);
+      const totalStl = lineupForReview.reduce((sum, p) => sum + (parseFloat(getPlayerAverages(p).stl) || 0), 0).toFixed(1);
+      const totalBlk = lineupForReview.reduce((sum, p) => sum + (parseFloat(getPlayerAverages(p).blk) || 0), 0).toFixed(1);
+      el.lineupSummary.innerHTML = `首发合计场均 <strong>${totalPts}分 ${totalReb}板 ${totalAst}助 ${totalStl}断 ${totalBlk}帽</strong>，进攻 <strong>${profile.offense}</strong>，防守 <strong>${profile.defense}</strong>${safeText(coachCopy)}。标签：${safeText(profile.tags.join(' / '))}`;
     } else {
       el.lineupSummary.textContent = `已选 ${selectedCount()} / 5。每轮先抽来源、选球员，再选择位置。`;
     }
@@ -951,8 +1061,8 @@
     G.player.name = '';
     G.team = null;
     G.teamId = 0;
-    G.startYear = 2025;
-    G.year = 2025;
+    G.startYear = state.challengeYear;
+    G.year = state.challengeYear;
     G.season = 1;
     G.gameNum = 0;
     G.dayNum = 0;
@@ -1147,8 +1257,8 @@
     const targetTeamId = FANTASY_TEAM_ID;
     let originalBuildDynamic = null;
     try {
-      el.simStatus.textContent = '加载 2025 名单';
-      await loadLeagueData({ startYear: 2025, strictRoster: true });
+      el.simStatus.textContent = `加载 ${state.challengeYear} 名单`;
+      await loadLeagueData({ startYear: state.challengeYear, strictRoster: true });
       ensureFantasyTeamShell();
       resetLeagueGameState(targetTeamId);
       const fantasy = installFantasyTeam(targetTeamId);
@@ -1168,7 +1278,7 @@
           simulateLeagueMatchup(pair.homeTeamId, pair.awayTeamId, {
             roundIndex,
             season: 1,
-            year: 2025,
+            year: state.challengeYear,
             phase: 'regular',
             userTeamId: targetTeamId
           });
@@ -1260,7 +1370,7 @@
     const pf = getPos('PF');
     const c = getPos('C');
 
-    if (profile.avgRating >= 88) positives.push('首发个人能力足以碾压大多数 2025 常规赛对手。');
+    if (profile.avgRating >= 88) positives.push(`首发个人能力足以碾压大多数 ${state.challengeYear} 常规赛对手。`);
     if (profile.spacing >= 82) positives.push('外线空间拉满，模拟中更容易打出高进攻效率。');
     if (profile.creation >= 80) positives.push('持球和传导稳定，减少了单点哑火风险。');
     if (profile.rebounding >= 82) positives.push('篮板优势能把随机手感波动转成更多二次进攻。');
@@ -1429,7 +1539,8 @@
         candidates: state.currentPool.candidates.map(player => ({
           name: playerName(player),
           positions: describePositions(player.positionOptions || []),
-          rating: ratingOf(player)
+          rating: ratingOf(player),
+          averages: getPlayerAverages(player)
         }))
       } : null,
       coachChoices: state.stage === 'coach_select' ? state.coachChoices.map(coach => ({
@@ -1472,12 +1583,25 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function startCareer() {
+  async function startCareer() {
+    if (historicalStatsPromise) {
+      const origText = el.startGameBtn.textContent;
+      el.startGameBtn.textContent = '加载数据中...';
+      el.startGameBtn.disabled = true;
+      await historicalStatsPromise;
+      el.startGameBtn.textContent = origText;
+      el.startGameBtn.disabled = false;
+    }
     switchScreen('draft_room');
     rollTeamYear();
   }
 
   function bind() {
+    historicalStatsPromise = fetch('assets/data/historical_season_stats.json')
+      .then(r => r.json())
+      .then(data => { historicalSeasonStats = data; })
+      .catch(() => { historicalSeasonStats = null; });
+
     buildTeamOptions();
     switchScreen('main_menu');
     renderAll();
@@ -1486,6 +1610,18 @@
       if (state.stage !== 'spin' && !confirm('返回主菜单将重置当前挑战进度，确定吗？')) return;
       resetChallenge();
     });
+
+    document.querySelectorAll('.era-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.era-btn').forEach(b => b.classList.remove('active'));
+        e.currentTarget.classList.add('active');
+        state.challengeYear = parseNum(e.currentTarget.getAttribute('data-year'), 2025);
+        if(el.challengeYearHeader) el.challengeYearHeader.textContent = state.challengeYear;
+        if(el.rosterYearText) el.rosterYearText.textContent = state.challengeYear;
+        if(el.resultYearText) el.resultYearText.textContent = state.challengeYear;
+      });
+    });
+
     el.rollButton.addEventListener('click', () => rollTeamYear());
     el.rerollButton.addEventListener('click', () => {
       if (state.rerollsLeft > 0 && state.currentPool && state.stage === 'player_select') rollTeamYear({ consumeReroll: true });

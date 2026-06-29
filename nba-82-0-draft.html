@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>82胜抽卡挑战 | NBA Career Simulator</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="assets/css/82-draft-challenge.css?v=20260626">
+  <link rel="stylesheet" href="assets/css/82-draft-challenge.css?v=20260629stats">
 </head>
 
 <body>
@@ -36,9 +36,20 @@
     <section id="screenMainMenu" class="screen-view active">
       <div class="menu-content">
         <div class="menu-logo-placeholder"></div>
-        <p class="menu-kicker">2025 League Season Challenge</p>
+        <p class="menu-kicker"><span id="challengeYearHeader">2025</span> League Season Challenge</p>
         <h1 class="menu-title">82胜抽卡挑战</h1>
         <p class="menu-subtitle">组建你的最强阵容，挑战历史级别的 82胜0负</p>
+
+        <div class="era-selector" id="eraSelector">
+          <label>选择挑战时代</label>
+          <div class="era-options">
+            <button class="era-btn active" data-year="2025">新世代<br><small>2025</small></button>
+            <button class="era-btn" data-year="2016">库里时代<br><small>2016</small></button>
+            <button class="era-btn" data-year="2008">科比时代<br><small>2008</small></button>
+            <button class="era-btn" data-year="1996">乔丹时代<br><small>1996</small></button>
+          </div>
+        </div>
+
         <button class="manager-btn massive primary" id="startGameBtn" type="button">开始执教 (START CAREER)</button>
       </div>
     </section>
@@ -99,7 +110,7 @@
         <aside class="roster-sidebar" aria-label="阵容战术板">
           <header class="sidebar-header">
             <h2>战术板 & 阵容</h2>
-            <p>2025 Challenge Roster</p>
+            <p><span id="rosterYearText">2025</span> Challenge Roster</p>
           </header>
           <div class="lineup-list" id="lineupList"></div>
           <div class="lineup-summary" id="lineupSummary">先完成五个位置选择，再锁定教练。</div>
@@ -112,7 +123,7 @@
       <div class="results-layout">
         <header class="results-header">
           <h1>赛季总结</h1>
-          <p>2025 赛季模拟已完成</p>
+          <p><span id="resultYearText">2025</span> 赛季模拟已完成</p>
         </header>
         <section class="simulation-panel" id="simulationPanel" hidden>
           <div class="sim-progress">
@@ -140,7 +151,7 @@
   <script src="assets/js/text-pools-extra.js?v=20260429templates2"></script>
   <script src="assets/js/text-pools-long.js?v=20260429longtemplates"></script>
   <script src="assets/js/sim.js?v=20260615auto"></script>
-  <script src="assets/js/82-draft-challenge.js?v=20260626"></script>
+  <script src="assets/js/82-draft-challenge.js?v=20260629stats"></script>
 </body>
 
 </html>
