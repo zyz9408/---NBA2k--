@@ -10,24 +10,24 @@
   ];
 
   const ROSTER_SEASONS = [
-    { code: 1, year: 2025, label: '2024-2025赛季' },
-    { code: 2, year: 2024, label: '2023-2024赛季' },
-    { code: 3, year: 2023, label: '2022-2023赛季' },
-    { code: 4, year: 2022, label: '2021-2022赛季' },
-    { code: 5, year: 2021, label: '2020-2021赛季' },
-    { code: 6, year: 2020, label: '2019-2020赛季' },
-    { code: 7, year: 2019, label: '2018-2019赛季' },
-    { code: 8, year: 2018, label: '2017-2018赛季' },
-    { code: 9, year: 2017, label: '2016-2017赛季' },
-    { code: 10, year: 2016, label: '2015-2016赛季' },
-    { code: 11, year: 2011, label: '2010-2011赛季' },
-    { code: 12, year: 2009, label: '2008-2009赛季' },
-    { code: 13, year: 2005, label: '2004-2005赛季' },
-    { code: 14, year: 2003, label: '2002-2003赛季' },
-    { code: 15, year: 1996, label: '1995-1996赛季' },
-    { code: 16, year: 1984, label: '1983-1984赛季' },
-    { code: 17, year: 1971, label: '1970-1971赛季' },
-    { code: 19, year: 1959, label: '1958-1959赛季' }
+    { code: 1, year: 2025, statsYear: 2025, label: '2025-2026名单' },
+    { code: 2, year: 2025, statsYear: 2025, label: '2024-2025赛季' },
+    { code: 3, year: 2024, statsYear: 2024, label: '2023-2024赛季' },
+    { code: 4, year: 2023, statsYear: 2023, label: '2022-2023赛季' },
+    { code: 5, year: 2022, statsYear: 2022, label: '2021-2022赛季' },
+    { code: 6, year: 2021, statsYear: 2021, label: '2020-2021赛季' },
+    { code: 7, year: 2020, statsYear: 2020, label: '2019-2020赛季' },
+    { code: 8, year: 2019, statsYear: 2019, label: '2018-2019赛季' },
+    { code: 9, year: 2018, statsYear: 2018, label: '2017-2018赛季' },
+    { code: 10, year: 2016, statsYear: 2016, label: '2015-2016赛季' },
+    { code: 11, year: 2011, statsYear: 2011, label: '2010-2011赛季' },
+    { code: 12, year: 2009, statsYear: 2009, label: '2008-2009赛季' },
+    { code: 13, year: 2005, statsYear: 2005, label: '2004-2005赛季' },
+    { code: 14, year: 2003, statsYear: 2003, label: '2002-2003赛季' },
+    { code: 15, year: 1996, statsYear: 1996, label: '1995-1996赛季' },
+    { code: 16, year: 1984, statsYear: 1984, label: '1983-1984赛季' },
+    { code: 17, year: 1971, statsYear: 1971, label: '1970-1971赛季' },
+    { code: 19, year: 1959, statsYear: 1959, label: '1958-1959赛季' }
   ];
 
   const FANTASY_TEAM_ID = 31;
@@ -253,6 +253,7 @@
       if (!isTeamAvailableInSeason(teamId, season.year)) return;
       const player = rowToPlayer(row, idx + 1, { teamId });
       player.sourceYear = season.year;
+      player.sourceStatsYear = season.statsYear || season.year;
       player.sourceLabel = season.label;
       player.sourceRosterCode = season.code;
       player.sourceTeamId = teamId;
@@ -345,6 +346,7 @@
           sourceTeamName: bucket.sourceTeamName || bucket.team.z,
           sourceTeamAbbr: bucket.team.a,
           sourceYear: pack.season.year,
+          sourceStatsYear: pack.season.statsYear || pack.season.year,
           sourceLabel: pack.season.label,
           sourceRosterCode: pack.season.code
         };
@@ -788,9 +790,8 @@
   }
 
   function statLookupYears(player) {
-    const year = parseNum(player?.sourceYear || state.challengeYear, 0);
-    return [...new Set([year, year + 1, year - 1])]
-      .filter(candidateYear => candidateYear && historicalSeasonStats?.[candidateYear]);
+    const year = parseNum(player?.sourceStatsYear || player?.sourceYear || state.challengeYear, 0);
+    return year && historicalSeasonStats?.[year] ? [year] : [];
   }
 
   function findHistoricalStatsForPlayer(player) {
@@ -1522,6 +1523,7 @@
           slot: slot.short,
           name: playerName(player),
           sourceYear: player.sourceLabel,
+          statsYear: player.sourceStatsYear,
           sourceTeam: player.sourceTeamName,
           rating: ratingOf(player),
           coachFit: state.selectedCoach ? coachImpactForPlayer(player, state.selectedCoach).label : null
@@ -1530,6 +1532,7 @@
       pendingPlayer: state.pendingPlayer ? {
         name: playerName(state.pendingPlayer),
         sourceYear: state.pendingPlayer.sourceLabel,
+        statsYear: state.pendingPlayer.sourceStatsYear,
         sourceTeam: state.pendingPlayer.sourceTeamName,
         positionOptions: positionOptionsForPlayer(state.pendingPlayer).map(posLabel)
       } : null,
@@ -1540,6 +1543,7 @@
           name: playerName(player),
           positions: describePositions(player.positionOptions || []),
           rating: ratingOf(player),
+          statsYear: player.sourceStatsYear,
           averages: getPlayerAverages(player)
         }))
       } : null,
