@@ -23,6 +23,7 @@ const roster14 = read('assets/data/rosters14.csv');
 const roster15 = read('assets/data/rosters15.csv');
 const roster17 = read('assets/data/rosters17.csv');
 const roster19 = read('assets/data/rosters19.csv');
+const rookieReal = read('assets/data/rostersRookiesReal.csv');
 
 assert.doesNotThrow(() => new Function(script), '82-draft-challenge.js should parse as browser JavaScript');
 
@@ -136,10 +137,20 @@ assert.ok(sim.includes('__realThreePct'), 'league row simulation should use exac
 assert.ok(script.includes('sourceRealStats'), 'draft challenge should pass selected source-season shooting percentages into simulation');
 assert.ok(script.includes('injectRealRookiesForChallengeSeason'), 'draft challenge should restore real current-draft rookies into the simulated 2025 league');
 assert.ok(script.includes('loadChallengeLeagueData'), 'draft challenge should load a playable league fallback for challenge years outside the core strict roster map');
+assert.ok(script.includes('hasRealRookieAttributeSource'), 'draft challenge should prefer real rookie attribute rows before historical seed fallback');
+assert.ok(script.includes('sourceRookieAttrs'), 'draft challenge injected rookies should record the attribute source used for award candidates');
+assert.ok(script.includes('realRookieAttributes'), 'draft challenge should preserve real rookie attribute markers on injected rookies');
 assert.ok(script.includes('getHistoricalDraftClass(year)'), 'draft challenge should inject historical real draft classes when the loaded roster has no current-year rookies');
 assert.ok(script.includes('catalogRookies.filter(player => parseNum(player.draftTeamId || player.originalTeamId'), 'draft challenge should distinguish roster-extracted rookies from historical catalog fallback rookies');
 assert.ok(script.includes('fromHistoricalFallback'), 'draft challenge should allow rookie-version historical players even when veteran versions already exist in the loaded league');
 assert.ok(core.includes('draftTeamId: p.teamId'), 'rookie catalog extraction should retain original team for later 2025 roster injection');
+assert.ok(core.includes("source: p.source || 'roster_extracted_rookie'"), 'roster-extracted current rookies should be marked as real attribute rookies');
+assert.ok(core.includes("source: 'real_rookie_csv'"), 'core league load should build rookie catalog players from the real rookie attribute CSV');
+assert.ok(core.includes('realRookieCatalogFromRows'), 'core league load should merge the real rookie attribute catalog before historical seed rookies');
+assert.ok(core.includes('[...extractedRookies, ...realRookies, ...historicalRookies]'), 'real rookie attribute rows should win de-duplication before historical seed rookies');
+assert.ok(rookieReal.includes('Ben Simmons') && rookieReal.includes(';2016;201601;'), 'real rookie table should include 2016 first-pick attributes');
+assert.ok(rookieReal.includes('Derrick Rose') && rookieReal.includes(';2008;200801;'), 'real rookie table should include 2008 first-pick attributes');
+assert.ok(rookieReal.includes('Allen Iverson') && rookieReal.includes(';1996;199601;'), 'real rookie table should include 1996 first-pick attributes');
 assert.ok(sim.includes('yearsLeague: parseNum(simPlayer?.yearsLeague'), 'league game rows should preserve player experience for award eligibility');
 assert.ok(sim.includes('yearsLeague: parseNum(ps.yearsLeague, -1)'), 'league season row exports should preserve player experience for awards');
 assert.ok(sim.includes('parseNum(r.yearsLeague, -1) === 0'), 'ROY filtering should not treat missing experience as rookie eligibility');

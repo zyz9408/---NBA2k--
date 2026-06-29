@@ -634,6 +634,50 @@ function rowToPlayer(row, fallbackId, extra = {}) {
 
   return player;
 }
+
+function rookieDraftYearFromRow(row = {}) {
+  const yearsField = parseNum(row.yearsLeague, 0);
+  if (yearsField >= 1900 && yearsField <= 2100) return yearsField;
+  const draftValue = parseNum(row.draft, 0);
+  if (draftValue >= 190000) return Math.floor(draftValue / 100);
+  const directYear = parseNum(row.draftYear, 0);
+  return directYear >= 1900 && directYear <= 2100 ? directYear : 0;
+}
+
+function realRookieCatalogFromRows(rows = []) {
+  const normalized = (rows || []).map((row, idx) => {
+    const draftYear = rookieDraftYearFromRow(row);
+    const draftValue = parseNum(row.draft, 0);
+    return { row, idx, draftYear, draftValue, parsedPick: parseDraftPickValue(draftValue) };
+  }).filter(item => item.draftYear >= 1947 && item.draftYear <= 2100);
+  const maxPickByYear = new Map();
+  normalized.forEach(item => {
+    if (item.parsedPick <= 0) return;
+    maxPickByYear.set(item.draftYear, Math.max(maxPickByYear.get(item.draftYear) || 0, item.parsedPick));
+  });
+  const nextUnsignedPickByYear = new Map();
+  return normalized.map(item => {
+    let draftPick = item.parsedPick;
+    if (draftPick <= 0) {
+      const next = (nextUnsignedPickByYear.get(item.draftYear) || Math.max(maxPickByYear.get(item.draftYear) || 60, 60)) + 1;
+      nextUnsignedPickByYear.set(item.draftYear, next);
+      draftPick = next;
+    }
+    const player = rowToPlayer(item.row, 710000 + item.idx + 1, {
+      teamId: 0,
+      yearsLeague: 0,
+      rookie: true,
+      source: 'real_rookie_csv',
+      sourceDraftYear: item.draftYear,
+      draftPick,
+      draft: item.draftValue > 0 ? item.draftValue : item.draftYear * 100 + draftPick,
+      injury: { active: false, games: 0, type: "" }
+    });
+    hydratePlayerWithHistoricalData(player, item.draftYear);
+    player.realRookieAttributes = true;
+    return player;
+  });
+}
 function toRotation(players) {
   const ranked = (players || [])
     .map(p => ({ ...p, isSelf: false, roleScore: roleScoreForPlayer(p) }))
@@ -1794,9 +1838,10 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
     const preferredCoachIndex = detectedRosterYear || resolveRosterIndexesByStartYear(requestedStartYear)[0] || 1;
     const coachCandidates = buildCoachPathCandidatesByIndex(preferredCoachIndex);
 
-    const [coachPack, namesPack] = await Promise.all([
+    const [coachPack, namesPack, rookiePack] = await Promise.all([
       fetchFirstText(coachCandidates, { required: true, label: 'coach' }),
-      fetchFirstText(buildNamesPathCandidates(), { required: false, label: 'names' })
+      fetchFirstText(buildNamesPathCandidates(), { required: false, label: 'names' }),
+      fetchFirstText(buildRookiePathCandidates(), { required: false, label: 'rookies' })
     ]);
 
     const rosterText = rosterPack.text;
@@ -1875,16 +1920,17 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
       const kept = [];
       (t.players || []).forEach(p => {
         if (parseNum(p.yearsLeague, -1) === 0) {
-          extractedRookies.push({ ...p, originalTeamId: p.teamId, draftTeamId: p.teamId, teamId: 0, rookie: true });
+          extractedRookies.push({ ...p, originalTeamId: p.teamId, draftTeamId: p.teamId, teamId: 0, rookie: true, realRookieAttributes: true, source: p.source || 'roster_extracted_rookie' });
         } else {
           kept.push(p);
         }
       });
       t.players = kept;
     });
+    const realRookies = realRookieCatalogFromRows(parseCSV(rookiePack.text || ''));
     const historicalRookies = buildHistoricalRookieCatalog();
     const rookieKeys = new Set();
-    LEAGUE.rookieCatalog = [...extractedRookies, ...historicalRookies].filter(p => {
+    LEAGUE.rookieCatalog = [...extractedRookies, ...realRookies, ...historicalRookies].filter(p => {
       const key = playerIdentityKey(p) || `${p.sourceDraftYear || rookieDraftYear(p)}:${p.draftPick || p.id}`;
       if (!key || rookieKeys.has(key)) return false;
       rookieKeys.add(key);

@@ -1490,9 +1490,17 @@
     return assignOrder[index % Math.max(1, assignOrder.length)] || 0;
   }
 
+  function hasRealRookieAttributeSource(player) {
+    if (!player) return false;
+    if (player.realRookieAttributes || String(player.source || '') === 'real_rookie_csv') return true;
+    const attrs = player.attrs && typeof player.attrs === 'object' ? player.attrs : null;
+    return !!attrs && parseNum(player.sourceDraftYear, 0) >= 1947 && String(player.source || '') !== 'historical_db';
+  }
+
   function injectRealRookiesForChallengeSeason(seasonYear) {
     const year = parseNum(seasonYear, 0);
     let fromHistoricalFallback = false;
+    let fromAttributeCatalogFallback = false;
     const catalogRookies = (LEAGUE.rookieCatalog || [])
       .filter(player => {
         const draftCode = parseNum(player?.draft, 0);
@@ -1501,6 +1509,10 @@
       })
       .sort((a, b) => parseNum(a.draftPick, 999) - parseNum(b.draftPick, 999));
     let rookies = catalogRookies.filter(player => parseNum(player.draftTeamId || player.originalTeamId, 0) > 0);
+    if (!rookies.length) {
+      rookies = catalogRookies.filter(hasRealRookieAttributeSource);
+      fromAttributeCatalogFallback = rookies.length > 0;
+    }
     if (!rookies.length && typeof getHistoricalDraftClass === 'function') {
       rookies = getHistoricalDraftClass(year)
         .filter(player => parseNum(player?.draftPick, 0) > 0)
@@ -1526,17 +1538,24 @@
     });
 
     const injected = [];
+    const useChallengeRookieIds = fromAttributeCatalogFallback || fromHistoricalFallback;
     rookies.forEach((player, index) => {
       const targetTeamId = resolveRookieTargetTeamId(player, assignOrder, index);
       if (targetTeamId <= 0 || targetTeamId > 30 || !LEAGUE.teams[targetTeamId]) return;
       const key = playerIdentityKey(player);
-      if (!fromHistoricalFallback && key && existingKeys.has(key)) return;
+      if (!useChallengeRookieIds && key && existingKeys.has(key)) return;
+      const draftPick = parseNum(player.draftPick, index + 1);
       const rookie = {
         ...clone(player),
-        id: fromHistoricalFallback ? 832000 + year * 100 + parseNum(player.draftPick, index + 1) : player.id,
-        uid: fromHistoricalFallback ? `draft_challenge_${year}_${parseNum(player.draftPick, index + 1)}` : player.uid,
+        id: useChallengeRookieIds ? 832000 + year * 100 + draftPick : player.id,
+        uid: useChallengeRookieIds ? `draft_challenge_${year}_${draftPick}` : player.uid,
         teamId: targetTeamId,
         yearsLeague: 0,
+        draftPick,
+        sourceDraftYear: year,
+        draftChallengeRookie: true,
+        realRookieAttributes: !!player.realRookieAttributes,
+        sourceRookieAttrs: player.source || (player.realRookieAttributes ? 'real_rookie_csv' : 'roster'),
         rookie: true,
         injury: { active: false, games: 0, type: '' }
       };
