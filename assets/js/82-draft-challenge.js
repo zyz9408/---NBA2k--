@@ -88,13 +88,15 @@
     selected: [],
     pendingPlayer: null,
     currentPool: null,
-    rerollsLeft: 1,
     rosterCache: new Map(),
     coachChoices: [],
     selectedCoach: null,
     busy: false,
+    autoRolling: false,
     result: null,
-    challengeYear: 2025
+    challengeYear: 2025,
+    yearRerollsLeft: 1,
+    teamRerollsLeft: 1
   };
 
   const el = {
@@ -104,7 +106,8 @@
     roundKicker: document.getElementById('roundKicker'),
     poolTitle: document.getElementById('poolTitle'),
     rollButton: document.getElementById('rollButton'),
-    rerollButton: document.getElementById('rerollButton'),
+    rerollYearButton: document.getElementById('rerollYearButton'),
+    rerollTeamButton: document.getElementById('rerollTeamButton'),
     simulateButton: document.getElementById('simulateButton'),
     restartButton: document.getElementById('restartButton'),
     candidateGrid: document.getElementById('candidateGrid'),
@@ -352,9 +355,9 @@
     if (btn) btn.addEventListener('click', requestDraftDataAccessAndRetry);
   }
 
-  function sampleCandidatePool(pack) {
+  function sampleCandidatePool(pack, { fixedTeamId = null, excludeTeamId = null } = {}) {
     const usedKeys = new Set(state.selected.map(sourceKey));
-    const eligibleTeams = pack.teams
+    let eligibleTeams = pack.teams
       .map(bucket => {
         const players = bucket.players
           .filter(player => !usedKeys.has(sourceKey({
@@ -368,6 +371,13 @@
         return { team: bucket.team, players };
       })
       .filter(bucket => bucket.players.length >= 5);
+
+    if (fixedTeamId) {
+      eligibleTeams = eligibleTeams.filter(bucket => parseNum(bucket.team.id, 0) === parseNum(fixedTeamId, 0));
+    }
+    if (excludeTeamId) {
+      eligibleTeams = eligibleTeams.filter(bucket => parseNum(bucket.team.id, 0) !== parseNum(excludeTeamId, 0));
+    }
 
     if (!eligibleTeams.length) return null;
     const bucket = pick(eligibleTeams);
@@ -393,53 +403,85 @@
     return { season: pack.season, team: bucket.team, candidates };
   }
 
-  async function rollTeamYear({ consumeReroll = false } = {}) {
+  async function buildCandidatePool({ fixedSeason = null, excludeSeasonCode = null, fixedTeamId = null, excludeTeamId = null } = {}) {
+    const skippedErrors = [];
+    const seasons = fixedSeason
+      ? [fixedSeason]
+      : shuffle(ROSTER_SEASONS.filter(season => String(season.code) !== String(excludeSeasonCode || '')));
+    for (let attempt = 0; attempt < seasons.length; attempt++) {
+      const season = seasons[attempt];
+      try {
+        const pack = await loadRosterSeason(season);
+        await ensureHistoricalSeasonStatsForYear(season.statsYear || season.year);
+        const pool = sampleCandidatePool(pack, { fixedTeamId, excludeTeamId });
+        if (pool) return { pool, skippedErrors };
+      } catch (err) {
+        if (isLocalFsPermissionError(err)) throw err;
+        skippedErrors.push(`${season.label}: ${err.message || err}`);
+      }
+    }
+    return { pool: null, skippedErrors };
+  }
+
+  function ensureGachaOverlay() {
+    let gachaEl = document.getElementById('gachaOverlay');
+    if (!gachaEl) {
+      gachaEl = document.createElement('div');
+      gachaEl.id = 'gachaOverlay';
+      gachaEl.className = 'gacha-overlay';
+      const host = document.getElementById('draftApp') || document.body;
+      host.appendChild(gachaEl);
+    }
+    return gachaEl;
+  }
+
+  async function playTeamSearchOverlay(pool, rerollType = null) {
+    const gachaEl = ensureGachaOverlay();
+    const phases = [
+      { phase: 'year', ms: 760 },
+      { phase: 'team', ms: 860 },
+      { phase: 'ready', ms: 1050 }
+    ];
+    gachaEl.classList.add('active');
+    for (const item of phases) {
+      gachaEl.innerHTML = renderTeamSearchOverlay(pool, item.phase, rerollType);
+      await new Promise(resolve => setTimeout(resolve, item.ms));
+    }
+    gachaEl.classList.remove('active');
+    await new Promise(resolve => setTimeout(resolve, 180));
+  }
+
+  async function rollTeamYear({ rerollType = null } = {}) {
     if (state.busy || selectedCount() >= POSITION_SLOTS.length) return;
+    if (rerollType === 'year' && (!state.currentPool || state.yearRerollsLeft <= 0)) return;
+    if (rerollType === 'team' && (!state.currentPool || state.teamRerollsLeft <= 0)) return;
     state.busy = true;
     state.stage = 'spin';
     setButtons();
     el.emptyState.hidden = false;
-    el.emptyState.innerHTML = renderEmptyScout('正在抽取', '读取项目内名单，随机球队和赛季。');
+    el.emptyState.innerHTML = renderEmptyScout('正在抽取', '先锁定年份，再锁定球队。');
     el.candidateGrid.innerHTML = '';
 
     try {
-      let pool = null;
-      const skippedErrors = [];
-      for (let attempt = 0; attempt < 42 && !pool; attempt++) {
-        const season = pick(ROSTER_SEASONS);
-        try {
-          const pack = await loadRosterSeason(season);
-          await ensureHistoricalSeasonStatsForYear(season.statsYear || season.year);
-          pool = sampleCandidatePool(pack);
-        } catch (err) {
-          if (isLocalFsPermissionError(err)) throw err;
-          skippedErrors.push(`${season.label}: ${err.message || err}`);
-        }
-      }
+      const currentPool = state.currentPool;
+      const { pool, skippedErrors } = await buildCandidatePool({
+        fixedSeason: rerollType === 'team' ? currentPool?.season : null,
+        excludeSeasonCode: rerollType === 'year' ? currentPool?.season?.code : null,
+        excludeTeamId: rerollType === 'team' ? currentPool?.team?.id : null
+      });
       if (!pool) {
         const detail = skippedErrors.length ? `；已跳过读取失败赛季：${skippedErrors.slice(0, 3).join(' / ')}` : '';
         throw new Error(`没有找到足够的候选球员${detail}`);
       }
-      if (consumeReroll) state.rerollsLeft = Math.max(0, state.rerollsLeft - 1);
       state.currentPool = pool;
       state.pendingPlayer = null;
-      state.stage = 'player_select';
       state.result = null;
+      if (rerollType === 'year') state.yearRerollsLeft = Math.max(0, state.yearRerollsLeft - 1);
+      if (rerollType === 'team') state.teamRerollsLeft = Math.max(0, state.teamRerollsLeft - 1);
 
-      let gachaEl = document.getElementById('gachaOverlay');
-      if (!gachaEl) {
-        gachaEl = document.createElement('div');
-        gachaEl.id = 'gachaOverlay';
-        gachaEl.className = 'gacha-overlay';
-        const host = document.getElementById('draftApp') || document.body;
-        host.appendChild(gachaEl);
-      }
-      gachaEl.innerHTML = renderTeamSearchOverlay(pool);
-      gachaEl.classList.add('active');
+      await playTeamSearchOverlay(pool, rerollType);
 
-      await new Promise(r => setTimeout(r, 600)); // Shorter delay
-      gachaEl.classList.remove('active');
-
+      state.stage = 'player_select';
       renderAll();
     } catch (err) {
       state.stage = 'spin';
@@ -505,7 +547,11 @@
       await enterCoachStage();
     } else {
       state.stage = 'spin';
+      state.autoRolling = true;
       renderAll();
+      await new Promise(resolve => setTimeout(resolve, 260));
+      state.autoRolling = false;
+      await rollTeamYear();
     }
   }
 
@@ -772,18 +818,20 @@
       el.sourceLabel.textContent = count >= 5 ? '等待教练选择' : '等待抽取';
     }
 
-    el.rerollLabel.textContent = `${state.rerollsLeft} 次`;
+    el.rerollLabel.textContent = `年份 ${state.yearRerollsLeft} / 球队 ${state.teamRerollsLeft}`;
     const wins = state.result?.challengeRecord?.w;
     const losses = state.result?.challengeRecord?.l;
     el.challengeRecord.textContent = Number.isFinite(wins) ? `结果 ${wins}-${losses}` : '目标 82-0';
   }
 
   function setButtons() {
-    const canRoll = state.stage === 'spin' && selectedCount() < POSITION_SLOTS.length;
+    const canRoll = state.stage === 'spin' && selectedCount() < POSITION_SLOTS.length && !state.autoRolling;
     el.rollButton.hidden = !canRoll;
     el.rollButton.disabled = state.busy;
-    el.rerollButton.hidden = state.stage !== 'player_select';
-    el.rerollButton.disabled = state.busy || !state.currentPool || state.rerollsLeft <= 0;
+    el.rerollYearButton.hidden = state.stage !== 'player_select';
+    el.rerollYearButton.disabled = state.busy || !state.currentPool || state.yearRerollsLeft <= 0;
+    el.rerollTeamButton.hidden = state.stage !== 'player_select';
+    el.rerollTeamButton.disabled = state.busy || !state.currentPool || state.teamRerollsLeft <= 0;
     el.simulateButton.hidden = state.stage !== 'ready_to_simulate';
     el.simulateButton.disabled = state.busy || selectedCount() < 5 || !state.selectedCoach;
     el.restartButton.hidden = state.stage !== 'results';
@@ -1015,15 +1063,36 @@
     `;
   }
 
-  function renderTeamSearchOverlay(pool) {
+  function renderTeamSearchOverlay(pool, phase = 'ready', rerollType = null) {
+    const phaseIndex = phase === 'year' ? 0 : phase === 'team' ? 1 : 2;
+    const label = phase === 'year'
+      ? (rerollType === 'year' ? 'RESELECTING SEASON' : 'LOCKING SEASON')
+      : phase === 'team'
+        ? (rerollType === 'team' ? 'RESELECTING TEAM' : 'SCANNING TEAM')
+        : 'DRAFT BOARD READY';
+    const teamChip = phaseIndex >= 1 ? (pool.team.a || pool.team.z) : '...';
+    const teamName = phaseIndex >= 1 ? pool.team.z : '扫描球队';
+    const steps = [
+      { title: '年份', value: pool.season.label },
+      { title: '球队', value: teamName },
+      { title: '候选', value: '5 选 1' }
+    ];
     return `
       <div class="gacha-scanner" role="status" aria-live="polite">
         ${renderSearchSvg()}
         <div class="scanner-meta">
-          <span class="scanner-label">SEARCHING TEAM ARCHIVE</span>
+          <span class="scanner-label">${safeText(label)}</span>
           <div class="scanner-chips">
-            <strong>${safeText(pool.team.a || pool.team.z)}</strong>
-            <strong>${safeText(pool.season.label)}</strong>
+            <strong class="scanner-chip year-chip">${safeText(pool.season.label)}</strong>
+            <strong class="scanner-chip team-chip">${safeText(teamChip)}</strong>
+          </div>
+          <div class="scanner-timeline" aria-hidden="true">
+            ${steps.map((step, index) => {
+              const classes = ['scanner-step'];
+              if (index < phaseIndex) classes.push('done');
+              if (index === phaseIndex) classes.push('active');
+              return `<span class="${classes.join(' ')}"><b>${index + 1}</b><em>${safeText(step.title)}</em><strong>${safeText(step.value)}</strong></span>`;
+            }).join('')}
           </div>
         </div>
       </div>
@@ -1450,28 +1519,11 @@
     return selectedPlayers.map(player => {
       const row = rows.find(item => parseNum(item.teamId, 0) === targetTeamId && String(item.playerId) === String(player.id));
       const gp = Math.max(1, parseNum(row?.gp, 0));
-      const pos = parseNum(player?.chosenSlotId, parseNum(player?.pos, 3));
-      const attrs = player?.attrs || {};
-      const shotInt = parseNum(attrs.shotInt, 55);
-      const shotExt = parseNum(attrs.shotExt, 55);
-      // Raw FG% from sim
-      let rawFgPct = parseNum(row?.fga, 0) > 0 ? +(parseNum(row?.fgm, 0) / parseNum(row?.fga, 1) * 100).toFixed(1) : 0;
-      // Position-based FG% floor: centers/PFs who play inside should have reasonable FG%
-      const fgFloor = pos >= 4
-        ? clamp(38 + (shotInt - 55) * 0.35, 38, 58)
-        : pos === 3 ? 36 : 34;
-      if (rawFgPct > 0 && rawFgPct < fgFloor) rawFgPct = +(fgFloor + Math.random() * 6).toFixed(1);
-      // 3P%: for players with very few 3PA, apply attribute-based estimate
+      const rawFgPct = parseNum(row?.fga, 0) > 0 ? +(parseNum(row?.fgm, 0) / parseNum(row?.fga, 1) * 100).toFixed(1) : '--';
       const totalTpa = parseNum(row?.tpa, 0);
       const totalTpm = parseNum(row?.tpm, 0);
-      let rawTpPct = totalTpa > 0 ? +(totalTpm / totalTpa * 100).toFixed(1) : 0;
-      if (totalTpa > 0 && totalTpa < gp * 0.5) {
-        // Very few 3PA per game - use attribute-based estimate
-        rawTpPct = +(clamp(28 + (shotExt - 55) * 0.45 + Math.random() * 4, 22, 42)).toFixed(1);
-      } else if (totalTpa > 0) {
-        const tpFloor = clamp(26 + (shotExt - 55) * 0.30, 24, 38);
-        if (rawTpPct < tpFloor) rawTpPct = +(tpFloor + Math.random() * 4).toFixed(1);
-      }
+      const tpaPerGame = +(totalTpa / gp).toFixed(1);
+      const rawTpPct = totalTpa > 0 ? +(totalTpm / totalTpa * 100).toFixed(1) : null;
       return {
         player,
         row,
@@ -1482,9 +1534,19 @@
         spg: +(parseNum(row?.stl, 0) / gp).toFixed(1),
         bpg: +(parseNum(row?.blk, 0) / gp).toFixed(1),
         fgPct: rawFgPct,
-        tpPct: rawTpPct
+        tpPct: rawTpPct == null ? '--' : rawTpPct,
+        tpPctValue: rawTpPct,
+        tpa: totalTpa,
+        tpm: totalTpm,
+        tpaPerGame
       };
     });
+  }
+
+  function isThreeBlackHole(item) {
+    const attempts = parseNum(item?.tpaPerGame, 0);
+    const pct = parseNum(item?.tpPctValue, NaN);
+    return attempts >= 2 && Number.isFinite(pct) && pct < 30;
   }
 
   async function runFantasySeason() {
@@ -1715,12 +1777,12 @@
         <h3>五人赛季数据</h3>
         <div class="tbl">
           <table>
-            <thead><tr><th>位置</th><th>球员</th><th>来源</th><th>战术适配</th><th>GP</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>FG%</th><th>3P%</th></tr></thead>
+            <thead><tr><th>位置</th><th>球员</th><th>来源</th><th>战术适配</th><th>GP</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>FG%</th><th>3P%</th><th>3PA</th></tr></thead>
             <tbody>
               ${result.selectedStats.map(item => {
                 const attrs = item.player.attrs || {};
                 const wTags = [];
-                if (parseNum(attrs.shotExt, 55) < 65) wTags.push('三分黑洞');
+                if (isThreeBlackHole(item)) wTags.push('三分黑洞');
                 if (item.player.def < 65) wTags.push('防守漏勺');
                 if (parseNum(attrs.pass, 55) < 65 && item.player.chosenSlotShort === 'PG') wTags.push('缺乏视野');
                 if (parseNum(attrs.reb, 55) < 65 && (item.player.chosenSlotShort === 'C' || item.player.chosenSlotShort === 'PF')) wTags.push('篮板弱点');
@@ -1740,6 +1802,7 @@
                   <td>${item.bpg}</td>
                   <td>${item.fgPct}</td>
                   <td>${item.tpPct}</td>
+                  <td>${item.tpaPerGame}</td>
                 </tr>
               `;}).join('')}
             </tbody>
@@ -1819,7 +1882,10 @@
         name: state.selectedCoach.name,
         system: coachProfileSummary(state.selectedCoach).fx.systemLabel
       } : null,
-      rerollsLeft: state.rerollsLeft,
+      rerolls: {
+        year: state.yearRerollsLeft,
+        team: state.teamRerollsLeft
+      },
       result: state.result ? {
         record: `${state.result.challengeRecord?.w || 0}-${state.result.challengeRecord?.l || 0}`,
         rank: state.result.standings.findIndex(row => row.id === state.result.targetTeamId) + 1,
@@ -1836,10 +1902,12 @@
     state.selected = [];
     state.pendingPlayer = null;
     state.currentPool = null;
-    state.rerollsLeft = 1;
+    state.yearRerollsLeft = 1;
+    state.teamRerollsLeft = 1;
     state.coachChoices = [];
     state.selectedCoach = null;
     state.busy = false;
+    state.autoRolling = false;
     state.result = null;
     el.resultsGrid.innerHTML = '';
     el.simulationPanel.hidden = true;
@@ -1891,8 +1959,11 @@
     });
 
     el.rollButton.addEventListener('click', () => rollTeamYear());
-    el.rerollButton.addEventListener('click', () => {
-      if (state.rerollsLeft > 0 && state.currentPool && state.stage === 'player_select') rollTeamYear({ consumeReroll: true });
+    el.rerollYearButton.addEventListener('click', () => {
+      if (state.yearRerollsLeft > 0 && state.currentPool && state.stage === 'player_select') rollTeamYear({ rerollType: 'year' });
+    });
+    el.rerollTeamButton.addEventListener('click', () => {
+      if (state.teamRerollsLeft > 0 && state.currentPool && state.stage === 'player_select') rollTeamYear({ rerollType: 'team' });
     });
     el.simulateButton.addEventListener('click', runFantasySeason);
     el.restartButton.addEventListener('click', resetChallenge);

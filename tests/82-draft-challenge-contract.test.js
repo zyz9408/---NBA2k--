@@ -44,7 +44,10 @@ assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for
 
 [
   'const POSITION_SLOTS',
-  'rerollsLeft: 1',
+  'yearRerollsLeft: 1',
+  'teamRerollsLeft: 1',
+  'rerollYearButton',
+  'rerollTeamButton',
   'const ROSTER_SEASONS',
   "{ code: 3, year: 2024, statsYear: 2024, label: '2023-2024赛季' }",
   "{ code: 4, year: 2023, statsYear: 2023, label: '2022-2023赛季' }",
@@ -120,7 +123,16 @@ assert.ok(roster17.includes('Kareem Abdul-Jabbar') && roster17.includes('雄鹿'
 assert.ok(roster17.includes('鹈鹕1') && roster17.includes('超音速') && roster17.includes('勇敢者'), 'rosters17 includes placeholder future teams plus real 1971-1972 SuperSonics/Braves rows');
 assert.ok(roster19.includes('Michael Jordan') && roster19.includes('Stephen Curry') && roster19.includes('Larry Bird'), 'rosters19 should be recognized as an all-time/legend mixed roster');
 assert.ok(sim.includes('estimateLeagueThreePctForRow'), 'league row simulation should estimate realistic three-point percentage');
+assert.ok(sim.includes('leagueThreeAttemptProfileForRow'), 'league row simulation should model three-point attempt volume separately from percentage');
 assert.ok(sim.includes('Math.ceil(tpm / targetThreePct)'), 'league row simulation should backfill 3PA from target 3P%');
+assert.ok(sim.includes('lowVolumeBig'), 'league row simulation should keep non-shooting bigs at low three-point volume');
+assert.ok(sim.includes('yearsLeague: parseNum(simPlayer?.yearsLeague'), 'league game rows should preserve player experience for award eligibility');
+assert.ok(sim.includes('yearsLeague: parseNum(ps.yearsLeague, -1)'), 'league season row exports should preserve player experience for awards');
+assert.ok(sim.includes('parseNum(r.yearsLeague, -1) === 0'), 'ROY filtering should not treat missing experience as rookie eligibility');
+assert.ok(script.includes('isThreeBlackHole'), 'challenge result tags should use a volume-aware three-point black-hole rule');
+assert.ok(script.includes('tpaPerGame'), 'challenge result table should expose three-point attempt volume');
+assert.ok(!script.includes('Very few 3PA per game - use attribute-based estimate'), 'challenge results must not replace low-volume 3P% with an attribute estimate');
+assert.ok(!script.includes('tpFloor'), 'challenge results must not floor simulated 3P% from attributes');
 assert.ok(historicalStats.includes('"Jayson Tatum"'), 'historical season stats should include English-name lookup keys');
 assert.ok(historicalStats.includes('"Victor Wembanyama"'), 'historical season stats should include current era players');
 assert.ok(!historicalStatsJson['2023']?.['Victor Wembanyama'], 'Victor Wembanyama should not have NBA regular-season stats in 2022-2023');

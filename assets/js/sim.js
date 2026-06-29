@@ -2968,6 +2968,34 @@ function estimateLeagueThreePctForRow(attrs, rating, pos, oppRating, coachFx = n
   );
 }
 
+function leagueThreeAttemptProfileForRow(player, attrs, rating, pos, threeShareMult = 1) {
+  const shotExt = clamp(parseNum(attrs?.shotExt, 55), 20, 99);
+  const extTendency = clamp(parseNum(
+    player?.tendencies?.ex ?? player?.tendencyExt ?? player?.tendencyFr ?? player?.tendencyEx,
+    shotExt
+  ), 20, 100);
+  const shooterFactor = clamp((shotExt - 42) / 44, 0, 1);
+  const tendencyFactor = clamp((extTendency - 35) / 55, 0, 1);
+  const posBaseShare = pos <= 2 ? 0.42 : pos === 3 ? 0.32 : pos === 4 ? 0.16 : 0.10;
+  const posBasePer36 = pos <= 2 ? 6.0 : pos === 3 ? 4.4 : pos === 4 ? 2.3 : 1.4;
+  const skillFactor = clamp(0.22 + shooterFactor * 0.58 + tendencyFactor * 0.34 + (parseNum(rating, 65) - 70) * 0.006, 0.08, 1.20);
+  let share = posBaseShare * skillFactor * threeShareMult;
+  let attemptsPer36 = posBasePer36 * skillFactor * threeShareMult;
+  const lowVolumeBig = pos >= 4 && shotExt < 62 && extTendency < 64;
+
+  if (lowVolumeBig) {
+    const cap = shotExt < 54 ? 0.035 : 0.055;
+    share = Math.min(share, cap);
+    attemptsPer36 = Math.min(attemptsPer36, shotExt < 54 ? 0.45 : 0.85);
+  }
+
+  return {
+    share: clamp(share, pos >= 4 ? 0 : 0.06, 0.62),
+    attemptsPer36: clamp(attemptsPer36, 0, 8.8),
+    lowVolumeBig
+  };
+}
+
 function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = false, sourcePlayer = null, coachFx = null, teamPlan = null, gameMod = null } = {}) {
   const isSelf = !!player.isSelf;
   const simPlayer = sourcePlayer || player;
@@ -2995,6 +3023,10 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
     pos,
     pos2: clamp(parseNum(player.pos2, 0), 0, 5),
     isSelf,
+    yearsLeague: parseNum(simPlayer?.yearsLeague ?? player?.yearsLeague, -1),
+    rookie: !!(simPlayer?.rookie || player?.rookie),
+    draft: parseNum(simPlayer?.draft ?? player?.draft, 0),
+    draftPick: parseNum(simPlayer?.draftPick ?? player?.draftPick, 0),
     home,
     mins: minutes,
     pts: 0,
@@ -3035,13 +3067,26 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
   let tpm = 0;
   let fgm = 0;
   const targetThreePct = estimateLeagueThreePctForRow(attrs, rating, pos, oppRating, teamCoachFx, gameMod);
+  const threeProfile = leagueThreeAttemptProfileForRow(simPlayer, attrs, rating, pos, threeShareMult);
+
+  if (threeProfile.lowVolumeBig && (fgPts & 1) === 1) {
+    if (ftm < fta) {
+      ftm += 1;
+      fgPts -= 1;
+    } else if (ftm > 0) {
+      ftm -= 1;
+      fgPts += 1;
+    } else {
+      fgPts = Math.max(0, fgPts - 1);
+    }
+  }
 
   if (fgPts > 0) {
     const maxTpm = Math.floor(fgPts / 3);
-    const threeBase = (pos <= 2 ? 0.95 : pos === 3 ? 0.58 : 0.22) * threeShareMult;
-    tpm = clamp(Math.round((minutes / 36) * (threeBase * 4) + (rating - 60) / 18 - (oppRating - 75) / 60 + rng(-1, 1)), 0, maxTpm);
+    const expectedTpa = (minutes / 36) * threeProfile.attemptsPer36;
+    tpm = clamp(Math.round(expectedTpa * targetThreePct - (parseNum(oppRating, 75) - 75) / 80 + rng(-0.7, 0.8)), 0, maxTpm);
     if (((fgPts - tpm) & 1) === 1) {
-      if (tpm < maxTpm) tpm++;
+      if (!threeProfile.lowVolumeBig && tpm < maxTpm) tpm++;
       else if (tpm > 0) tpm--;
     }
     while (tpm > maxTpm) tpm--;
@@ -3051,9 +3096,13 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
   const varianceEfficiency = 1 - (parseNum(gameMod?.efficiencyShift, 0) * 1.8);
   const efficiencyFactor = teamPlan ? clamp((1.08 - ((parseNum(teamPlan?.efg, 0.52) - 0.52) * 0.9)) * varianceEfficiency, 0.84, 1.16) : clamp(varianceEfficiency, 0.86, 1.16);
   let fga = clamp(Math.max(fgm + rng(1, 4), Math.round(minutes * 0.42 * planPaceFactor * efficiencyFactor) + rng(-1, 3), tpm + rng(1, 3)), Math.max(fgm, tpm), 28);
-  let tpa = clamp(Math.max(tpm, Math.round(fga * clamp((pos <= 2 ? 0.44 : pos === 3 ? 0.34 : 0.22) * threeShareMult, 0.10, 0.65) + rng(-1, 1))), tpm, fga);
+  let tpa = clamp(Math.max(tpm, Math.round(fga * threeProfile.share + rng(-1, 1))), tpm, fga);
   if (tpm > 0) {
     tpa = Math.max(tpa, Math.ceil(tpm / targetThreePct));
+  }
+  if (threeProfile.lowVolumeBig) {
+    const lowVolumeCap = Math.max(tpm, Math.round((minutes / 36) * 1.1 + rng(0, 1)));
+    tpa = clamp(tpa, tpm, Math.min(fga, lowVolumeCap));
   }
   const twoMade = Math.max(0, fgm - tpm);
   fga = clamp(Math.max(fga, tpa + twoMade + rng(0, 2)), Math.max(fgm, tpa), 34);
@@ -3459,6 +3508,10 @@ function simulateLeagueMatchup(homeTeamId, awayTeamId, opts = {}) {
     cur.name = String(row.name || cur.name || 'Player');
     cur.pos = parseNum(row.pos, cur.pos);
     cur.isSelf = !!row.isSelf;
+    cur.yearsLeague = parseNum(row.yearsLeague, cur.yearsLeague ?? -1);
+    cur.rookie = !!row.rookie;
+    cur.draft = parseNum(row.draft, cur.draft || 0);
+    cur.draftPick = parseNum(row.draftPick, cur.draftPick || 0);
     cur.gp = parseNum(cur.gp, 0) + 1;
     cur.mins = parseNum(cur.mins, 0) + parseNum(row.mins, 0);
     cur.pts = parseNum(cur.pts, 0) + parseNum(row.pts, 0);
@@ -4188,6 +4241,11 @@ function getLeaguePlayerSeasonRows() {
       name: String(ps.name || 'Player'),
       pos: parseNum(ps.pos, 3),
       isSelf: !!ps.isSelf,
+      yearsLeague: parseNum(ps.yearsLeague, -1),
+      rookie: !!ps.rookie,
+      draft: parseNum(ps.draft, 0),
+      draftPick: parseNum(ps.draftPick, 0),
+      rating: parseNum(ps.rating, 70),
       gp,
       pts,
       reb,
@@ -6002,6 +6060,10 @@ function emptySeasonLine(teamId, playerId, name, pos, isSelf = false) {
     name: name || 'Player',
     pos: parseNum(pos, 3),
     isSelf,
+    yearsLeague: -1,
+    rookie: false,
+    draft: 0,
+    draftPick: 0,
     gp: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0, mins: 0
   };
 }
@@ -12200,7 +12262,8 @@ function leagueAwardEntryForSeason(seasonNum) {
 
   const minGP = 20;
   const eligible = rows.filter(r => parseNum(r.gp, 0) >= minGP);
-  const rookies = eligible.filter(r => parseNum(r.yearsLeague, 0) <= 1);
+  const isRookieSeasonRow = r => !!r.rookie || parseNum(r.yearsLeague, -1) === 0;
+  const rookies = eligible.filter(isRookieSeasonRow);
 
   // MVP: composite = ppg*0.3 + apg*0.2 + rpg*0.15 + winPct*20 + rating*0.1
   const mvpScore = r => ppg(r) * 0.3 + apg(r) * 0.2 + rpg(r) * 0.15 + (teamWinPct[rowTeam(r)] || 0.5) * 20 + parseNum(r.rating, 70) * 0.1;
