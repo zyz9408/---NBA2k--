@@ -128,11 +128,16 @@ assert.ok(sim.includes('estimateLeagueThreePctForRow'), 'league row simulation s
 assert.ok(sim.includes('leagueThreeAttemptProfileForRow'), 'league row simulation should model three-point attempt volume separately from percentage');
 assert.ok(sim.includes('Math.ceil(tpm / targetThreePct)'), 'league row simulation should backfill 3PA from target 3P%');
 assert.ok(sim.includes('lowVolumeBig'), 'league row simulation should keep non-shooting bigs at low three-point volume');
+assert.ok(sim.includes('sourceYear > 0 && sourceYear < 1980'), 'league row simulation should not assign threes before the NBA three-point era');
+assert.ok(sim.includes('frontcourtLimited'), 'league row simulation should cap frontcourt three-point volume by era and tendency');
 assert.ok(sim.includes('yearsLeague: parseNum(simPlayer?.yearsLeague'), 'league game rows should preserve player experience for award eligibility');
 assert.ok(sim.includes('yearsLeague: parseNum(ps.yearsLeague, -1)'), 'league season row exports should preserve player experience for awards');
 assert.ok(sim.includes('parseNum(r.yearsLeague, -1) === 0'), 'ROY filtering should not treat missing experience as rookie eligibility');
 assert.ok(script.includes('isThreeBlackHole'), 'challenge result tags should use a volume-aware three-point black-hole rule');
 assert.ok(script.includes('tpaPerGame'), 'challenge result table should expose three-point attempt volume');
+assert.ok(script.includes('twoPaPerGame'), 'challenge result table should expose two-point attempt volume');
+assert.ok(script.includes('<th>FGA</th><th>2PA</th><th>3PA</th>'), 'challenge result table should show shooting attempt structure');
+assert.ok(script.includes("slot === 'PF' || slot === 'C' ? 4 : 3"), 'frontcourt three-point black-hole tag should require higher volume');
 assert.ok(!script.includes('Very few 3PA per game - use attribute-based estimate'), 'challenge results must not replace low-volume 3P% with an attribute estimate');
 assert.ok(!script.includes('tpFloor'), 'challenge results must not floor simulated 3P% from attributes');
 assert.ok(historicalStats.includes('"Jayson Tatum"'), 'historical season stats should include English-name lookup keys');

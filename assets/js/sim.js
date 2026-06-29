@@ -2974,25 +2974,54 @@ function leagueThreeAttemptProfileForRow(player, attrs, rating, pos, threeShareM
     player?.tendencies?.ex ?? player?.tendencyExt ?? player?.tendencyFr ?? player?.tendencyEx,
     shotExt
   ), 20, 100);
+  const sourceYear = parseNum(player?.sourceStatsYear || player?.sourceYear || G?.year, G?.year || 2025);
+  if (sourceYear > 0 && sourceYear < 1980) {
+    return { share: 0, attemptsPer36: 0, lowVolumeBig: pos >= 4, frontcourtLimited: pos >= 4, noThreeEra: true };
+  }
   const shooterFactor = clamp((shotExt - 42) / 44, 0, 1);
   const tendencyFactor = clamp((extTendency - 35) / 55, 0, 1);
   const posBaseShare = pos <= 2 ? 0.42 : pos === 3 ? 0.32 : pos === 4 ? 0.16 : 0.10;
   const posBasePer36 = pos <= 2 ? 6.0 : pos === 3 ? 4.4 : pos === 4 ? 2.3 : 1.4;
+  const eraMult = sourceYear <= 1984 ? 0.12
+    : sourceYear <= 1994 ? 0.24
+      : sourceYear <= 2004 ? 0.46
+        : sourceYear <= 2012 ? 0.62
+          : sourceYear <= 2016 ? 0.80
+            : 1;
   const skillFactor = clamp(0.22 + shooterFactor * 0.58 + tendencyFactor * 0.34 + (parseNum(rating, 65) - 70) * 0.006, 0.08, 1.20);
   let share = posBaseShare * skillFactor * threeShareMult;
-  let attemptsPer36 = posBasePer36 * skillFactor * threeShareMult;
+  let attemptsPer36 = posBasePer36 * skillFactor * threeShareMult * eraMult;
   const lowVolumeBig = pos >= 4 && shotExt < 62 && extTendency < 64;
+  let frontcourtLimited = false;
 
   if (lowVolumeBig) {
     const cap = shotExt < 54 ? 0.035 : 0.055;
     share = Math.min(share, cap);
     attemptsPer36 = Math.min(attemptsPer36, shotExt < 54 ? 0.45 : 0.85);
   }
+  if (pos >= 4) {
+    frontcourtLimited = true;
+    const eraCap = sourceYear <= 1984 ? 0.10
+      : sourceYear <= 1994 ? (pos === 4 ? 0.55 : 0.25)
+        : sourceYear <= 2004 ? (pos === 4 ? 1.35 : 0.65)
+          : sourceYear <= 2012 ? (pos === 4 ? 2.05 : 0.95)
+            : sourceYear <= 2016 ? (pos === 4 ? 2.45 : 1.35)
+              : (pos === 4 ? 3.20 : 2.10);
+    const tendencyCap = extTendency < 62 ? (pos === 4 ? 0.85 : 0.35)
+      : extTendency < 72 ? (pos === 4 ? 1.45 : 0.70)
+        : extTendency < 80 ? (pos === 4 ? 2.15 : 1.10)
+          : eraCap;
+    const capPer36 = Math.min(eraCap, tendencyCap);
+    attemptsPer36 = Math.min(attemptsPer36, capPer36);
+    share = Math.min(share, clamp(capPer36 / 18, 0, pos === 4 ? 0.18 : 0.12));
+  }
 
   return {
     share: clamp(share, pos >= 4 ? 0 : 0.06, 0.62),
     attemptsPer36: clamp(attemptsPer36, 0, 8.8),
-    lowVolumeBig
+    lowVolumeBig,
+    frontcourtLimited,
+    noThreeEra: false
   };
 }
 
@@ -3069,7 +3098,7 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
   const targetThreePct = estimateLeagueThreePctForRow(attrs, rating, pos, oppRating, teamCoachFx, gameMod);
   const threeProfile = leagueThreeAttemptProfileForRow(simPlayer, attrs, rating, pos, threeShareMult);
 
-  if (threeProfile.lowVolumeBig && (fgPts & 1) === 1) {
+  if ((threeProfile.lowVolumeBig || threeProfile.frontcourtLimited) && (fgPts & 1) === 1) {
     if (ftm < fta) {
       ftm += 1;
       fgPts -= 1;
@@ -3085,8 +3114,9 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
     const maxTpm = Math.floor(fgPts / 3);
     const expectedTpa = (minutes / 36) * threeProfile.attemptsPer36;
     tpm = clamp(Math.round(expectedTpa * targetThreePct - (parseNum(oppRating, 75) - 75) / 80 + rng(-0.7, 0.8)), 0, maxTpm);
+    if (threeProfile.noThreeEra) tpm = 0;
     if (((fgPts - tpm) & 1) === 1) {
-      if (!threeProfile.lowVolumeBig && tpm < maxTpm) tpm++;
+      if (!threeProfile.lowVolumeBig && !threeProfile.frontcourtLimited && tpm < maxTpm) tpm++;
       else if (tpm > 0) tpm--;
     }
     while (tpm > maxTpm) tpm--;
@@ -3100,8 +3130,11 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
   if (tpm > 0) {
     tpa = Math.max(tpa, Math.ceil(tpm / targetThreePct));
   }
-  if (threeProfile.lowVolumeBig) {
-    const lowVolumeCap = Math.max(tpm, Math.round((minutes / 36) * 1.1 + rng(0, 1)));
+  if (threeProfile.noThreeEra) {
+    tpa = 0;
+    tpm = 0;
+  } else if (threeProfile.lowVolumeBig || threeProfile.frontcourtLimited) {
+    const lowVolumeCap = Math.max(tpm, Math.round((minutes / 36) * threeProfile.attemptsPer36 + rng(0, 0.7)));
     tpa = clamp(tpa, tpm, Math.min(fga, lowVolumeCap));
   }
   const twoMade = Math.max(0, fgm - tpm);

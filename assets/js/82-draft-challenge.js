@@ -1521,8 +1521,12 @@
       const row = rows.find(item => parseNum(item.teamId, 0) === targetTeamId && String(item.playerId) === String(player.id));
       const gp = Math.max(1, parseNum(row?.gp, 0));
       const rawFgPct = parseNum(row?.fga, 0) > 0 ? +(parseNum(row?.fgm, 0) / parseNum(row?.fga, 1) * 100).toFixed(1) : '--';
+      const totalFga = parseNum(row?.fga, 0);
       const totalTpa = parseNum(row?.tpa, 0);
       const totalTpm = parseNum(row?.tpm, 0);
+      const totalTwoPa = Math.max(0, totalFga - totalTpa);
+      const fgaPerGame = +(totalFga / gp).toFixed(1);
+      const twoPaPerGame = +(totalTwoPa / gp).toFixed(1);
       const tpaPerGame = +(totalTpa / gp).toFixed(1);
       const rawTpPct = totalTpa > 0 ? +(totalTpm / totalTpa * 100).toFixed(1) : null;
       return {
@@ -1537,8 +1541,12 @@
         fgPct: rawFgPct,
         tpPct: rawTpPct == null ? '--' : rawTpPct,
         tpPctValue: rawTpPct,
+        fga: totalFga,
         tpa: totalTpa,
         tpm: totalTpm,
+        twoPa: totalTwoPa,
+        fgaPerGame,
+        twoPaPerGame,
         tpaPerGame
       };
     });
@@ -1547,7 +1555,9 @@
   function isThreeBlackHole(item) {
     const attempts = parseNum(item?.tpaPerGame, 0);
     const pct = parseNum(item?.tpPctValue, NaN);
-    return attempts >= 2 && Number.isFinite(pct) && pct < 30;
+    const slot = String(item?.player?.chosenSlotShort || '');
+    const volumeThreshold = slot === 'PF' || slot === 'C' ? 4 : 3;
+    return attempts >= volumeThreshold && Number.isFinite(pct) && pct < 30;
   }
 
   async function runFantasySeason() {
@@ -1778,7 +1788,7 @@
         <h3>五人赛季数据</h3>
         <div class="tbl">
           <table>
-            <thead><tr><th>位置</th><th>球员</th><th>来源</th><th>战术适配</th><th>GP</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>FG%</th><th>3P%</th><th>3PA</th></tr></thead>
+            <thead><tr><th>位置</th><th>球员</th><th>来源</th><th>战术适配</th><th>GP</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>FGA</th><th>2PA</th><th>3PA</th><th>FG%</th><th>3P%</th></tr></thead>
             <tbody>
               ${result.selectedStats.map(item => {
                 const attrs = item.player.attrs || {};
@@ -1801,9 +1811,11 @@
                   <td>${item.apg}</td>
                   <td>${item.spg}</td>
                   <td>${item.bpg}</td>
+                  <td>${item.fgaPerGame}</td>
+                  <td>${item.twoPaPerGame}</td>
+                  <td>${item.tpaPerGame}</td>
                   <td>${item.fgPct}</td>
                   <td>${item.tpPct}</td>
-                  <td>${item.tpaPerGame}</td>
                 </tr>
               `;}).join('')}
             </tbody>
