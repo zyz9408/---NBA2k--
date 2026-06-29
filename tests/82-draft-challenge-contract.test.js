@@ -48,6 +48,8 @@ assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for
   'teamRerollsLeft: 1',
   'rerollYearButton',
   'rerollTeamButton',
+  "fixedTeamId: rerollType === 'year' ? currentPool?.team?.id : null",
+  "fixedSeason: rerollType === 'team' ? currentPool?.season : null",
   'const ROSTER_SEASONS',
   "{ code: 3, year: 2024, statsYear: 2024, label: '2023-2024赛季' }",
   "{ code: 4, year: 2023, statsYear: 2023, label: '2022-2023赛季' }",

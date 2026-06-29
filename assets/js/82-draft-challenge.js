@@ -467,6 +467,7 @@
       const { pool, skippedErrors } = await buildCandidatePool({
         fixedSeason: rerollType === 'team' ? currentPool?.season : null,
         excludeSeasonCode: rerollType === 'year' ? currentPool?.season?.code : null,
+        fixedTeamId: rerollType === 'year' ? currentPool?.team?.id : null,
         excludeTeamId: rerollType === 'team' ? currentPool?.team?.id : null
       });
       if (!pool) {
