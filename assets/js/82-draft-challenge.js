@@ -1,6 +1,7 @@
 (function () {
   let historicalSeasonStats = null;
   let historicalStatsPromise = null;
+  const historicalSeasonPackPromises = new Map();
   const POSITION_SLOTS = [
     { id: 1, short: 'PG', name: '控球后卫' },
     { id: 2, short: 'SG', name: '得分后卫' },
@@ -20,14 +21,13 @@
     { code: 8, year: 2019, statsYear: 2019, label: '2018-2019赛季' },
     { code: 9, year: 2018, statsYear: 2018, label: '2017-2018赛季' },
     { code: 10, year: 2016, statsYear: 2016, label: '2015-2016赛季' },
-    { code: 11, year: 2011, statsYear: 2011, label: '2010-2011赛季' },
+    { code: 11, year: 2012, statsYear: 2012, label: '2011-2012赛季' },
     { code: 12, year: 2009, statsYear: 2009, label: '2008-2009赛季' },
-    { code: 13, year: 2005, statsYear: 2005, label: '2004-2005赛季' },
+    { code: 13, year: 2006, statsYear: 2006, label: '2005-2006赛季' },
     { code: 14, year: 2003, statsYear: 2003, label: '2002-2003赛季' },
     { code: 15, year: 1996, statsYear: 1996, label: '1995-1996赛季' },
     { code: 16, year: 1984, statsYear: 1984, label: '1983-1984赛季' },
-    { code: 17, year: 1971, statsYear: 1971, label: '1970-1971赛季' },
-    { code: 19, year: 1959, statsYear: 1959, label: '1958-1959赛季' }
+    { code: 17, year: 1972, statsYear: 1972, label: '1971-1972赛季' }
   ];
 
   const FANTASY_TEAM_ID = 31;
@@ -42,13 +42,33 @@
   };
 
   const TEAM_ACTIVE_FROM_YEAR = {
-    1: 1946, 2: 1976, 3: 1946, 4: 1946, 5: 1995,
-    6: 1966, 7: 1970, 8: 1948, 9: 1976, 10: 1968,
-    11: 1949, 12: 1988, 13: 1988, 14: 1989, 15: 1961,
-    16: 1976, 17: 1989, 18: 1967, 19: 1970, 20: 1974,
-    21: 1946, 22: 1970, 23: 1947, 24: 1968, 25: 1948,
-    26: 1980, 27: 1967, 28: 1995, 29: 2002, 30: 1976
+    1: 1947, 2: 1977, 3: 1947, 4: 1947, 5: 1996,
+    6: 1967, 7: 1971, 8: 1949, 9: 1977, 10: 1969,
+    11: 1950, 12: 1989, 13: 1989, 14: 1990, 15: 1962,
+    16: 1977, 17: 1990, 18: 1968, 19: 1971, 20: 1975,
+    21: 1947, 22: 1971, 23: 1949, 24: 1969, 25: 1949,
+    26: 1981, 27: 1968, 28: 1996, 29: 2003, 30: 1977
   };
+
+  const TEAM_NAME_ACTIVE_FROM_YEAR = [
+    { names: ['篮网', 'nets'], firstYear: 1977 },
+    { names: ['步行者', 'pacers'], firstYear: 1977 },
+    { names: ['掘金', 'nuggets'], firstYear: 1977 },
+    { names: ['马刺', 'spurs'], firstYear: 1977 },
+    { names: ['快船', 'clippers'], firstYear: 1979 },
+    { names: ['小牛'], firstYear: 1981 },
+    { names: ['黄蜂', 'hornets'], firstYear: 1989 },
+    { names: ['热火', 'heat'], firstYear: 1989 },
+    { names: ['魔术', 'magic'], firstYear: 1990 },
+    { names: ['森林狼', 'timberwolves'], firstYear: 1990 },
+    { names: ['猛龙', 'raptors'], firstYear: 1996 },
+    { names: ['灰熊', 'grizzlies'], firstYear: 1996 },
+    { names: ['奇才', 'wizards'], firstYear: 1998 },
+    { names: ['山猫', 'bobcats'], firstYear: 2005 },
+    { names: ['雷霆', 'thunder'], firstYear: 2009 },
+    { names: ['鹈鹕', 'pelicans'], firstYear: 2014 },
+    { names: ['独行侠', 'mavericks'], firstYear: 2019 }
+  ];
 
   const STAGE_LABELS = {
     spin: '抽取球队/年份',
@@ -217,9 +237,23 @@
     return ids.map(posLabel).join(' / ');
   }
 
-  function isTeamAvailableInSeason(teamId, year) {
+  function normalizeSourceTeamName(value) {
+    if (typeof normalizeTeamToken === 'function') return normalizeTeamToken(value);
+    return String(value || '').toLowerCase().trim()
+      .replace(/[·\.\-_']/g, '')
+      .replace(/\s+/g, '')
+      .replace(/队$/, '');
+  }
+
+  function isTeamAvailableInSeason(teamId, year, sourceTeamName = '') {
+    const seasonYear = parseNum(year, 0);
+    const sourceToken = normalizeSourceTeamName(sourceTeamName);
+    const nameRule = TEAM_NAME_ACTIVE_FROM_YEAR.find(rule =>
+      rule.names.some(name => normalizeSourceTeamName(name) === sourceToken)
+    );
+    if (nameRule && seasonYear < nameRule.firstYear) return false;
     const firstYear = TEAM_ACTIVE_FROM_YEAR[parseNum(teamId, 0)];
-    return !!firstYear && parseNum(year, 0) >= firstYear;
+    return !!firstYear && seasonYear >= firstYear;
   }
 
   function ensureFantasyTeamShell() {
@@ -250,7 +284,7 @@
     rows.forEach((row, idx) => {
       const teamId = resolveTeamId(row.teamID, row.team);
       if (teamId <= 0 || teamId > 30) return;
-      if (!isTeamAvailableInSeason(teamId, season.year)) return;
+      if (!isTeamAvailableInSeason(teamId, season.year, row.team)) return;
       const player = rowToPlayer(row, idx + 1, { teamId });
       player.sourceYear = season.year;
       player.sourceStatsYear = season.statsYear || season.year;
@@ -382,6 +416,7 @@
         const detail = skippedErrors.length ? `；已跳过读取失败赛季：${skippedErrors.slice(0, 3).join(' / ')}` : '';
         throw new Error(`没有找到足够的候选球员${detail}`);
       }
+      await ensureHistoricalSeasonStatsForYear(pool.season.statsYear || pool.season.year);
       if (consumeReroll) state.rerollsLeft = Math.max(0, state.rerollsLeft - 1);
       state.currentPool = pool;
       state.pendingPlayer = null;
@@ -808,6 +843,65 @@
       if (matchedKey) return db[matchedKey];
     }
     return null;
+  }
+
+  function historicalPackRows(data) {
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.rows)) return data.rows;
+    if (Array.isArray(data?.players)) return data.players;
+    if (Array.isArray(data?.seasons)) return data.seasons;
+    return [];
+  }
+
+  function historicalPackRowToStats(row) {
+    return {
+      GP: row.gp,
+      PTS: row.ppg,
+      REB: row.rpg,
+      AST: row.apg,
+      STL: row.spg,
+      BLK: row.bpg,
+      FG: row.fgPct,
+      TP: row.tpPct,
+      FT: row.ftPct
+    };
+  }
+
+  function mergeHistoricalSeasonPack(year, data) {
+    const seasonYear = parseNum(year, 0);
+    if (!seasonYear) return;
+    if (!historicalSeasonStats) historicalSeasonStats = {};
+    if (!historicalSeasonStats[seasonYear]) historicalSeasonStats[seasonYear] = {};
+    const bucket = historicalSeasonStats[seasonYear];
+    historicalPackRows(data)
+      .filter(row => String(row.type || 'regular') === 'regular')
+      .filter(row => parseNum(row.seasonEndYear, seasonYear) === seasonYear)
+      .forEach(row => {
+        const stats = historicalPackRowToStats(row);
+        [row.name, row.displayName, row.nameEn, row.nameCn]
+          .map(name => String(name || '').trim())
+          .filter((name, index, list) => name && list.indexOf(name) === index)
+          .forEach(name => {
+            if (!bucket[name]) bucket[name] = stats;
+          });
+      });
+  }
+
+  async function ensureHistoricalSeasonStatsForYear(year) {
+    const seasonYear = parseNum(year, 0);
+    if (!seasonYear) return;
+    if (historicalSeasonPackPromises.has(seasonYear)) {
+      await historicalSeasonPackPromises.get(seasonYear);
+      return;
+    }
+    const promise = fetch(`assets/data/historical/player_seasons_${seasonYear}.json?v=20260629rosteraudit`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (data) mergeHistoricalSeasonPack(seasonYear, data);
+      })
+      .catch(() => {});
+    historicalSeasonPackPromises.set(seasonYear, promise);
+    await promise;
   }
 
   function estimatePlayerAverages(player) {
@@ -1601,7 +1695,7 @@
   }
 
   function bind() {
-    historicalStatsPromise = fetch('assets/data/historical_season_stats.json')
+    historicalStatsPromise = fetch('assets/data/historical_season_stats.json?v=20260629rosteraudit')
       .then(r => r.json())
       .then(data => { historicalSeasonStats = data; })
       .catch(() => { historicalSeasonStats = null; });

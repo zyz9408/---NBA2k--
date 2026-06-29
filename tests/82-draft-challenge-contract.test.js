@@ -13,8 +13,15 @@ const css = read('assets/css/82-draft-challenge.css');
 const sim = read('assets/js/sim.js');
 const historicalStats = read('assets/data/historical_season_stats.json');
 const historicalStatsJson = JSON.parse(historicalStats);
+const historicalPlayerSeason1984 = JSON.parse(read('assets/data/historical/player_seasons_1984.json'));
 const roster03 = read('assets/data/rosters03.csv');
 const roster04 = read('assets/data/rosters04.csv');
+const roster11 = read('assets/data/rosters11.csv');
+const roster13 = read('assets/data/rosters13.csv');
+const roster14 = read('assets/data/rosters14.csv');
+const roster15 = read('assets/data/rosters15.csv');
+const roster17 = read('assets/data/rosters17.csv');
+const roster19 = read('assets/data/rosters19.csv');
 
 assert.doesNotThrow(() => new Function(script), '82-draft-challenge.js should parse as browser JavaScript');
 
@@ -41,9 +48,14 @@ assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for
   'const ROSTER_SEASONS',
   "{ code: 3, year: 2024, statsYear: 2024, label: '2023-2024赛季' }",
   "{ code: 4, year: 2023, statsYear: 2023, label: '2022-2023赛季' }",
+  "{ code: 11, year: 2012, statsYear: 2012, label: '2011-2012赛季' }",
+  "{ code: 13, year: 2006, statsYear: 2006, label: '2005-2006赛季' }",
+  "{ code: 17, year: 1972, statsYear: 1972, label: '1971-1972赛季' }",
   'const FANTASY_TEAM_ID = 31',
   'TEAM_ACTIVE_FROM_YEAR',
+  'TEAM_NAME_ACTIVE_FROM_YEAR',
   'isTeamAvailableInSeason',
+  'isTeamAvailableInSeason(teamId, season.year, row.team)',
   'isLocalFsPermissionError',
   'ensureFantasyTeamShell',
   'requestDraftDataAccessAndRetry',
@@ -65,6 +77,9 @@ assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for
   'player?.altName',
   'statLookupYears',
   'sourceStatsYear',
+  'ensureHistoricalSeasonStatsForYear',
+  'mergeHistoricalSeasonPack',
+  'player_seasons_${seasonYear}.json',
   'estimatePlayerAverages',
   'loadRosterSeason',
   'rowToPlayer',
@@ -83,14 +98,32 @@ assert.ok(!script.includes('联盟排名</h3>'), 'challenge results should not r
 assert.ok(script.includes('玩家球队排名'), 'challenge results should show only the player team ranking summary');
 assert.ok(!script.includes("return { pts: '--', reb: '--', ast: '--', stl: '--', blk: '--' }"), 'challenge candidates should never fall back to all-empty stat lines');
 assert.ok(!script.includes('year + 1, year - 1'), 'historical stats lookup should not borrow adjacent seasons');
+assert.ok(!script.includes('{ code: 19,'), 'rosters19 is an all-time/legend roster and should not be used as a real NBA season');
+[
+  "names: ['山猫', 'bobcats'], firstYear: 2005",
+  "names: ['鹈鹕', 'pelicans'], firstYear: 2014",
+  "names: ['雷霆', 'thunder'], firstYear: 2009",
+  "names: ['独行侠', 'mavericks'], firstYear: 2019"
+].forEach(fragment => assert.ok(script.includes(fragment), `challenge script should guard source team era: ${fragment}`));
 assert.ok(roster03.includes('Victor Wembanyama'), 'rosters03 should be treated as the 2023-2024 roster that contains Victor Wembanyama');
 assert.ok(!roster04.includes('Victor Wembanyama'), 'rosters04 should be treated as the 2022-2023 roster and must not contain Victor Wembanyama');
+assert.ok(roster11.includes('LeBron James') && roster11.includes('热火') && roster11.includes(';27;8;'), 'rosters11 should be treated as the 2011-2012 Heat-era roster');
+assert.ok(roster13.includes('Kobe Bryant') && roster13.includes('湖人') && roster13.includes(';27;9;'), 'rosters13 should be treated as the 2005-2006 Lakers roster');
+assert.ok(roster14.includes('Yi Jianlian') && roster14.includes('山猫') && roster14.includes('Baron Davis') && roster14.includes('黄蜂'), 'rosters14 includes invalid 2002-2003 Bobcats placeholders but valid New Orleans Hornets rows');
+assert.ok(roster15.includes('胡卫东') && roster15.includes('山猫') && roster15.includes('Glen Rice') && roster15.includes('黄蜂'), 'rosters15 includes invalid 1995-1996 Bobcats placeholders but valid Charlotte Hornets rows');
+assert.ok(roster17.includes('Kareem Abdul-Jabbar') && roster17.includes('雄鹿') && roster17.includes(';24;2;'), 'rosters17 should be treated as the 1971-1972 Bucks-era roster');
+assert.ok(roster17.includes('鹈鹕1') && roster17.includes('超音速') && roster17.includes('勇敢者'), 'rosters17 includes placeholder future teams plus real 1971-1972 SuperSonics/Braves rows');
+assert.ok(roster19.includes('Michael Jordan') && roster19.includes('Stephen Curry') && roster19.includes('Larry Bird'), 'rosters19 should be recognized as an all-time/legend mixed roster');
 assert.ok(sim.includes('estimateLeagueThreePctForRow'), 'league row simulation should estimate realistic three-point percentage');
 assert.ok(sim.includes('Math.ceil(tpm / targetThreePct)'), 'league row simulation should backfill 3PA from target 3P%');
 assert.ok(historicalStats.includes('"Jayson Tatum"'), 'historical season stats should include English-name lookup keys');
 assert.ok(historicalStats.includes('"Victor Wembanyama"'), 'historical season stats should include current era players');
 assert.ok(!historicalStatsJson['2023']?.['Victor Wembanyama'], 'Victor Wembanyama should not have NBA regular-season stats in 2022-2023');
 assert.ok(historicalStatsJson['2024']?.['Victor Wembanyama'], 'Victor Wembanyama NBA regular-season stats should start in 2023-2024');
+assert.equal(historicalStatsJson['2012']?.['LeBron James']?.PTS, 27.1, '2011-2012 LeBron James stats should use the 2012 season row');
+assert.equal(historicalStatsJson['2006']?.['Kobe Bryant']?.PTS, 35.4, '2005-2006 Kobe Bryant stats should use the 2006 season row');
+assert.equal(historicalStatsJson['1972']?.['Kareem Abdul-Jabbar']?.PTS, 34.8, '1971-1972 Kareem Abdul-Jabbar stats should use the 1972 season row');
+assert.ok((historicalPlayerSeason1984.rows || historicalPlayerSeason1984).some(row => row.name === 'Isaiah Thomas' && row.seasonEndYear === 1984 && row.ppg === 21.3), 'full 1984 historical season pack should provide missing exact Isaiah Thomas stats');
 
 [
   'candidate-grid',
