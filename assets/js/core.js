@@ -1875,7 +1875,7 @@ async function loadLeagueData({ startYear = null, strictRoster = false } = {}) {
       const kept = [];
       (t.players || []).forEach(p => {
         if (parseNum(p.yearsLeague, -1) === 0) {
-          extractedRookies.push({ ...p, teamId: 0, rookie: true });
+          extractedRookies.push({ ...p, originalTeamId: p.teamId, draftTeamId: p.teamId, teamId: 0, rookie: true });
         } else {
           kept.push(p);
         }

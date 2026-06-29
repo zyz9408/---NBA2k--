@@ -397,6 +397,7 @@
           sourceLabel: pack.season.label,
           sourceRosterCode: pack.season.code
         };
+        out.sourceRealStats = findHistoricalStatsForPlayer(out);
         out.positionOptions = positionOptionsForPlayer(out);
         return out;
       });
@@ -960,7 +961,7 @@
           .map(name => String(name || '').trim())
           .filter((name, index, list) => name && list.indexOf(name) === index)
           .forEach(name => {
-            if (!bucket[name]) bucket[name] = stats;
+            bucket[name] = { ...stats, ...(bucket[name] || {}) };
           });
       });
   }
@@ -1386,6 +1387,7 @@
       pos2: parseNum(player.pos, 0) === slot.id ? parseNum(player.pos2, 0) : parseNum(player.pos, 0),
       chosenSlotId: slot.id,
       chosenSlotShort: slot.short,
+      sourceRealStats: player.sourceRealStats || findHistoricalStatsForPlayer(player),
       fantasyStarter: true,
       injury: { active: false, games: 0, type: '' }
     };
@@ -1414,6 +1416,8 @@
         photo: player.photo,
         avatar: player.avatar || '',
         image: player.image,
+        sourceRealStats: player.sourceRealStats,
+        sourceStatsYear: player.sourceStatsYear,
         isSelf: false,
         fantasyStarter: true
       };
@@ -1458,6 +1462,53 @@
       out.injury = { active: false, games: 0, type: '' };
       return out;
     });
+  }
+
+  function injectRealRookiesForChallengeSeason(seasonYear) {
+    const year = parseNum(seasonYear, 0);
+    const rookies = (LEAGUE.rookieCatalog || [])
+      .filter(player => {
+        const draftCode = parseNum(player?.draft, 0);
+        const draftYear = draftCode >= 190000 ? Math.floor(draftCode / 100) : parseNum(player?.sourceDraftYear, 0);
+        return draftYear === year && parseNum(player?.draftPick, 0) > 0;
+      })
+      .sort((a, b) => parseNum(a.draftPick, 999) - parseNum(b.draftPick, 999));
+    if (!rookies.length) return 0;
+
+    const existingKeys = new Set();
+    Object.values(LEAGUE.teams || {}).forEach(team => {
+      (team.players || []).forEach(player => {
+        const key = playerIdentityKey(player);
+        if (key) existingKeys.add(key);
+      });
+    });
+
+    const injected = [];
+    rookies.forEach(player => {
+      const targetTeamId = parseNum(player.draftTeamId || player.originalTeamId || player.teamId, 0);
+      if (targetTeamId <= 0 || targetTeamId > 30 || !LEAGUE.teams[targetTeamId]) return;
+      const key = playerIdentityKey(player);
+      if (key && existingKeys.has(key)) return;
+      const rookie = {
+        ...clone(player),
+        teamId: targetTeamId,
+        yearsLeague: 0,
+        rookie: true,
+        injury: { active: false, games: 0, type: '' }
+      };
+      LEAGUE.teams[targetTeamId].players.push(rookie);
+      if (key) existingKeys.add(key);
+      injected.push(rookie);
+    });
+
+    if (!injected.length) return 0;
+    if (!LEAGUE.rookiesBySeason) LEAGUE.rookiesBySeason = {};
+    LEAGUE.rookiesBySeason[year] = injected;
+    Object.values(LEAGUE.teams || {}).forEach(team => {
+      team.rotation = toRotation(team.players);
+      team.strength = calcTeamStrength(team);
+    });
+    return injected.length;
   }
 
   function installFantasyTeam(targetTeamId) {
@@ -1575,6 +1626,8 @@
     try {
       el.simStatus.textContent = `加载 ${state.challengeYear} 名单`;
       await loadLeagueData({ startYear: state.challengeYear, strictRoster: true });
+      const rookieCount = injectRealRookiesForChallengeSeason(state.challengeYear);
+      if (rookieCount) el.simStatus.textContent = `已加入 ${state.challengeYear} 届真实新秀 ${rookieCount} 人`;
       ensureFantasyTeamShell();
       resetLeagueGameState(targetTeamId);
       const fantasy = installFantasyTeam(targetTeamId);

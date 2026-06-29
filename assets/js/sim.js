@@ -2950,6 +2950,10 @@ function buildMatchupSimulationPlans(homeProfile, awayProfile, opts = {}) {
 }
 
 function estimateLeagueThreePctForRow(attrs, rating, pos, oppRating, coachFx = null, gameMod = null) {
+  const realPct = parseNum(attrs?.__realThreePct, NaN);
+  if (Number.isFinite(realPct) && realPct > 0) {
+    return clamp(realPct / (realPct > 1 ? 100 : 1) + rng(-0.018, 0.018), 0.255, 0.455);
+  }
   const shotExt = clamp(parseNum(attrs?.shotExt, 55), 20, 99);
   const variancePct = gameMod?.varianceTag === 'hot' ? 0.012 : gameMod?.varianceTag === 'cold' ? -0.014 : 0;
   const coachPct = clamp((parseNum(coachFx?.threeRateMult, 1) - 1) * 0.045, -0.014, 0.018);
@@ -2980,8 +2984,8 @@ function leagueThreeAttemptProfileForRow(player, attrs, rating, pos, threeShareM
   }
   const shooterFactor = clamp((shotExt - 42) / 44, 0, 1);
   const tendencyFactor = clamp((extTendency - 35) / 55, 0, 1);
-  const posBaseShare = pos <= 2 ? 0.42 : pos === 3 ? 0.32 : pos === 4 ? 0.16 : 0.10;
-  const posBasePer36 = pos <= 2 ? 6.0 : pos === 3 ? 4.4 : pos === 4 ? 2.3 : 1.4;
+  const posBaseShare = pos <= 2 ? 0.42 : pos === 3 ? 0.32 : pos === 4 ? 0.24 : 0.16;
+  const posBasePer36 = pos <= 2 ? 6.0 : pos === 3 ? 4.4 : pos === 4 ? 3.5 : 2.3;
   const eraMult = sourceYear <= 1984 ? 0.12
     : sourceYear <= 1994 ? 0.24
       : sourceYear <= 2004 ? 0.46
@@ -2992,6 +2996,7 @@ function leagueThreeAttemptProfileForRow(player, attrs, rating, pos, threeShareM
   let share = posBaseShare * skillFactor * threeShareMult;
   let attemptsPer36 = posBasePer36 * skillFactor * threeShareMult * eraMult;
   const lowVolumeBig = pos >= 4 && shotExt < 62 && extTendency < 64;
+  const stretchBig = pos >= 4 && (shotExt >= 70 || extTendency >= 74);
   let frontcourtLimited = false;
 
   if (lowVolumeBig) {
@@ -2999,7 +3004,7 @@ function leagueThreeAttemptProfileForRow(player, attrs, rating, pos, threeShareM
     share = Math.min(share, cap);
     attemptsPer36 = Math.min(attemptsPer36, shotExt < 54 ? 0.45 : 0.85);
   }
-  if (pos >= 4) {
+  if (pos >= 4 && !stretchBig) {
     frontcourtLimited = true;
     const eraCap = sourceYear <= 1984 ? 0.10
       : sourceYear <= 1994 ? (pos === 4 ? 0.55 : 0.25)
@@ -3014,6 +3019,13 @@ function leagueThreeAttemptProfileForRow(player, attrs, rating, pos, threeShareM
     const capPer36 = Math.min(eraCap, tendencyCap);
     attemptsPer36 = Math.min(attemptsPer36, capPer36);
     share = Math.min(share, clamp(capPer36 / 18, 0, pos === 4 ? 0.18 : 0.12));
+  } else if (stretchBig) {
+    const floorPer36 = sourceYear <= 1994 ? (pos === 4 ? 1.3 : 0.8)
+      : sourceYear <= 2004 ? (pos === 4 ? 2.4 : 1.6)
+        : sourceYear <= 2012 ? (pos === 4 ? 3.2 : 2.4)
+          : (pos === 4 ? 4.2 : 3.1);
+    attemptsPer36 = Math.max(attemptsPer36, floorPer36 * threeShareMult);
+    share = Math.max(share, pos === 4 ? 0.22 : 0.17);
   }
 
   return {
@@ -3023,6 +3035,13 @@ function leagueThreeAttemptProfileForRow(player, attrs, rating, pos, threeShareM
     frontcourtLimited,
     noThreeEra: false
   };
+}
+
+function fitThreeMakesToAttempts(tpa, targetThreePct, fgPts, gameMod = null) {
+  const attempts = clamp(Math.round(parseNum(tpa, 0)), 0, 40);
+  const maxTpm = Math.min(attempts, Math.floor(parseNum(fgPts, 0) / 3));
+  if (maxTpm <= 0) return 0;
+  return clamp(Math.round(attempts * targetThreePct + parseNum(gameMod?.efficiencyShift, 0) * 0.6 + rng(-0.35, 0.35)), 0, maxTpm);
 }
 
 function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = false, sourcePlayer = null, coachFx = null, teamPlan = null, gameMod = null } = {}) {
@@ -3095,7 +3114,9 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
   let fgPts = Math.max(0, targetPts - ftm);
   let tpm = 0;
   let fgm = 0;
-  const targetThreePct = estimateLeagueThreePctForRow(attrs, rating, pos, oppRating, teamCoachFx, gameMod);
+  const realThreePct = parseNum(simPlayer?.sourceRealStats?.TP ?? simPlayer?.sourceRealStats?.tpPct ?? simPlayer?.realStats?.TP ?? simPlayer?.historicalStats?.TP, NaN);
+  const attrsForShotModel = Number.isFinite(realThreePct) && realThreePct > 0 ? { ...attrs, __realThreePct: realThreePct } : attrs;
+  const targetThreePct = estimateLeagueThreePctForRow(attrsForShotModel, rating, pos, oppRating, teamCoachFx, gameMod);
   const threeProfile = leagueThreeAttemptProfileForRow(simPlayer, attrs, rating, pos, threeShareMult);
 
   if ((threeProfile.lowVolumeBig || threeProfile.frontcourtLimited) && (fgPts & 1) === 1) {
@@ -3112,15 +3133,9 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
 
   if (fgPts > 0) {
     const maxTpm = Math.floor(fgPts / 3);
-    const expectedTpa = (minutes / 36) * threeProfile.attemptsPer36;
-    tpm = clamp(Math.round(expectedTpa * targetThreePct - (parseNum(oppRating, 75) - 75) / 80 + rng(-0.7, 0.8)), 0, maxTpm);
-    if (threeProfile.noThreeEra) tpm = 0;
-    if (((fgPts - tpm) & 1) === 1) {
-      if (!threeProfile.lowVolumeBig && !threeProfile.frontcourtLimited && tpm < maxTpm) tpm++;
-      else if (tpm > 0) tpm--;
-    }
-    while (tpm > maxTpm) tpm--;
-    fgm = Math.max(tpm, (fgPts - tpm) / 2);
+    tpm = threeProfile.noThreeEra ? 0 : clamp(Math.round(maxTpm * 0.35), 0, maxTpm);
+    if (((fgPts - tpm) & 1) === 1 && tpm > 0) tpm--;
+    fgm = Math.max(tpm, Math.round((fgPts - tpm) / 2));
   }
 
   const varianceEfficiency = 1 - (parseNum(gameMod?.efficiencyShift, 0) * 1.8);
@@ -3137,6 +3152,8 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
     const lowVolumeCap = Math.max(tpm, Math.round((minutes / 36) * threeProfile.attemptsPer36 + rng(0, 0.7)));
     tpa = clamp(tpa, tpm, Math.min(fga, lowVolumeCap));
   }
+  tpm = threeProfile.noThreeEra ? 0 : fitThreeMakesToAttempts(tpa, targetThreePct, fgPts, gameMod);
+  fgm = Math.max(tpm, Math.round((fgPts - tpm) / 2));
   const twoMade = Math.max(0, fgm - tpm);
   fga = clamp(Math.max(fga, tpa + twoMade + rng(0, 2)), Math.max(fgm, tpa), 34);
   tpa = clamp(tpa, tpm, fga);
