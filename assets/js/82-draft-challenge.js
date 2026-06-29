@@ -399,7 +399,7 @@
     state.stage = 'spin';
     setButtons();
     el.emptyState.hidden = false;
-    el.emptyState.innerHTML = '<strong>正在抽取</strong><span>读取项目内名单，随机年份和球队。</span>';
+    el.emptyState.innerHTML = renderEmptyScout('正在抽取', '读取项目内名单，随机球队和赛季。');
     el.candidateGrid.innerHTML = '';
 
     try {
@@ -426,15 +426,15 @@
       state.stage = 'player_select';
       state.result = null;
 
-      // Show small fast gacha overlay animation
       let gachaEl = document.getElementById('gachaOverlay');
       if (!gachaEl) {
         gachaEl = document.createElement('div');
         gachaEl.id = 'gachaOverlay';
         gachaEl.className = 'gacha-overlay';
-        document.body.appendChild(gachaEl);
+        const host = document.getElementById('draftApp') || document.body;
+        host.appendChild(gachaEl);
       }
-      gachaEl.innerHTML = `正在搜索档案...<br/><span style="font-size:24px;color:#fff;margin-top:16px;">${pool.season.label}</span><br/><span style="font-size:24px;color:#fff">${pool.team.z}</span>`;
+      gachaEl.innerHTML = renderTeamSearchOverlay(pool);
       gachaEl.classList.add('active');
 
       await new Promise(r => setTimeout(r, 600)); // Shorter delay
@@ -956,6 +956,90 @@
     return `${avg.pts}分 ${avg.reb}板 ${avg.ast}助 ${stockText}`;
   }
 
+  function renderSearchSvg() {
+    return `
+      <svg class="scanner-svg" viewBox="0 0 360 220" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="scannerBeam" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stop-color="#06b6d4" stop-opacity="0" />
+            <stop offset="45%" stop-color="#06b6d4" stop-opacity="0.5" />
+            <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+          </linearGradient>
+          <filter id="scannerGlow">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+        <rect class="scanner-court" x="34" y="22" width="292" height="176" rx="18" />
+        <path class="scanner-line" d="M180 22v176M104 22v58h152V22M116 80c14 40 114 40 128 0M112 198c8-64 128-64 136 0" />
+        <g class="scanner-radar" filter="url(#scannerGlow)">
+          <circle cx="180" cy="110" r="50" />
+          <circle cx="180" cy="110" r="24" />
+          <path d="M180 110l44-23" />
+        </g>
+        <path class="scanner-beam" d="M46 40h268v140H46z" />
+        <g class="scanner-cards">
+          <rect class="scan-card scan-card-1" x="64" y="54" width="46" height="58" rx="8" />
+          <rect class="scan-card scan-card-2" x="250" y="62" width="46" height="58" rx="8" />
+          <rect class="scan-card scan-card-3" x="156" y="142" width="46" height="58" rx="8" />
+        </g>
+        <g class="scanner-ball">
+          <circle cx="180" cy="110" r="13" />
+          <path d="M167 110h26M180 97c-9 9-9 17 0 26M180 97c9 9 9 17 0 26" />
+        </g>
+      </svg>
+    `;
+  }
+
+  function renderStageStepRail(stage = state.stage) {
+    const steps = [
+      { key: 'spin', label: '来源' },
+      { key: 'player_select', label: '球员' },
+      { key: 'position_select', label: '位置' },
+      { key: 'coach_select', label: '教练' },
+      { key: 'ready_to_simulate', label: '模拟' }
+    ];
+    const activeIndex = Math.max(0, steps.findIndex(step => step.key === stage));
+    return `
+      <div class="stage-rail" aria-label="挑战流程">
+        ${steps.map((step, index) => {
+          const classes = ['stage-dot'];
+          if (index < activeIndex) classes.push('done');
+          if (index === activeIndex) classes.push('active');
+          return `<span class="${classes.join(' ')}"><b>${index + 1}</b><em>${safeText(step.label)}</em></span>`;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  function renderTeamSearchOverlay(pool) {
+    return `
+      <div class="gacha-scanner" role="status" aria-live="polite">
+        ${renderSearchSvg()}
+        <div class="scanner-meta">
+          <span class="scanner-label">SEARCHING TEAM ARCHIVE</span>
+          <div class="scanner-chips">
+            <strong>${safeText(pool.team.a || pool.team.z)}</strong>
+            <strong>${safeText(pool.season.label)}</strong>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderEmptyScout(title = '抽取球队和年份', detail = '项目名单会随机给出球队、赛季和五名候选。') {
+    return `
+      <div class="empty-scout">
+        ${renderSearchSvg()}
+        <strong>${safeText(title)}</strong>
+        <span>${safeText(detail)}</span>
+      </div>
+    `;
+  }
+
   function sumAverageStat(rows, key) {
     return rows.reduce((sum, row) => sum + (parseFloat(row?.[key]) || 0), 0);
   }
@@ -975,7 +1059,10 @@
       <div class="source-strip">
         <div class="source-chip team">${safeText(state.currentPool.team.a)}</div>
         <div class="source-chip year">${safeText(state.currentPool.season.label)}</div>
-        <div class="source-copy">先选球员，下一步再从可打位置中落位。</div>
+        <div class="source-signal" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        ${renderStageStepRail('player_select')}
       </div>
       <div class="candidate-grid-inner">
         ${state.currentPool.candidates.map((player, index) => {
@@ -1007,6 +1094,10 @@
     const options = pending ? positionOptionsForPlayer(pending) : [];
     return `
       <div class="court-board" aria-label="位置选择球场">
+        <svg class="court-route-svg" viewBox="0 0 500 420" aria-hidden="true" focusable="false">
+          <path class="court-route-line" d="M250 355 C215 286 145 262 92 240 M250 355 C286 282 356 260 413 240 M250 355 C238 223 205 105 172 78 M250 355 C262 223 295 105 328 78 M250 355 C250 226 250 128 250 76" />
+          <circle class="court-route-ball" cx="250" cy="355" r="8" />
+        </svg>
         ${POSITION_SLOTS.map(slot => {
           const player = getSelectedBySlot(slot.id);
           const eligible = options.includes(slot.id);
@@ -1072,6 +1163,11 @@
           const teamName = coach.teamMeta?.z || getTeam(coach.teamId)?.z || `${state.challengeYear} 教练池`;
           return `
             <button class="coach-card" type="button" data-coach-choice="${index}">
+              <svg class="coach-tactic-svg" viewBox="0 0 180 86" aria-hidden="true" focusable="false">
+                <rect x="8" y="8" width="164" height="70" rx="10" />
+                <path d="M90 8v70M34 26h44M34 60h44M102 26c18-14 38-14 54 0M104 60c18 14 38 14 54 0" />
+                <circle cx="42" cy="26" r="5" /><circle cx="72" cy="60" r="5" /><circle cx="118" cy="31" r="5" /><circle cx="148" cy="55" r="5" />
+              </svg>
               <div class="coach-card-head">
                 <div>
                   <p>${safeText(teamName)}</p>
@@ -1120,9 +1216,9 @@
       el.candidateGrid.innerHTML = '';
       el.emptyState.hidden = false;
       if (state.busy && state.stage === 'coach_select') {
-        el.emptyState.innerHTML = `<strong>正在读取 ${state.challengeYear} 教练池</strong><span>教练战术会影响首发适配和赛季模拟。</span>`;
+        el.emptyState.innerHTML = renderEmptyScout(`读取 ${state.challengeYear} 教练池`, '战术板会强化或削弱不同类型球员。');
       } else {
-        el.emptyState.innerHTML = '<strong>先抽取球队和年份</strong><span>抽中来源后选择球员，再按球员可打位置落位。五个位置完成后选择教练。</span>';
+        el.emptyState.innerHTML = renderEmptyScout();
       }
     }
 

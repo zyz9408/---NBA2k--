@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>82胜抽卡挑战 | NBA Career Simulator</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="assets/css/82-draft-challenge.css?v=20260629realstats">
+  <link rel="stylesheet" href="assets/css/82-draft-challenge.css?v=20260629ui">
 </head>
 
 <body>
@@ -35,10 +35,38 @@
     <!-- Screen 1: Main Menu -->
     <section id="screenMainMenu" class="screen-view active">
       <div class="menu-content">
-        <div class="menu-logo-placeholder"></div>
+        <div class="menu-hero-art" aria-hidden="true">
+          <svg viewBox="0 0 560 320" focusable="false">
+            <defs>
+              <linearGradient id="menuCourtGlow" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.38" />
+                <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.28" />
+              </linearGradient>
+            </defs>
+            <rect class="menu-scoreboard" x="150" y="18" width="260" height="72" rx="12" />
+            <text x="280" y="64" text-anchor="middle">82 - 0</text>
+            <path class="menu-court-line" d="M50 300h460M80 300V112h400v188M170 112v72h220v-72M182 184c28 62 168 62 196 0M120 300c26-106 294-106 320 0" />
+            <path class="menu-route-line" d="M280 266 C210 224 158 218 132 244 C198 160 286 144 372 174 C332 112 276 102 216 132" />
+            <g class="menu-position-dots">
+              <circle cx="132" cy="244" r="13" /><circle cx="428" cy="244" r="13" />
+              <circle cx="216" cy="132" r="13" /><circle cx="372" cy="174" r="13" />
+              <circle cx="280" cy="266" r="13" />
+            </g>
+            <g class="menu-ball">
+              <circle cx="280" cy="266" r="16" />
+              <path d="M264 266h32M280 250c-10 10-10 22 0 32M280 250c10 10 10 22 0 32" />
+            </g>
+          </svg>
+        </div>
         <p class="menu-kicker"><span id="challengeYearHeader">2025</span> League Season Challenge</p>
         <h1 class="menu-title">82胜抽卡挑战</h1>
-        <p class="menu-subtitle">组建你的最强阵容，挑战历史级别的 82胜0负</p>
+        <p class="menu-subtitle">五轮抽卡、一次重抽、锁定教练，挑战 82-0。</p>
+
+        <div class="menu-stats" aria-label="挑战规则">
+          <span><strong>5</strong>轮选秀</span>
+          <span><strong>1</strong>次重抽</span>
+          <span><strong>82</strong>场模拟</span>
+        </div>
 
         <div class="era-selector" id="eraSelector">
           <label>选择挑战时代</label>
@@ -151,7 +179,7 @@
   <script src="assets/js/text-pools-extra.js?v=20260429templates2"></script>
   <script src="assets/js/text-pools-long.js?v=20260429longtemplates"></script>
   <script src="assets/js/sim.js?v=20260615auto"></script>
-  <script src="assets/js/82-draft-challenge.js?v=20260629realstats"></script>
+  <script src="assets/js/82-draft-challenge.js?v=20260629ui"></script>
 </body>
 
 </html>
