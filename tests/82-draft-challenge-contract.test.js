@@ -135,6 +135,10 @@ assert.ok(sim.includes('stretchBig'), 'league row simulation should not position
 assert.ok(sim.includes('__realThreePct'), 'league row simulation should use exact historical 3P% when a selected source season provides it');
 assert.ok(script.includes('sourceRealStats'), 'draft challenge should pass selected source-season shooting percentages into simulation');
 assert.ok(script.includes('injectRealRookiesForChallengeSeason'), 'draft challenge should restore real current-draft rookies into the simulated 2025 league');
+assert.ok(script.includes('loadChallengeLeagueData'), 'draft challenge should load a playable league fallback for challenge years outside the core strict roster map');
+assert.ok(script.includes('getHistoricalDraftClass(year)'), 'draft challenge should inject historical real draft classes when the loaded roster has no current-year rookies');
+assert.ok(script.includes('catalogRookies.filter(player => parseNum(player.draftTeamId || player.originalTeamId'), 'draft challenge should distinguish roster-extracted rookies from historical catalog fallback rookies');
+assert.ok(script.includes('fromHistoricalFallback'), 'draft challenge should allow rookie-version historical players even when veteran versions already exist in the loaded league');
 assert.ok(core.includes('draftTeamId: p.teamId'), 'rookie catalog extraction should retain original team for later 2025 roster injection');
 assert.ok(sim.includes('yearsLeague: parseNum(simPlayer?.yearsLeague'), 'league game rows should preserve player experience for award eligibility');
 assert.ok(sim.includes('yearsLeague: parseNum(ps.yearsLeague, -1)'), 'league season row exports should preserve player experience for awards');

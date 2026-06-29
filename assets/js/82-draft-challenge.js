@@ -582,7 +582,7 @@
     state.busy = true;
     renderAll();
     try {
-      await loadLeagueData({ startYear: state.challengeYear, strictRoster: true });
+      await loadChallengeLeagueData();
       const picked = [
         normalizeCoachChoice({
           id: 82001, name: '斯蒂夫-科尔', teamId: FANTASY_TEAM_ID, systemId: 'pace_space',
@@ -1348,6 +1348,17 @@
     ensureFantasyTeamShell();
   }
 
+  function hasLoadedLeagueTeams() {
+    return !!(LEAGUE.loaded && LEAGUE.teams && Object.keys(LEAGUE.teams).length);
+  }
+
+  async function loadChallengeLeagueData() {
+    await loadLeagueData({ startYear: state.challengeYear, strictRoster: true });
+    if (hasLoadedLeagueTeams()) return state.challengeYear;
+    await loadLeagueData({ startYear: 2025, strictRoster: true });
+    return hasLoadedLeagueTeams() ? 2025 : state.challengeYear;
+  }
+
   function resetLeagueGameState(targetTeamId) {
     G.phase = 'season';
     G.player.name = '';
@@ -1464,17 +1475,48 @@
     });
   }
 
+  function resolveRookieTargetTeamId(player, assignOrder, index) {
+    const direct = parseNum(player.draftTeamId || player.originalTeamId || player.teamId, 0);
+    if (direct > 0 && direct <= 30 && LEAGUE.teams[direct]) return direct;
+    const draftTeam = String(player.draftTeam || '').trim().toUpperCase();
+    if (draftTeam) {
+      const found = Object.values(LEAGUE.teams || {}).find(team =>
+        String(team?.meta?.a || team?.a || '').toUpperCase() === draftTeam ||
+        String(team?.meta?.n || team?.n || '').toUpperCase() === draftTeam ||
+        String(team?.meta?.z || team?.z || '').toUpperCase() === draftTeam
+      );
+      if (found) return parseNum(found.meta?.id || found.id, 0);
+    }
+    return assignOrder[index % Math.max(1, assignOrder.length)] || 0;
+  }
+
   function injectRealRookiesForChallengeSeason(seasonYear) {
     const year = parseNum(seasonYear, 0);
-    const rookies = (LEAGUE.rookieCatalog || [])
+    let fromHistoricalFallback = false;
+    const catalogRookies = (LEAGUE.rookieCatalog || [])
       .filter(player => {
         const draftCode = parseNum(player?.draft, 0);
         const draftYear = draftCode >= 190000 ? Math.floor(draftCode / 100) : parseNum(player?.sourceDraftYear, 0);
         return draftYear === year && parseNum(player?.draftPick, 0) > 0;
       })
       .sort((a, b) => parseNum(a.draftPick, 999) - parseNum(b.draftPick, 999));
+    let rookies = catalogRookies.filter(player => parseNum(player.draftTeamId || player.originalTeamId, 0) > 0);
+    if (!rookies.length && typeof getHistoricalDraftClass === 'function') {
+      rookies = getHistoricalDraftClass(year)
+        .filter(player => parseNum(player?.draftPick, 0) > 0)
+        .sort((a, b) => parseNum(a.draftPick, 999) - parseNum(b.draftPick, 999));
+      fromHistoricalFallback = rookies.length > 0;
+    }
     if (!rookies.length) return 0;
 
+    const assignOrder = Object.values(LEAGUE.teams || {})
+      .map(team => ({
+        id: parseNum(team?.meta?.id || team?.id, 0),
+        strength: parseNum(team?.strength, 75)
+      }))
+      .filter(team => team.id > 0 && team.id <= 30 && LEAGUE.teams[team.id])
+      .sort((a, b) => a.strength - b.strength || a.id - b.id)
+      .map(team => team.id);
     const existingKeys = new Set();
     Object.values(LEAGUE.teams || {}).forEach(team => {
       (team.players || []).forEach(player => {
@@ -1484,13 +1526,15 @@
     });
 
     const injected = [];
-    rookies.forEach(player => {
-      const targetTeamId = parseNum(player.draftTeamId || player.originalTeamId || player.teamId, 0);
+    rookies.forEach((player, index) => {
+      const targetTeamId = resolveRookieTargetTeamId(player, assignOrder, index);
       if (targetTeamId <= 0 || targetTeamId > 30 || !LEAGUE.teams[targetTeamId]) return;
       const key = playerIdentityKey(player);
-      if (key && existingKeys.has(key)) return;
+      if (!fromHistoricalFallback && key && existingKeys.has(key)) return;
       const rookie = {
         ...clone(player),
+        id: fromHistoricalFallback ? 832000 + year * 100 + parseNum(player.draftPick, index + 1) : player.id,
+        uid: fromHistoricalFallback ? `draft_challenge_${year}_${parseNum(player.draftPick, index + 1)}` : player.uid,
         teamId: targetTeamId,
         yearsLeague: 0,
         rookie: true,
@@ -1625,9 +1669,12 @@
     let originalBuildDynamic = null;
     try {
       el.simStatus.textContent = `加载 ${state.challengeYear} 名单`;
-      await loadLeagueData({ startYear: state.challengeYear, strictRoster: true });
+      const loadedRosterYear = await loadChallengeLeagueData();
       const rookieCount = injectRealRookiesForChallengeSeason(state.challengeYear);
-      if (rookieCount) el.simStatus.textContent = `已加入 ${state.challengeYear} 届真实新秀 ${rookieCount} 人`;
+      if (rookieCount) {
+        const rosterSuffix = loadedRosterYear !== state.challengeYear ? `（联盟名单使用 ${loadedRosterYear} 可用档案）` : '';
+        el.simStatus.textContent = `已加入 ${state.challengeYear} 届真实新秀 ${rookieCount} 人${rosterSuffix}`;
+      }
       ensureFantasyTeamShell();
       resetLeagueGameState(targetTeamId);
       const fantasy = installFantasyTeam(targetTeamId);
