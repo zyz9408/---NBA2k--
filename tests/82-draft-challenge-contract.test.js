@@ -151,6 +151,10 @@ assert.ok(sim.includes('const foulPressure = weightedRotationAverage'), 'team fr
 assert.ok(sim.includes('teamProfile?.foulPressure'), 'team offense plan should convert foul pressure into FTA volume');
 assert.ok(sim.includes('function realFreeThrowAttemptsPerGameForSim'), 'league row simulation should read real source-season FTA volume when available');
 assert.ok(sim.includes('stats.FTA ?? stats.fta'), 'real source-season FTA should be part of player free throw allocation');
+assert.ok(sim.includes('function realFreeThrowPctForSim'), 'league row simulation should read real source-season FT% when available');
+assert.ok(sim.includes('stats.FT ?? stats.ftPct'), 'real source-season FT% should be part of player free throw accuracy');
+assert.ok(sim.includes('const ftPct = realFreeThrowPctForSim(simPlayer)'), 'player box scores should use real/attribute free-throw accuracy instead of a low generic floor');
+assert.ok(sim.indexOf('while (remain >= 3 && line.tpm > 0)') < sim.indexOf('if (remain === 1 && line.ftm > 0)'), 'point reconciliation should preserve free throws until one-point tail adjustments');
 assert.ok(sim.includes('source?.att ?? rotationPlayer?.att'), 'league row simulation should use ATT in shot distribution');
 assert.ok(sim.includes('source?.coachFit?.score'), '82 fantasy coach fit should affect player shot distribution');
 assert.ok(sim.includes('function realThreeAttemptsPerGameForSim'), 'league row simulation should read real 3PA volume when source-season stats provide it');

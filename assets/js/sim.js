@@ -2000,9 +2000,10 @@ function applyPointDeltaToLine(line, delta, preferThree = false) {
     return recalcGameLinePoints(line);
   }
   remain = Math.abs(remain);
-  while (remain > 0 && line.ftm > 0) { line.ftm -= 1; remain -= 1; }
   while (remain >= 3 && line.tpm > 0) { line.tpm -= 1; line.fgm -= 1; remain -= 3; }
   while (remain >= 2 && line.fgm > line.tpm) { line.fgm -= 1; remain -= 2; }
+  if (remain === 1 && line.ftm > 0) { line.ftm -= 1; remain -= 1; }
+  while (remain > 0 && line.ftm > 0 && line.fgm <= line.tpm) { line.ftm -= 1; remain -= 1; }
   return recalcGameLinePoints(line);
 }
 
@@ -3008,6 +3009,37 @@ function realFreeThrowAttemptsPerGameForSim(player = null) {
   return NaN;
 }
 
+function realFreeThrowPctForSim(player = null) {
+  const stats = player?.sourceRealStats || player?.realStats || player?.historicalStats || player?.sourceStats || null;
+  if (stats && typeof stats === 'object') {
+    const direct = parseNum(
+      stats.FT ?? stats.ftPct ?? stats.FTP ?? stats.freeThrowPct ?? stats.freeThrowPercentage,
+      NaN
+    );
+    if (Number.isFinite(direct) && direct > 0) {
+      const pct = direct > 1.5 ? direct / 100 : direct;
+      if (pct >= 0.35 && pct <= 1) return clamp(pct, 0.38, 0.96);
+    }
+    const ftm = parseNum(stats.FTM ?? stats.ftm ?? stats.freeThrowsMade ?? stats.totalFtm, NaN);
+    const fta = parseNum(stats.FTA ?? stats.fta ?? stats.freeThrowsAttempted ?? stats.totalFta, NaN);
+    if (Number.isFinite(ftm) && Number.isFinite(fta) && fta > 0) {
+      return clamp(ftm / fta, 0.38, 0.96);
+    }
+  }
+
+  const attrs = usagePlayerAttrs(player || {});
+  const rating = clamp(parseNum(player?.rating, ovr(attrs)), 40, 99);
+  const rawShotFree = parseNum(attrs.shotFree, NaN);
+  const shotFree = Number.isFinite(rawShotFree) && rawShotFree > 0 ? rawShotFree : 68;
+  return clamp(
+    0.745
+    + (shotFree - 68) / 260
+    + (rating - 70) / 900,
+    0.64,
+    0.91
+  );
+}
+
 function leagueThreeAttemptProfileForRow(player, attrs, rating, pos, threeShareMult = 1) {
   const shotExt = clamp(parseNum(attrs?.shotExt, 55), 20, 99);
   const extTendency = clamp(parseNum(
@@ -3362,7 +3394,7 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
       tpa = clamp(tpa, 0, Math.min(fga, lowVolumeCap));
     }
     const twoPa = Math.max(0, fga - tpa);
-    const ftPct = clamp(0.70 + (parseNum(attrs.shotFree, 68) - 68) / 180 + (rating - 70) / 600, 0.58, 0.94);
+    const ftPct = realFreeThrowPctForSim(simPlayer);
     const twoPct = clamp(
       0.465
       + (parseNum(attrs.shotInt, 55) - 62) / 235
