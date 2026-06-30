@@ -568,7 +568,7 @@ function honorCounter() {
   return {
     rings: 0, mvp: 0, fmvp: 0, dpoy: 0, roy: 0, allStar: 0, allStarMvp: 0,
     allNba1: 0, allNba2: 0, allNba3: 0, allDefensive: 0, scoring: 0,
-    rebound: 0, assist: 0, block: 0, steal: 0, sixthMan: 0
+    rebound: 0, assist: 0, block: 0, steal: 0
   };
 }
 
@@ -620,8 +620,7 @@ function rosterHonors(row) {
     rebound: row.bestRebounders,
     assist: row.bestPassers,
     block: row.bestBlockers,
-    steal: row.bestStealers,
-    sixthMan: row.sixmans
+    steal: row.bestStealers
   });
 }
 
@@ -686,7 +685,7 @@ function legacyHonorScore(honors = honorCounter()) {
     honors.rings * 70 + honors.mvp * 165 + honors.fmvp * 150 + honors.dpoy * 60 + honors.roy * 12 +
     honors.allNba1 * 48 + honors.allNba2 * 28 + honors.allNba3 * 16 + honors.allDefensive * 12 +
     honors.allStar * 6 + honors.allStarMvp * 8 + honors.scoring * 18 + honors.rebound * 13 +
-    honors.assist * 13 + honors.block * 11 + honors.steal * 11 + honors.sixthMan * 8
+    honors.assist * 13 + honors.block * 11 + honors.steal * 11
   );
 }
 
@@ -1194,7 +1193,7 @@ const HONOR_LABELS = [
   ['rings', '总冠军'], ['mvp', 'MVP'], ['fmvp', 'FMVP'], ['dpoy', 'DPOY'], ['roy', 'ROY'],
   ['allStar', '全明星'], ['allStarMvp', '全明星MVP'], ['allNba1', '一阵'], ['allNba2', '二阵'],
   ['allNba3', '三阵'], ['allDefensive', '一防'], ['scoring', '得分王'], ['rebound', '篮板王'],
-  ['assist', '助攻王'], ['block', '盖帽王'], ['steal', '抢断王'], ['sixthMan', '最佳第六人']
+  ['assist', '助攻王'], ['block', '盖帽王'], ['steal', '抢断王']
 ];
 
 function hasAnyHonor(honors = {}) {
@@ -1829,7 +1828,7 @@ function summarizeHonors(honors = {}) {
     ['rings', '总冠军'], ['mvp', 'MVP'], ['fmvp', 'FMVP'], ['dpoy', 'DPOY'], ['roy', 'ROY'],
     ['allStar', '全明星'], ['allStarMvp', '全明星MVP'], ['allNba1', '一阵'], ['allNba2', '二阵'],
     ['allNba3', '三阵'], ['allDefensive', '一防'], ['scoring', '得分王'], ['rebound', '篮板王'],
-    ['assist', '助攻王'], ['block', '盖帽王'], ['steal', '抢断王'], ['sixthMan', '最佳第六人']
+    ['assist', '助攻王'], ['block', '盖帽王'], ['steal', '抢断王']
   ];
   const parts = labels
     .map(([key, label]) => [parseNum(honors[key], 0), label])

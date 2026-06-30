@@ -6513,7 +6513,7 @@ function createDefaultHistoricalArchive() {
     rank: idx + 1,
     retired: entry.retired !== false,
     honors: normalizeUserHonorCounter(entry.honors || null),
-    honorSummary: entry.honorSummary || buildPlayerHonorsSummary(normalizeUserHonorCounter(entry.honors || null)),
+    honorSummary: buildPlayerHonorsSummary(normalizeUserHonorCounter(entry.honors || null)),
     honorSeasons: Array.isArray(entry.honorSeasons) ? entry.honorSeasons : [],
     honorSource: entry.honorSource || entry.source || 'historical_db',
     asOfYear: entry.asOfYear || asOfYear,
@@ -6558,7 +6558,7 @@ function normalizeHistoricalEntry(entry = {}, idx = 0) {
     rank: Math.max(1, Math.round(parseNum(entry.rank, idx + 1))),
     retired: entry.retired !== false,
     honors,
-    honorSummary: String(entry.honorSummary || buildPlayerHonorsSummary(honors)),
+    honorSummary: buildPlayerHonorsSummary(honors),
     honorSeasons,
     honorSource: String(entry.honorSource || (source === 'user' ? 'game_awards' : source)),
     updatedAt: String(entry.updatedAt || new Date().toISOString())
@@ -7434,8 +7434,7 @@ function calculateLegacyHonorScore(honors = null) {
     parseNum(c.rebound, 0) * 13 +
     parseNum(c.assist, 0) * 13 +
     parseNum(c.block, 0) * 11 +
-    parseNum(c.steal, 0) * 11 +
-    parseNum(c.sixthMan, 0) * 8
+    parseNum(c.steal, 0) * 11
   );
 }
 
@@ -11750,8 +11749,7 @@ function defaultUserHonorCounter() {
     rebound: 0,
     assist: 0,
     block: 0,
-    steal: 0,
-    sixthMan: 0
+    steal: 0
   };
 }
 function normalizeUserHonorCounter(raw = null) {
@@ -11785,7 +11783,6 @@ function normalizeHonorLabelForArchive(text) {
   if (/助攻王|assist champion/.test(lower)) return '助攻王';
   if (/盖帽王|block champion/.test(lower)) return '盖帽王';
   if (/抢断王|steal champion/.test(lower)) return '抢断王';
-  if (/最佳第六人|sixth man|6th man/.test(lower)) return '最佳第六人';
   if (/全明星|all[-\s]?star/.test(lower)) return '全明星';
   return value;
 }
@@ -11808,7 +11805,6 @@ function addHonorTextToCounter(text, counter = null) {
   else if (label === '助攻王') target.assist += 1;
   else if (label === '盖帽王') target.block += 1;
   else if (label === '抢断王') target.steal += 1;
-  else if (label === '最佳第六人') target.sixthMan += 1;
   else if (label === '全明星MVP') { target.allStarMvp += 1; target.allStar += 1; }
   else if (label === '全明星') target.allStar += 1;
   return target;
@@ -11957,7 +11953,7 @@ function collectUserHonorCounterFromHistory() {
       else if (typeof item.awards === 'string') stack.push(item.awards);
       if (typeof item.title === 'string') addHonorTextToCounter(item.title, counter);
       if (typeof item.label === 'string') addHonorTextToCounter(item.label, counter);
-      if (typeof item.name === 'string' && /mvp|dpoy|all[-\s]?nba|冠军|得分王|篮板王|助攻王|盖帽王|抢断王|第六人/i.test(item.name)) {
+      if (typeof item.name === 'string' && /mvp|dpoy|all[-\s]?nba|冠军|得分王|篮板王|助攻王|盖帽王|抢断王/i.test(item.name)) {
         addHonorTextToCounter(item.name, counter);
       }
       continue;
@@ -11984,8 +11980,7 @@ function buildPlayerHonorsSummary(honors = null) {
     ['rebound', '篮板王'],
     ['assist', '助攻王'],
     ['block', '盖帽王'],
-    ['steal', '抢断王'],
-    ['sixthMan', '最佳第六人']
+    ['steal', '抢断王']
   ];
   const parts = labels
     .filter(([key]) => parseNum(c[key], 0) > 0)
@@ -12010,8 +12005,7 @@ function getPlayerEndorsementHonorScore(honors = null) {
     parseNum(c.rebound, 0) * 4 +
     parseNum(c.assist, 0) * 4 +
     parseNum(c.block, 0) * 4 +
-    parseNum(c.steal, 0) * 4 +
-    parseNum(c.sixthMan, 0) * 4
+    parseNum(c.steal, 0) * 4
   );
 }
 function getEndorsementMarketLabel(score) {
@@ -12557,10 +12551,6 @@ function leagueAwardEntryForSeason(seasonNum) {
   const blockLeader = rated(eligible, bpg)[0];
   const stealLeader = rated(eligible, spg)[0];
 
-  // 6th Man: filter non-starters (simplified: filter players with low minutes)
-  const sixthMen = eligible.filter(r => parseNum(r.mins, 0) > 0 && parseNum(r.mins, 0) / parseNum(r.gp, 1) < 28);
-  const sixthManRow = rated(sixthMen.length ? sixthMen : eligible, r => ppg(r) + apg(r) * 0.5)[0];
-
   // All-NBA: top 15 players
   const top15 = rated(eligible, mvpScore, 15);
   const allNba1 = top15.slice(0, 5).map(r => ({ name: rowName(r), teamId: rowTeam(r), team: teamNameFallback(rowTeam(r)), pos: parseNum(r.pos, 3) }));
@@ -12581,7 +12571,6 @@ function leagueAwardEntryForSeason(seasonNum) {
     assist: assistLeader ? { name: rowName(assistLeader), teamId: rowTeam(assistLeader), team: teamNameFallback(rowTeam(assistLeader)), apg: +apg(assistLeader).toFixed(1) } : null,
     block: blockLeader ? { name: rowName(blockLeader), teamId: rowTeam(blockLeader), team: teamNameFallback(rowTeam(blockLeader)), bpg: +bpg(blockLeader).toFixed(1) } : null,
     steal: stealLeader ? { name: rowName(stealLeader), teamId: rowTeam(stealLeader), team: teamNameFallback(rowTeam(stealLeader)), spg: +spg(stealLeader).toFixed(1) } : null,
-    sixthMan: sixthManRow ? { name: rowName(sixthManRow), teamId: rowTeam(sixthManRow), team: teamNameFallback(rowTeam(sixthManRow)), ppg: +ppg(sixthManRow).toFixed(1) } : null,
     allNba1, allNba2, allNba3,
     allDefensive: allDef,
     allStar: [],
@@ -12611,7 +12600,6 @@ function buildUserAwardsFromLeague(leagueAwards, opts = {}) {
   if (checkMatch(leagueAwards.assist)) awards.push('助攻王');
   if (checkMatch(leagueAwards.block)) awards.push('盖帽王');
   if (checkMatch(leagueAwards.steal)) awards.push('抢断王');
-  if (checkMatch(leagueAwards.sixthMan)) awards.push('最佳第六人');
   if (leagueAwards.fmvp && String(leagueAwards.fmvp.name || '').trim() === userName) awards.push('FMVP');
   if (leagueAwards.allStarMvp && String(leagueAwards.allStarMvp.name || '').trim() === userName) awards.push('全明星MVP');
 
@@ -12680,9 +12668,8 @@ function getUserHallOfFameProfile() {
   const allNba3 = parseNum(counter.allNba3, 0);
   const allStar = parseNum(counter.allStar, 0);
   const scoring = parseNum(counter.scoring, 0);
-  const sixthMan = parseNum(counter.sixthMan, 0);
 
-  const score = rings * 15 + mvps * 20 + fmvp * 14 + dpoy * 10 + allNba1 * 9 + allNba2 * 5 + allNba3 * 3 + allStar * 4 + scoring * 6 + sixthMan * 4;
+  const score = rings * 15 + mvps * 20 + fmvp * 14 + dpoy * 10 + allNba1 * 9 + allNba2 * 5 + allNba3 * 3 + allStar * 4 + scoring * 6;
   const threshold = parseNum(G.hallOfFameThreshold, 120);
   return { score, threshold, eligible: score >= threshold, counter, ringCount: rings };
 }

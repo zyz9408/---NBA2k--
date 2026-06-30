@@ -1373,7 +1373,7 @@ function historicalHonorCounter() {
   return {
     rings: 0, mvp: 0, fmvp: 0, dpoy: 0, roy: 0, allStar: 0, allStarMvp: 0,
     allNba1: 0, allNba2: 0, allNba3: 0, allDefensive: 0, scoring: 0,
-    rebound: 0, assist: 0, block: 0, steal: 0, sixthMan: 0
+    rebound: 0, assist: 0, block: 0, steal: 0
   };
 }
 function normalizeHistoricalHonors(raw = null) {
@@ -1421,7 +1421,7 @@ function historicalHonorsSummary(honors = {}) {
     ['rings', '总冠军'], ['mvp', 'MVP'], ['fmvp', 'FMVP'], ['dpoy', 'DPOY'], ['roy', 'ROY'],
     ['allStar', '全明星'], ['allStarMvp', '全明星MVP'], ['allNba1', '一阵'], ['allNba2', '二阵'],
     ['allNba3', '三阵'], ['allDefensive', '一防'], ['scoring', '得分王'], ['rebound', '篮板王'],
-    ['assist', '助攻王'], ['block', '盖帽王'], ['steal', '抢断王'], ['sixthMan', '最佳第六人']
+    ['assist', '助攻王'], ['block', '盖帽王'], ['steal', '抢断王']
   ].filter(([key]) => parseNum(c[key], 0) > 0).map(([key, label]) => `${label}x${c[key]}`);
   return parts.length ? parts.join(' / ') : '暂无已验证荣誉';
 }
@@ -1437,7 +1437,7 @@ function historicalHonorBadgeItems(honors = {}) {
     ['allNba2', '二阵', 'b-pri'], ['allNba3', '三阵', 'b-pri'], ['allDefensive', '一防', 'b-cyan'],
     ['allStar', '全明星', 'b-pri'], ['allStarMvp', '全明星MVP', 'b-gold'], ['scoring', '得分王', 'b-no'],
     ['rebound', '篮板王', 'b-cyan'], ['assist', '助攻王', 'b-cyan'], ['block', '盖帽王', 'b-cyan'],
-    ['steal', '抢断王', 'b-cyan'], ['sixthMan', '最佳第六人', 'b-pri']
+    ['steal', '抢断王', 'b-cyan']
   ]
     .filter(([key]) => parseNum(c[key], 0) > 0)
     .map(([key, label, cls]) => ({ key, label, count: parseNum(c[key], 0), cls }));

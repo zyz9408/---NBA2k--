@@ -20,7 +20,7 @@
 
 保留本地文本池作为旧代码资源和非主流程工具，但选秀前夜媒体预测、自动生涯周报、退役结算不调用模板兜底。
 
-历史排名使用独立 `historical_top100.json` 档案：v4 档案由本地历史数据库中的真实履历、名单聚合、荣誉计数、累计数据和巅峰评分计算，不再使用固定 Top100 种子表。退役玩家会按同一套 `legacyScore` 函数插入或更新，二周目可以导入同一个 JSON 继续保留之前玩家排名。档案保存 `honors`、`honorSummary`、`honorSeasons` 和 `honorSource`，这些字段从游戏内荣誉页同源数据生成，覆盖总冠军、MVP、FMVP、DPOY、ROY、最佳阵容、最佳防守阵容、全明星、全明星 MVP、数据王和最佳第六人。
+历史排名使用独立 `historical_top100.json` 档案：v4 档案由本地历史数据库中的真实履历、名单聚合、荣誉计数、累计数据和巅峰评分计算，不再使用固定 Top100 种子表。退役玩家会按同一套 `legacyScore` 函数插入或更新，二周目可以导入同一个 JSON 继续保留之前玩家排名。档案保存 `honors`、`honorSummary`、`honorSeasons` 和 `honorSource`，这些字段从游戏内荣誉页同源数据生成，覆盖总冠军、MVP、FMVP、DPOY、ROY、最佳阵容、最佳防守阵容、全明星、全明星 MVP 和数据王。
 
 历史数据生成脚本为 `tools/data/build_historical_db.mjs`，provider 链按 NBA API、balldontlie、SportsDataIO、本地/GitHub CSV 的顺序记录；没有 API key 或未启用联网刷新时，会使用已缓存 raw 和本地 CSV 离线生成 `assets/data/historical/`。游戏运行时只读取本地 JSON 和 `assets/data/historical/headshots/`，不会联网请求历史数据或头像。
 

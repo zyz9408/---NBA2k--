@@ -345,7 +345,6 @@ async function main() {
         assist: null,
         block: null,
         steal: null,
-        sixthMan: null,
         allNba1: [{ name: G.player.name, teamId: G.teamId, team: G.team?.z || '' }],
         allNba2: [],
         allNba3: [],

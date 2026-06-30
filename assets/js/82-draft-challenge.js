@@ -1861,8 +1861,7 @@
       ['ROY', awards.roy],
       ['得分王', awards.scoring],
       ['篮板王', awards.rebound],
-      ['助攻王', awards.assist],
-      ['最佳第六人', awards.sixthMan]
+      ['助攻王', awards.assist]
     ];
     const coachSummary = coachProfileSummary(result.coach);
 

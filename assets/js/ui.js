@@ -6339,8 +6339,7 @@ function renderHistory() {
     ['rebound', '篮板王'],
     ['assist', '助攻王'],
     ['block', '盖帽王'],
-    ['steal', '抢断王'],
-    ['sixthMan', '最佳第六人']
+    ['steal', '抢断王']
   ].filter(([key]) => parseNum(liveHonors[key], 0) > 0);
   const historyHonorRef = entry => {
     const h = typeof normalizeUserHonorCounter === 'function' ? normalizeUserHonorCounter(entry?.honors || null) : (entry?.honors || {});
