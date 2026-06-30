@@ -191,8 +191,10 @@ assert.ok(sim.includes('yearsLeague: parseNum(ps.yearsLeague, -1)'), 'league sea
 assert.ok(sim.includes('parseNum(r.yearsLeague, -1) === 0'), 'ROY filtering should not treat missing experience as rookie eligibility');
 assert.ok(script.includes('isThreeBlackHole'), 'challenge result tags should use a volume-aware three-point black-hole rule');
 assert.ok(script.includes('tpaPerGame'), 'challenge result table should expose three-point attempt volume');
+assert.ok(script.includes('ftaPerGame'), 'challenge result table should expose free-throw attempt volume');
+assert.ok(script.includes('ftPct'), 'challenge result table should expose free-throw percentage');
 assert.ok(script.includes('twoPaPerGame'), 'challenge result table should expose two-point attempt volume');
-assert.ok(script.includes('<th>FGA</th><th>2PA</th><th>3PA</th>'), 'challenge result table should show shooting attempt structure');
+assert.ok(script.includes('<th>FGA</th><th>2PA</th><th>3PA</th><th>FTA</th><th>FG%</th><th>3P%</th><th>FT%</th>'), 'challenge result table should show shooting and free-throw structure');
 assert.ok(script.includes("slot === 'PF' || slot === 'C' ? 4 : 3"), 'frontcourt three-point black-hole tag should require higher volume');
 assert.ok(!script.includes('Very few 3PA per game - use attribute-based estimate'), 'challenge results must not replace low-volume 3P% with an attribute estimate');
 assert.ok(!script.includes('tpFloor'), 'challenge results must not floor simulated 3P% from attributes');

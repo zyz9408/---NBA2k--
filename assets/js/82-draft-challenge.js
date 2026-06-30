@@ -1636,11 +1636,15 @@
       const totalFga = parseNum(row?.fga, 0);
       const totalTpa = parseNum(row?.tpa, 0);
       const totalTpm = parseNum(row?.tpm, 0);
+      const totalFta = parseNum(row?.fta, 0);
+      const totalFtm = parseNum(row?.ftm, 0);
       const totalTwoPa = Math.max(0, totalFga - totalTpa);
       const fgaPerGame = +(totalFga / gp).toFixed(1);
       const twoPaPerGame = +(totalTwoPa / gp).toFixed(1);
       const tpaPerGame = +(totalTpa / gp).toFixed(1);
+      const ftaPerGame = +(totalFta / gp).toFixed(1);
       const rawTpPct = totalTpa > 0 ? +(totalTpm / totalTpa * 100).toFixed(1) : null;
+      const rawFtPct = totalFta > 0 ? +(totalFtm / totalFta * 100).toFixed(1) : null;
       return {
         player,
         row,
@@ -1656,10 +1660,14 @@
         fga: totalFga,
         tpa: totalTpa,
         tpm: totalTpm,
+        fta: totalFta,
+        ftm: totalFtm,
         twoPa: totalTwoPa,
         fgaPerGame,
         twoPaPerGame,
-        tpaPerGame
+        tpaPerGame,
+        ftaPerGame,
+        ftPct: rawFtPct == null ? '--' : rawFtPct
       };
     });
   }
@@ -1904,7 +1912,7 @@
         <h3>五人赛季数据</h3>
         <div class="tbl">
           <table>
-            <thead><tr><th>位置</th><th>球员</th><th>来源</th><th>战术适配</th><th>GP</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>FGA</th><th>2PA</th><th>3PA</th><th>FG%</th><th>3P%</th></tr></thead>
+            <thead><tr><th>位置</th><th>球员</th><th>来源</th><th>战术适配</th><th>GP</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>FGA</th><th>2PA</th><th>3PA</th><th>FTA</th><th>FG%</th><th>3P%</th><th>FT%</th></tr></thead>
             <tbody>
               ${result.selectedStats.map(item => {
                 const attrs = item.player.attrs || {};
@@ -1930,8 +1938,10 @@
                   <td>${item.fgaPerGame}</td>
                   <td>${item.twoPaPerGame}</td>
                   <td>${item.tpaPerGame}</td>
+                  <td>${item.ftaPerGame}</td>
                   <td>${item.fgPct}</td>
                   <td>${item.tpPct}</td>
+                  <td>${item.ftPct}</td>
                 </tr>
               `;}).join('')}
             </tbody>
