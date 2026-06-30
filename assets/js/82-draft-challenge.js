@@ -926,6 +926,13 @@
   function historicalPackRowToStats(row) {
     return {
       GP: row.gp,
+      MIN: row.mins,
+      FGM: row.fgm,
+      FGA: row.fga,
+      TPM: row.tpm,
+      TPA: row.tpa,
+      FTM: row.ftm,
+      FTA: row.fta,
       PTS: row.ppg,
       REB: row.rpg,
       AST: row.apg,

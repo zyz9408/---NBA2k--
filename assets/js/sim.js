@@ -2972,15 +2972,33 @@ function estimateLeagueThreePctForRow(attrs, rating, pos, oppRating, coachFx = n
   );
 }
 
+function realThreeAttemptsPerGameForSim(player = null) {
+  const stats = player?.sourceRealStats || player?.realStats || player?.historicalStats || player?.sourceStats || null;
+  if (!stats || typeof stats !== 'object') return NaN;
+  const direct = parseNum(
+    stats.TPA ?? stats.tpa ?? stats.threePa ?? stats.threePA ?? stats.fg3a ?? stats.FG3A ?? stats.threeAttemptsPerGame,
+    NaN
+  );
+  if (Number.isFinite(direct)) {
+    const gp = Math.max(1, parseNum(stats.GP ?? stats.gp, 1));
+    return direct > 20 && gp > 1 ? direct / gp : direct;
+  }
+  const total = parseNum(stats.threePointersAttempted ?? stats.totalTpa ?? stats.total3pa, NaN);
+  if (Number.isFinite(total)) return total / Math.max(1, parseNum(stats.GP ?? stats.gp, 1));
+  return NaN;
+}
+
 function leagueThreeAttemptProfileForRow(player, attrs, rating, pos, threeShareMult = 1) {
   const shotExt = clamp(parseNum(attrs?.shotExt, 55), 20, 99);
   const extTendency = clamp(parseNum(
     player?.tendencies?.ex ?? player?.tendencyExt ?? player?.tendencyFr ?? player?.tendencyEx,
     shotExt
   ), 20, 100);
+  const realTpa = realThreeAttemptsPerGameForSim(player);
+  const hasRealTpa = Number.isFinite(realTpa) && realTpa >= 0;
   const sourceYear = parseNum(player?.sourceStatsYear || player?.sourceYear || G?.year, G?.year || 2025);
   if (sourceYear > 0 && sourceYear < 1980) {
-    return { share: 0, attemptsPer36: 0, lowVolumeBig: pos >= 4, frontcourtLimited: pos >= 4, noThreeEra: true };
+    return { share: 0, attemptsPer36: 0, lowVolumeBig: pos >= 4, frontcourtLimited: pos >= 4, noThreeEra: true, realTpa };
   }
   const shooterFactor = clamp((shotExt - 42) / 44, 0, 1);
   const tendencyFactor = clamp((extTendency - 35) / 55, 0, 1);
@@ -2995,14 +3013,23 @@ function leagueThreeAttemptProfileForRow(player, attrs, rating, pos, threeShareM
   const skillFactor = clamp(0.22 + shooterFactor * 0.58 + tendencyFactor * 0.34 + (parseNum(rating, 65) - 70) * 0.006, 0.08, 1.20);
   let share = posBaseShare * skillFactor * threeShareMult;
   let attemptsPer36 = posBasePer36 * skillFactor * threeShareMult * eraMult;
-  const lowVolumeBig = pos >= 4 && shotExt < 62 && extTendency < 64;
-  const stretchBig = pos >= 4 && (shotExt >= 70 || extTendency >= 74);
+  const realLowVolumeBig = pos >= 4 && hasRealTpa && realTpa < 1.25;
+  const lowVolumeBig = pos >= 4 && (realLowVolumeBig || (shotExt < 62 && extTendency < 64));
+  const stretchBig = pos >= 4 && (
+    (hasRealTpa && realTpa >= 2.4)
+    || shotExt >= 82
+    || (shotExt >= 74 && extTendency >= 78)
+    || extTendency >= 90
+  );
   let frontcourtLimited = false;
 
   if (lowVolumeBig) {
-    const cap = shotExt < 54 ? 0.035 : 0.055;
+    const cap = hasRealTpa ? clamp((realTpa + 0.25) / 18, 0.015, 0.085) : (shotExt < 54 ? 0.035 : 0.055);
     share = Math.min(share, cap);
-    attemptsPer36 = Math.min(attemptsPer36, shotExt < 54 ? 0.45 : 0.85);
+    const realCapPer36 = hasRealTpa
+      ? clamp(realTpa * clamp(threeShareMult, 0.85, 1.18) + 0.25, 0, 1.35)
+      : (shotExt < 54 ? 0.45 : 0.85);
+    attemptsPer36 = Math.min(attemptsPer36, realCapPer36);
   }
   if (pos >= 4 && !stretchBig) {
     frontcourtLimited = true;
@@ -3012,11 +3039,16 @@ function leagueThreeAttemptProfileForRow(player, attrs, rating, pos, threeShareM
           : sourceYear <= 2012 ? (pos === 4 ? 2.05 : 0.95)
             : sourceYear <= 2016 ? (pos === 4 ? 2.45 : 1.35)
               : (pos === 4 ? 3.20 : 2.10);
-    const tendencyCap = extTendency < 62 ? (pos === 4 ? 0.85 : 0.35)
-      : extTendency < 72 ? (pos === 4 ? 1.45 : 0.70)
-        : extTendency < 80 ? (pos === 4 ? 2.15 : 1.10)
+    const skillCap = shotExt < 62 ? (pos === 4 ? 0.55 : 0.30)
+      : shotExt < 70 ? (pos === 4 ? 0.95 : 0.55)
+        : shotExt < 74 ? (pos === 4 ? 1.45 : 0.85)
           : eraCap;
-    const capPer36 = Math.min(eraCap, tendencyCap);
+    const tendencyCap = extTendency < 62 ? (pos === 4 ? 0.85 : 0.35)
+      : extTendency < 72 ? (pos === 4 ? 1.25 : 0.60)
+        : extTendency < 80 ? (pos === 4 ? 1.65 : 0.90)
+          : eraCap;
+    const realCap = hasRealTpa ? clamp(realTpa * clamp(threeShareMult, 0.85, 1.18) + 0.35, 0, 2.05) : eraCap;
+    const capPer36 = Math.min(eraCap, tendencyCap, skillCap, realCap);
     attemptsPer36 = Math.min(attemptsPer36, capPer36);
     share = Math.min(share, clamp(capPer36 / 18, 0, pos === 4 ? 0.18 : 0.12));
   } else if (stretchBig) {
@@ -3033,7 +3065,8 @@ function leagueThreeAttemptProfileForRow(player, attrs, rating, pos, threeShareM
     attemptsPer36: clamp(attemptsPer36, 0, 8.8),
     lowVolumeBig,
     frontcourtLimited,
-    noThreeEra: false
+    noThreeEra: false,
+    realTpa
   };
 }
 

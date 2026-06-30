@@ -144,6 +144,8 @@ assert.ok(sim.includes('function buildTeamShotPlansForSim'), 'league row simulat
 assert.ok(sim.includes('getPlayerShotTendenciesForSim'), 'league row simulation should read player tendencies for shot distribution');
 assert.ok(sim.includes('source?.att ?? rotationPlayer?.att'), 'league row simulation should use ATT in shot distribution');
 assert.ok(sim.includes('source?.coachFit?.score'), '82 fantasy coach fit should affect player shot distribution');
+assert.ok(sim.includes('function realThreeAttemptsPerGameForSim'), 'league row simulation should read real 3PA volume when source-season stats provide it');
+assert.ok(sim.includes('stats.TPA ?? stats.tpa'), 'real source-season 3PA should be part of the three-point attempt cap');
 assert.ok(sim.includes('coachSystemShotStyleForSim'), 'league row simulation should map coach systemId to shooting style');
 assert.ok(sim.includes('pace_space: { usage: 1.03, three: 1.20'), 'pace-space coach style should raise suitable three-point volume');
 assert.ok(sim.includes('seven_seconds: { usage: 1.07, three: 1.14'), 'seven-seconds coach style should raise pace and perimeter volume');
@@ -155,8 +157,10 @@ assert.ok(sim.includes('lowVolumeBig'), 'league row simulation should keep non-s
 assert.ok(sim.includes('sourceYear > 0 && sourceYear < 1980'), 'league row simulation should not assign threes before the NBA three-point era');
 assert.ok(sim.includes('frontcourtLimited'), 'league row simulation should cap frontcourt three-point volume by era and tendency');
 assert.ok(sim.includes('stretchBig'), 'league row simulation should not position-cap shooting bigs with strong three-point attributes or tendency');
+assert.ok(!sim.includes('const stretchBig = pos >= 4 && (shotExt >= 70 || extTendency >= 74)'), 'frontcourt players should not become stretch bigs from tendency alone');
 assert.ok(sim.includes('__realThreePct'), 'league row simulation should use exact historical 3P% when a selected source season provides it');
 assert.ok(script.includes('sourceRealStats'), 'draft challenge should pass selected source-season shooting percentages into simulation');
+assert.ok(script.includes('TPA: row.tpa'), 'draft challenge should pass selected source-season 3PA volume into simulation');
 assert.ok(script.includes('injectRealRookiesForChallengeSeason'), 'draft challenge should restore real current-draft rookies into the simulated 2025 league');
 assert.ok(script.includes('loadChallengeLeagueData'), 'draft challenge should load a playable league fallback for challenge years outside the core strict roster map');
 assert.ok(script.includes('hasRealRookieAttributeSource'), 'draft challenge should prefer real rookie attribute rows before historical seed fallback');
