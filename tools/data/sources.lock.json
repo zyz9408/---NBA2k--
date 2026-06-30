@@ -1,0 +1,189 @@
+{
+  "version": 2,
+  "generatedAt": "2026-06-16T07:08:15.513Z",
+  "legacyFormulaVersion": 5,
+  "providerChain": [
+    {
+      "id": "nba_api",
+      "label": "NBA Stats API",
+      "enabled": true,
+      "used": false,
+      "requiresKey": false,
+      "skippedReason": "offline_cached_generation; set HISTORICAL_DB_FETCH=1 to refresh raw cache"
+    },
+    {
+      "id": "balldontlie",
+      "label": "balldontlie",
+      "enabled": false,
+      "used": false,
+      "requiresKey": true,
+      "skippedReason": "missing BALLDONTLIE_API_KEY"
+    },
+    {
+      "id": "sportsdataio",
+      "label": "SportsDataIO",
+      "enabled": false,
+      "used": false,
+      "requiresKey": true,
+      "skippedReason": "missing SPORTSDATAIO_API_KEY"
+    },
+    {
+      "id": "local_csv",
+      "label": "GitHub/local CSV fallback",
+      "enabled": true,
+      "used": true,
+      "requiresKey": false,
+      "skippedReason": ""
+    }
+  ],
+  "env": {
+    "NBA_API_ENABLED": "",
+    "BALLDONTLIE_API_KEY": "",
+    "SPORTSDATAIO_API_KEY": "",
+    "HISTORICAL_DB_FETCH": ""
+  },
+  "rawCacheDir": "tools/data/raw",
+  "sources": [
+    {
+      "id": "github_kaggle_seasons_stats",
+      "kind": "basketball_reference_totals",
+      "url": "https://github.com/vimalsubbiah/NBA-EDA-and-PPG-prediction",
+      "path": "tools/data/raw/vimalsubbiah_NBA-EDA-and-PPG-prediction/NBA-EDA-and-PPG-prediction-master/Seasons_Stats.csv",
+      "fields": [
+        "Player",
+        "season",
+        "team",
+        "games",
+        "minutes",
+        "shooting percentages",
+        "points",
+        "rebounds",
+        "assists",
+        "steals",
+        "blocks"
+      ],
+      "coverage": "1950-2017 regular-season player totals",
+      "available": true
+    },
+    {
+      "id": "github_2025_per_game",
+      "kind": "basketball_reference_per_game",
+      "url": "https://github.com/MahdiMahin/NBA-stats-sql-tableau",
+      "path": "tools/data/raw/MahdiMahin_NBA-stats-sql-tableau/NBA-stats-sql-tableau-main/data/nba_projectSQL1.csv",
+      "fields": [
+        "Player",
+        "season",
+        "team",
+        "games",
+        "minutes",
+        "shooting percentages",
+        "points",
+        "rebounds",
+        "assists",
+        "steals",
+        "blocks"
+      ],
+      "coverage": "2024-25 regular-season player per-game rows",
+      "available": true
+    },
+    {
+      "id": "github_nba_box_scores_2010_2024",
+      "kind": "nba_game_box_scores",
+      "url": "https://github.com/NocturneBear/NBA-Data-2010-2024",
+      "paths": [
+        "tools/data/raw/NocturneBear_NBA-Data-2010-2024/NBA-Data-2010-2024-main/regular_season_box_scores_2010_2024_part_1.csv",
+        "tools/data/raw/NocturneBear_NBA-Data-2010-2024/NBA-Data-2010-2024-main/regular_season_box_scores_2010_2024_part_2.csv",
+        "tools/data/raw/NocturneBear_NBA-Data-2010-2024/NBA-Data-2010-2024-main/regular_season_box_scores_2010_2024_part_3.csv"
+      ],
+      "fields": [
+        "Player",
+        "season",
+        "team",
+        "games",
+        "minutes",
+        "shooting percentages",
+        "points",
+        "rebounds",
+        "assists",
+        "steals",
+        "blocks"
+      ],
+      "coverage": "2010-11 through 2023-24 regular-season player box scores aggregated to player-season rows",
+      "available": true
+    },
+    {
+      "id": "local-apk-rosters",
+      "kind": "local_csv",
+      "paths": [
+        "assets/data/rosters*.csv",
+        "assets/data/rostersRookiesReal.csv"
+      ],
+      "fields": [
+        "roster snapshots",
+        "rookie draft class seeds",
+        "aggregate roster honors"
+      ]
+    },
+    {
+      "id": "historical_awards",
+      "kind": "derived_awards",
+      "fields": [
+        "playerAwards",
+        "awardSeasons",
+        "game honor counters"
+      ],
+      "coverage": "NBA API PlayerAwards adapter-ready; current offline build uses manual verified timelines, verified overrides, and local roster aggregate honors without fabricating missing awards.",
+      "available": true
+    },
+    {
+      "id": "nba-api-provider",
+      "kind": "provider_adapter",
+      "urls": [
+        "https://github.com/swar/nba_api",
+        "https://stats.nba.com/stats/playercareerstats"
+      ],
+      "fields": [
+        "PlayerCareerStats",
+        "DraftHistory",
+        "PlayerAwards",
+        "CommonTeamRoster"
+      ],
+      "note": "Provider chain is implemented as metadata and raw-cache target; current generation used local cached CSV because network refresh was not enabled."
+    },
+    {
+      "id": "third-party-provider-fallbacks",
+      "kind": "provider_adapter",
+      "urls": [
+        "https://docs.balldontlie.io/",
+        "https://sportsdata.io/developers/api-documentation/nba"
+      ],
+      "fields": [
+        "players",
+        "season averages",
+        "team rosters",
+        "awards where available"
+      ],
+      "note": "balldontlie and SportsDataIO are skipped unless API keys are configured."
+    },
+    {
+      "id": "public-career-stat-tables",
+      "kind": "manual_verified_public_tables",
+      "urls": [
+        "https://es.wikipedia.org/wiki/Shaquille_O%27Neal",
+        "https://pt.wikipedia.org/wiki/LeBron_James",
+        "https://en.wikipedia.org/wiki/Allen_Iverson"
+      ],
+      "fields": [
+        "regular per-game",
+        "playoff per-game",
+        "career honors",
+        "draft top picks"
+      ],
+      "note": "These pages cite Basketball-Reference/NBA sources; future GitHub CSV snapshots can be placed in tools/data/raw and mapped by this script."
+    }
+  ],
+  "missingVerifiedSources": [
+    "full transactions CSV",
+    "full salaries/contracts CSV"
+  ]
+}

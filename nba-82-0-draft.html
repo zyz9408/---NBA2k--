@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>82胜抽卡挑战 | NBA Career Simulator</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="assets/css/82-draft-challenge.css?v=20260629simfix">
+</head>
+
+<body>
+  <main class="manager-app" id="draftApp">
+    <div class="dynamic-svg-bg" aria-hidden="true">
+      <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="hex-grid" width="60" height="103.923" patternUnits="userSpaceOnUse" patternTransform="scale(1.5)">
+            <path d="M30 0l30 17.32v34.64L30 69.28 0 51.96V17.32z" stroke="rgba(255,255,255,0.02)" stroke-width="1" fill="none" />
+          </pattern>
+          <radialGradient id="glow-grad-1" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.15" />
+            <stop offset="100%" stop-color="#00f2fe" stop-opacity="0" />
+          </radialGradient>
+          <radialGradient id="glow-grad-2" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.1" />
+            <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+          </radialGradient>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#hex-grid)" />
+        <circle cx="20%" cy="30%" r="400" fill="url(#glow-grad-1)" class="svg-orb orb-1" />
+        <circle cx="85%" cy="75%" r="500" fill="url(#glow-grad-2)" class="svg-orb orb-2" />
+      </svg>
+    </div>
+
+    <!-- Screen 1: Main Menu -->
+    <section id="screenMainMenu" class="screen-view active">
+      <div class="menu-content">
+        <div class="menu-hero-art" aria-hidden="true">
+          <svg viewBox="0 0 560 320" focusable="false">
+            <defs>
+              <linearGradient id="menuCourtGlow" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.38" />
+                <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.28" />
+              </linearGradient>
+            </defs>
+            <rect class="menu-scoreboard" x="150" y="18" width="260" height="72" rx="12" />
+            <text x="280" y="64" text-anchor="middle">82 - 0</text>
+            <path class="menu-court-line" d="M50 300h460M80 300V112h400v188M170 112v72h220v-72M182 184c28 62 168 62 196 0M120 300c26-106 294-106 320 0" />
+            <path class="menu-route-line" d="M280 266 C210 224 158 218 132 244 C198 160 286 144 372 174 C332 112 276 102 216 132" />
+            <g class="menu-position-dots">
+              <circle cx="132" cy="244" r="13" /><circle cx="428" cy="244" r="13" />
+              <circle cx="216" cy="132" r="13" /><circle cx="372" cy="174" r="13" />
+              <circle cx="280" cy="266" r="13" />
+            </g>
+            <g class="menu-ball">
+              <circle cx="280" cy="266" r="16" />
+              <path d="M264 266h32M280 250c-10 10-10 22 0 32M280 250c10 10 10 22 0 32" />
+            </g>
+          </svg>
+        </div>
+        <p class="menu-kicker"><span id="challengeYearHeader">2025</span> League Season Challenge</p>
+        <h1 class="menu-title">82胜抽卡挑战</h1>
+        <p class="menu-subtitle">五轮抽卡、一次重抽、锁定教练，挑战 82-0。</p>
+
+        <div class="menu-stats" aria-label="挑战规则">
+          <span><strong>5</strong>轮选秀</span>
+          <span><strong>1</strong>次重抽</span>
+          <span><strong>82</strong>场模拟</span>
+        </div>
+
+        <div class="era-selector" id="eraSelector">
+          <label>选择挑战时代</label>
+          <div class="era-options">
+            <button class="era-btn active" data-year="2025">新世代<br><small>2025</small></button>
+            <button class="era-btn" data-year="2016">库里时代<br><small>2016</small></button>
+            <button class="era-btn" data-year="2008">科比时代<br><small>2008</small></button>
+            <button class="era-btn" data-year="1996">乔丹时代<br><small>1996</small></button>
+          </div>
+        </div>
+
+        <button class="manager-btn massive primary" id="startGameBtn" type="button">开始执教 (START CAREER)</button>
+      </div>
+    </section>
+
+    <!-- Screen 2: Draft Room -->
+    <section id="screenDraftRoom" class="screen-view hidden">
+      <header class="manager-topbar glass-panel">
+        <div class="topbar-left">
+          <button class="manager-back-link" id="backToMenuBtn" type="button">返回主菜单</button>
+          <h2>选秀室 / Draft Room</h2>
+        </div>
+        <div class="topbar-right">
+          <div class="challenge-record" id="challengeRecord">目标 82-0</div>
+        </div>
+      </header>
+
+      <div class="draft-room-layout">
+        <!-- Left: Action Zone -->
+        <section class="action-zone" aria-label="操作区">
+          <header class="action-header">
+            <div>
+              <p class="action-kicker" id="roundKicker">第 1 / 5 轮</p>
+              <h2 class="action-title" id="poolTitle">先抽取球队和年份</h2>
+            </div>
+          </header>
+
+          <div class="action-status-bar" id="statusBand">
+            <div class="status-box">
+              <span class="status-label">当前阶段</span>
+              <strong id="currentSlotLabel">抽取球队/年份</strong>
+            </div>
+            <div class="status-box">
+              <span class="status-label">随机来源</span>
+              <strong id="sourceLabel">等待抽取</strong>
+            </div>
+            <div class="status-box">
+              <span class="status-label">重选次数</span>
+              <strong id="rerollLabel">年份 1 / 球队 1</strong>
+            </div>
+          </div>
+
+          <div class="action-content">
+            <div class="candidate-grid" id="candidateGrid"></div>
+            <div class="draft-empty" id="emptyState">
+              <strong>先抽取球队和年份</strong>
+              <span>抽中来源后选择球员，再按球员可打位置落位；五个位置完成后选择教练。</span>
+            </div>
+          </div>
+
+          <footer class="action-footer">
+            <button class="manager-btn secondary" id="rerollYearButton" type="button">重选年份</button>
+            <button class="manager-btn secondary" id="rerollTeamButton" type="button">重选球队</button>
+            <button class="manager-btn primary" id="rollButton" type="button">抽取候选</button>
+            <button class="manager-btn massive success" id="simulateButton" type="button" hidden>开始模拟赛季</button>
+          </footer>
+        </section>
+
+        <!-- Right: Roster Sidebar -->
+        <aside class="roster-sidebar" aria-label="阵容战术板">
+          <header class="sidebar-header">
+            <h2>战术板 & 阵容</h2>
+            <p><span id="rosterYearText">2025</span> Challenge Roster</p>
+          </header>
+          <div class="lineup-list" id="lineupList"></div>
+          <div class="lineup-summary" id="lineupSummary">先完成五个位置选择，再锁定教练。</div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Screen 3: Results -->
+    <section id="screenResults" class="screen-view hidden">
+      <div class="results-layout">
+        <header class="results-header">
+          <h1>赛季总结</h1>
+          <p><span id="resultYearText">2025</span> 赛季模拟已完成</p>
+        </header>
+        <section class="simulation-panel" id="simulationPanel" hidden>
+          <div class="sim-progress">
+            <div class="sim-progress-copy">
+              <span id="simStatus">等待模拟</span>
+              <strong id="simPercent">0%</strong>
+            </div>
+            <div class="sim-progress-track"><div id="simProgressBar"></div></div>
+          </div>
+          <div class="results-grid" id="resultsGrid"></div>
+        </section>
+        <footer class="results-footer">
+          <button class="manager-btn massive primary" id="restartButton" type="button" hidden>重新开启挑战 (RESTART)</button>
+        </footer>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-bg" id="modalBg">
+    <div class="modal" id="modalBox"></div>
+  </div>
+
+  <script src="assets/js/core.js?v=20260629rookie3p"></script>
+  <script src="assets/js/text-pools.js?v=20260429templates"></script>
+  <script src="assets/js/text-pools-extra.js?v=20260429templates2"></script>
+  <script src="assets/js/text-pools-long.js?v=20260429longtemplates"></script>
+  <script src="assets/js/sim.js?v=20260629rookie3p"></script>
+  <script src="assets/js/82-draft-challenge.js?v=20260629rookieattrs"></script>
+</body>
+
+</html>
