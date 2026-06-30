@@ -1,9 +1,0 @@
-{
-  "commerceTab": "shoe",
-  "selected": "shoe_test",
-  "text": "",
-  "result": {
-    "ok": true,
-    "message": "签名鞋图片已使用本地样图：测试品牌 签名鞋"
-  }
-}

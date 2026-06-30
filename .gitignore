@@ -1,0 +1,8 @@
+node_modules/
+output/
+debug.log
+progress.md
+scratch_*.js
+package.json
+package-lock.json
+tools/data/raw/
