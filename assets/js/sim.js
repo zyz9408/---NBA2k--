@@ -3044,7 +3044,177 @@ function fitThreeMakesToAttempts(tpa, targetThreePct, fgPts, gameMod = null) {
   return clamp(Math.round(attempts * targetThreePct + parseNum(gameMod?.efficiencyShift, 0) * 0.6 + rng(-0.35, 0.35)), 0, maxTpm);
 }
 
-function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = false, sourcePlayer = null, coachFx = null, teamPlan = null, gameMod = null } = {}) {
+function getPlayerShotTendenciesForSim(player = {}) {
+  const attrs = usagePlayerAttrs(player);
+  return {
+    in: clamp(parseNum(player?.tendencies?.in ?? player?.tendencyIn, parseNum(attrs.shotInt, 55)), 20, 100),
+    mid: clamp(parseNum(player?.tendencies?.mid ?? player?.tendencyEx, 55), 20, 100),
+    ex: clamp(parseNum(player?.tendencies?.ex ?? player?.tendencyFr ?? player?.tendencyExt ?? player?.tendencyEx, parseNum(attrs.shotExt, 55)), 20, 100)
+  };
+}
+
+function coachSystemShotStyleForSim(systemId = 'balance') {
+  const key = String(systemId || 'balance').trim() || 'balance';
+  const styles = {
+    pace_space: { usage: 1.03, three: 1.20, paint: 0.96, ftr: 0.96, creation: 1.08, reb: 0.98, stocks: 0.98 },
+    seven_seconds: { usage: 1.07, three: 1.14, paint: 1.02, ftr: 0.98, creation: 1.04, reb: 0.96, stocks: 0.97 },
+    perimeter_star: { usage: 1.06, three: 1.14, paint: 0.95, ftr: 0.96, creation: 1.06, reb: 0.98, stocks: 0.98 },
+    interior_star: { usage: 1.04, three: 0.88, paint: 1.20, ftr: 1.10, creation: 0.98, reb: 1.10, stocks: 1.06 },
+    grit: { usage: 0.96, three: 0.90, paint: 1.12, ftr: 1.10, creation: 0.96, reb: 1.08, stocks: 1.05 },
+    triangle: { usage: 0.98, three: 0.94, paint: 1.08, ftr: 1.03, creation: 1.12, reb: 1.02, stocks: 1.00 },
+    defense: { usage: 0.94, three: 0.92, paint: 1.06, ftr: 1.05, creation: 0.98, reb: 1.08, stocks: 1.10 },
+    balance: { usage: 1.00, three: 1.00, paint: 1.00, ftr: 1.00, creation: 1.02, reb: 1.00, stocks: 1.00 }
+  };
+  return styles[key] || styles.balance;
+}
+
+function buildPlayerShotProfileForSim(player, rotationPlayer = null, {
+  roleFx = null,
+  coachFx = null,
+  teamPlan = null,
+  gameMod = null
+} = {}) {
+  const source = player || rotationPlayer || {};
+  const attrs = usagePlayerAttrs(source);
+  const pos = clamp(parseNum(rotationPlayer?.pos ?? source?.pos, 3), 1, 5);
+  const minutes = clamp(parseNum(rotationPlayer?.minutes ?? source?.minutes, 0), 0, 40);
+  const rating = clamp(parseNum(rotationPlayer?.rating ?? source?.rating, ovr(attrs)), 40, 99);
+  const att = clamp(parseNum(source?.att ?? rotationPlayer?.att, calcPlayerAtt(attrs)), 25, 99);
+  const tendencies = getPlayerShotTendenciesForSim(source);
+  const systemId = String(coachFx?.systemId || source?.coach?.systemId || 'balance').trim() || 'balance';
+  const style = coachSystemShotStyleForSim(systemId);
+  const fitScore = clamp(parseNum(source?.coachFit?.score, 0), -4, 6);
+  const fitMult = clamp(1 + fitScore * 0.025, 0.88, 1.16);
+  const tierId = rotationPlayer?.teamTier || source?.teamTier || getPlayerTier(source, null);
+  const tierBonus = { alpha: 1.22, second: 1.13, third: 1.07, sixthman: 1.04, rolestarter: 0.96, bench: 0.82, end: 0.56 }[tierId] || 0.92;
+  const planPaceFactor = teamPlan ? clamp(Math.pow(parseNum(teamPlan?.possessions, 96) / 96, 0.45), 0.90, 1.12) : 1;
+  const roleUsage = 1 + parseNum(roleFx?.usageMod, 0) * 1.05 + parseNum(coachFx?.usageByPos?.[pos], 0) * 1.20;
+  const usageSkill = 0.74 + att / 125 + (rating - 70) / 260;
+  const tendencyVolume = clamp(0.88 + (tendencies.in + tendencies.mid + tendencies.ex - 165) / 340, 0.76, 1.22);
+  let systemFit = 1;
+  if (systemId === 'pace_space') systemFit += ((parseNum(attrs.shotExt, 55) - 70) / 220) + (pos <= 3 ? 0.045 : -0.035);
+  else if (systemId === 'seven_seconds') systemFit += ((parseNum(attrs.speed, 55) + parseNum(attrs.pass, 55) - 135) / 360) + (pos <= 3 ? 0.04 : -0.025);
+  else if (systemId === 'perimeter_star') systemFit += ((parseNum(attrs.shotExt, 55) + parseNum(attrs.pass, 55) - 140) / 360) + (pos <= 3 ? 0.05 : -0.04);
+  else if (systemId === 'interior_star' || systemId === 'grit') systemFit += ((parseNum(attrs.shotInt, 55) + parseNum(attrs.reb, 55) - 138) / 360) + (pos >= 4 ? 0.05 : -0.035);
+  else if (systemId === 'triangle') systemFit += ((parseNum(attrs.pass, 55) - 62) / 320) - Math.max(0, att - 88) / 520;
+  else if (systemId === 'defense') systemFit += ((parseNum(attrs.reb, 55) + parseNum(attrs.stl, 55) + parseNum(attrs.blk, 55) - 185) / 560) + (pos >= 4 ? 0.04 : -0.015);
+  const usageWeight = Math.max(0.05,
+    minutes
+    * usageSkill
+    * tendencyVolume
+    * tierBonus
+    * fitMult
+    * clamp(systemFit, 0.82, 1.18)
+    * clamp(roleUsage, 0.70, 1.42)
+    * style.usage
+    * planPaceFactor
+    * parseNum(gameMod?.usageMult, 1)
+    * (1 + rng(-0.045, 0.045))
+  );
+
+  const roleThree = parseNum(roleFx?.threeMod, 0);
+  const threeShareMult = clamp(
+    parseNum(coachFx?.threeRateMult, 1)
+    * style.three
+    * (1 + roleThree * 2.2)
+    * (1 + fitScore * 0.012)
+    * (gameMod?.varianceTag === 'hot' ? 1.03 : gameMod?.varianceTag === 'cold' ? 0.97 : 1),
+    0.64,
+    1.62
+  );
+  const threeProfile = leagueThreeAttemptProfileForRow(source, attrs, rating, pos, threeShareMult);
+  let threeShare = threeProfile.share;
+  if (systemId === 'triangle') threeShare = clamp(threeShare * 0.92 + (tendencies.mid - 55) / 900, 0, 0.56);
+  if (systemId === 'defense' && pos >= 4 && parseNum(attrs.shotExt, 55) < 72) threeShare = Math.min(threeShare, 0.12);
+
+  const insideLean = clamp(
+    0.34
+    + (parseNum(attrs.shotInt, 55) - 62) / 210
+    + (tendencies.in - 55) / 210
+    - (tendencies.ex - 55) / 520
+    + parseNum(roleFx?.insideMod, 0)
+    + (parseNum(coachFx?.paintRateMult, 1) - 1) * 0.42
+    + (style.paint - 1) * 0.55,
+    0.18,
+    0.82
+  );
+  const freeThrowWeight = Math.max(0.05,
+    usageWeight
+    * clamp(0.62 + insideLean * 0.95 + (parseNum(attrs.strength, parseNum(attrs.physique, 55)) - 60) / 230, 0.45, 1.65)
+    * style.ftr
+  );
+  const threeWeight = Math.max(0.001, usageWeight * clamp(threeShare, 0, 0.66));
+
+  return {
+    usageWeight,
+    threeWeight,
+    freeThrowWeight,
+    threeShare,
+    insideLean,
+    tendencies,
+    att,
+    coachFitScore: fitScore,
+    coachSystemId: systemId,
+    threeProfile,
+    astMult: style.creation,
+    rebMult: style.reb,
+    stocksMult: style.stocks
+  };
+}
+
+function buildTeamShotPlansForSim(liveRotation = [], simPlayers = [], {
+  teamPlan = null,
+  coachFx = null,
+  gameMods = [],
+  usageContext = null
+} = {}) {
+  const totalFga = clamp(Math.round(parseNum(teamPlan?.fga, parseNum(teamPlan?.points, 104) / 1.20)), 48, 108);
+  const totalTpa = clamp(Math.round(parseNum(teamPlan?.tpa, totalFga * parseNum(teamPlan?.threeShare, 0.34))), 0, totalFga);
+  const totalFta = clamp(Math.round(parseNum(teamPlan?.fta, totalFga * parseNum(teamPlan?.ftr, 0.20))), 0, 42);
+  const profiles = liveRotation.map((p, i) => {
+    const simPlayer = simPlayers[i] || p;
+    const roleFx = collectRoleEffects(getPlayerRole(simPlayer, simPlayers, coachFx, usageContext));
+    return buildPlayerShotProfileForSim(simPlayer, p, { roleFx, coachFx, teamPlan, gameMod: gameMods[i] });
+  });
+  const fgaTargets = allocateIntegerShares(totalFga, profiles.map(p => p.usageWeight));
+  const tpaTargets = allocateIntegerShares(totalTpa, profiles.map(p => p.threeWeight));
+  const ftaTargets = allocateIntegerShares(totalFta, profiles.map(p => p.freeThrowWeight));
+  return profiles.map((profile, i) => {
+    const fga = clamp(fgaTargets[i] || 0, 0, 36);
+    let tpa = clamp(tpaTargets[i] || 0, 0, fga);
+    if (profile.threeProfile.noThreeEra) tpa = 0;
+    else if (profile.threeProfile.lowVolumeBig || profile.threeProfile.frontcourtLimited) {
+      const minuteCap = Math.max(0, Math.round((parseNum(liveRotation[i]?.minutes, 0) / 36) * profile.threeProfile.attemptsPer36 + rng(0, 0.7)));
+      tpa = clamp(tpa, 0, Math.min(fga, minuteCap));
+    }
+    return {
+      ...profile,
+      fgaTarget: fga,
+      fga,
+      tpa,
+      fta: clamp(ftaTargets[i] || 0, 0, 16)
+    };
+  });
+}
+
+function reconcileTeamRowsToTargetPoints(rows = [], targetPoints = 0) {
+  const activeRows = (Array.isArray(rows) ? rows : []).filter(row => row && !row.status && parseNum(row.mins, 0) > 0);
+  if (!activeRows.length) return rows;
+  let diff = Math.round(parseNum(targetPoints, 0) - activeRows.reduce((sum, row) => sum + parseNum(row.pts, 0), 0));
+  const order = [...activeRows].sort((a, b) => parseNum(b.fga, 0) - parseNum(a.fga, 0) || parseNum(b.mins, 0) - parseNum(a.mins, 0));
+  let guard = 0;
+  while (diff !== 0 && guard < 60) {
+    const row = order[guard % order.length];
+    const step = diff > 0 ? Math.min(3, diff) : Math.max(-3, diff);
+    const preferThree = step > 0 && parseNum(row.tpa, 0) > 0 && parseNum(row.tpa, 0) >= parseNum(row.fga, 1) * 0.32;
+    applyPointDeltaToLine(row, step, preferThree);
+    diff -= step;
+    guard++;
+  }
+  return rows;
+}
+
+function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = false, sourcePlayer = null, coachFx = null, teamPlan = null, gameMod = null, shotPlan = null } = {}) {
   const isSelf = !!player.isSelf;
   const simPlayer = sourcePlayer || player;
   const attrs = usagePlayerAttrs(simPlayer);
@@ -3095,13 +3265,63 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
     varianceTag: 'steady'
   };
 
-  if (minutes <= 0 || targetPts <= 0) {
+  const plannedFga = shotPlan ? clamp(Math.round(parseNum(shotPlan.fga, shotPlan.fgaTarget)), 0, 40) : 0;
+
+  if (minutes <= 0 || (!plannedFga && targetPts <= 0)) {
     row.reb = clamp(Math.round(((minutes / 12) * (pos >= 4 ? 1.2 : 0.5) + (rating - 60) / 35) * rebMult + parseNum(systemRole?.rebMod, 0) + rng(-1, 1)), 0, pos >= 4 ? 14 : 9);
     row.ast = clamp(Math.round(((minutes / 13) * (pos <= 2 ? 1.4 : pos === 3 ? 0.9 : 0.5) + (rating - 60) / 45) * astMult + parseNum(systemRole?.astMod, 0) + rng(-1, 1)), 0, 12);
     row.stl = clamp(Math.round(((minutes / 18) * (pos <= 3 ? 0.5 : 0.3)) * stocksMult + parseNum(systemRole?.stlMod, 0) + rng(0, 1)), 0, 5);
     row.blk = clamp(Math.round(((minutes / 18) * (pos >= 4 ? 0.65 : 0.2)) * stocksMult + parseNum(systemRole?.blkMod, 0) + rng(0, 1)), 0, 5);
     row.tov = clamp(Math.round((minutes / 10) * (pos <= 2 ? 0.75 : 0.5) + rng(0, 1)), 0, 8);
     row.pf = clamp(parseNum(gameMod?.foulCount, Math.round((minutes / 12) * (pos >= 4 ? 1.25 : 1.0) + rng(0, 1))), 0, 6);
+    row.issueTag = String(gameMod?.issueTag || '').trim();
+    row.foulTrouble = !!gameMod?.foulTrouble;
+    row.varianceTag = String(gameMod?.varianceTag || 'steady');
+    row.gameNotes = Array.isArray(gameMod?.notes) ? [...gameMod.notes] : [];
+    return row;
+  }
+
+  if (shotPlan && plannedFga > 0) {
+    const realThreePct = parseNum(simPlayer?.sourceRealStats?.TP ?? simPlayer?.sourceRealStats?.tpPct ?? simPlayer?.realStats?.TP ?? simPlayer?.historicalStats?.TP, NaN);
+    const attrsForShotModel = Number.isFinite(realThreePct) && realThreePct > 0 ? { ...attrs, __realThreePct: realThreePct } : attrs;
+    const targetThreePct = estimateLeagueThreePctForRow(attrsForShotModel, rating, pos, oppRating, teamCoachFx, gameMod);
+    const threeProfile = shotPlan.threeProfile || leagueThreeAttemptProfileForRow(simPlayer, attrs, rating, pos, threeShareMult);
+    let fga = plannedFga;
+    let tpa = threeProfile.noThreeEra ? 0 : clamp(Math.round(parseNum(shotPlan.tpa, fga * parseNum(shotPlan.threeShare, threeProfile.share))), 0, fga);
+    if (threeProfile.lowVolumeBig || threeProfile.frontcourtLimited) {
+      const lowVolumeCap = Math.max(0, Math.round((minutes / 36) * threeProfile.attemptsPer36 + rng(0, 0.7)));
+      tpa = clamp(tpa, 0, Math.min(fga, lowVolumeCap));
+    }
+    const twoPa = Math.max(0, fga - tpa);
+    const ftPct = clamp(0.70 + (parseNum(attrs.shotFree, 68) - 68) / 180 + (rating - 70) / 600, 0.58, 0.94);
+    const twoPct = clamp(
+      0.465
+      + (parseNum(attrs.shotInt, 55) - 62) / 235
+      + (parseNum(attrs.speed, 55) - 62) / 520
+      + (parseNum(shotPlan.insideLean, 0.44) - 0.44) * 0.045
+      + (parseNum(teamPlan?.twoPct, 0.50) - 0.50) * 0.62
+      + parseNum(gameMod?.efficiencyShift, 0)
+      - (parseNum(oppRating, 75) - 75) / 520,
+      0.37,
+      0.68
+    );
+    const tpm = fitThreeMakesToAttempts(tpa, targetThreePct, 999, gameMod);
+    const twoPm = clamp(Math.round(twoPa * twoPct + rng(-0.55, 0.55)), 0, twoPa);
+    const fta = clamp(Math.round(parseNum(shotPlan.fta, 0)), 0, 18);
+    const ftm = clamp(Math.round(fta * ftPct + rng(-0.35, 0.35)), 0, fta);
+    row.fta = fta;
+    row.ftm = ftm;
+    row.tpa = tpa;
+    row.tpm = tpm;
+    row.fga = fga;
+    row.fgm = twoPm + tpm;
+    row.pts = (row.fgm - row.tpm) * 2 + row.tpm * 3 + row.ftm;
+    row.reb = clamp(Math.round(((minutes / 12) * (pos >= 4 ? 1.25 : 0.55) + (rating - 60) / 35) * rebMult * parseNum(shotPlan.rebMult, 1) + parseNum(systemRole?.rebMod, 0) + rng(-1, 2)), 0, pos >= 4 ? 16 : 10);
+    row.ast = clamp(Math.round(((minutes / 13) * (pos <= 2 ? 1.55 : pos === 3 ? 0.95 : 0.5) + (rating - 60) / 45) * astMult * parseNum(shotPlan.astMult, 1) + parseNum(systemRole?.astMod, 0) + rng(-1, 2)), 0, 14);
+    row.stl = clamp(Math.round(((minutes / 18) * (pos <= 3 ? 0.55 : 0.35)) * stocksMult * parseNum(shotPlan.stocksMult, 1) + parseNum(systemRole?.stlMod, 0) + rng(0, 1)), 0, 6);
+    row.blk = clamp(Math.round(((minutes / 18) * (pos >= 4 ? 0.7 : 0.25)) * stocksMult * parseNum(shotPlan.stocksMult, 1) + parseNum(systemRole?.blkMod, 0) + rng(0, 1)), 0, 6);
+    row.tov = clamp(Math.round((minutes / 10) * (pos <= 2 ? 0.78 : 0.52) + fga / 14 - parseNum(attrs.pass, 55) / 180 + rng(0, 1)), 0, 8);
+    row.pf = clamp(parseNum(gameMod?.foulCount, Math.round((minutes / 11.5) * (pos >= 4 ? 1.2 : 0.95) + Math.max(0, -parseNum(gameMod?.matchupEdge, 0)) + rng(-1, 1))), 0, 6);
     row.issueTag = String(gameMod?.issueTag || '').trim();
     row.foulTrouble = !!gameMod?.foulTrouble;
     row.varianceTag = String(gameMod?.varianceTag || 'steady');
@@ -3208,22 +3428,26 @@ function buildTeamGameBoxScore(teamId, teamPts, oppRating, { home = false, inclu
   if (typeof normalizeRotationMinutes === 'function') normalizeRotationMinutes(liveRotation, 240);
   applySingleGameMinuteCaps(liveRotation, gameMods);
   const usageContext = buildTeamUsageContext(teamId, simPlayers, simPlayers);
-
-  const weights = liveRotation.map((p, i) => {
-    const simPlayer = simPlayers[i] || p;
-    const roleFx = collectRoleEffects(getPlayerRole(simPlayer, simPlayers, coachFx, usageContext));
-    const rating = clamp(parseNum(p.rating, 65), 40, 99);
-    const minutes = clamp(parseNum(p.minutes, 18), 0, 40);
-    const tierBonus = { alpha: 1.18, second: 1.12, third: 1.07, sixthman: 1.04, rolestarter: 1.0, bench: 0.88, end: 0.72 }[p.teamTier] || 1;
-    const selfBonus = p.isSelf ? 1.12 : 1;
-    const planPaceFactor = teamPlan ? clamp(Math.pow(parseNum(teamPlan?.possessions, 96) / 96, 0.45), 0.90, 1.12) : 1;
-    const usageBoost = clamp((1 + roleFx.usageMod * 0.90 + (parseNum(coachFx.paceMult, 1) - 1) * 0.35) * planPaceFactor * parseNum(gameMods[i]?.usageMult, 1), 0.72, 1.36);
-    const shotProfileBoost = clamp(1 + roleFx.threeMod * 0.55 + roleFx.insideMod * 0.55, 0.82, 1.24);
-    const efficiencyBoost = clamp(1 + parseNum(gameMods[i]?.efficiencyShift, 0) * 3.2, 0.80, 1.22);
-    return Math.max(0.1, minutes * (0.7 + rating / 130) * tierBonus * selfBonus * usageBoost * shotProfileBoost * efficiencyBoost * (1 + rng(-0.08, 0.08)));
+  const shotPlans = buildTeamShotPlansForSim(liveRotation, simPlayers, {
+    teamPlan,
+    coachFx,
+    gameMods,
+    usageContext
   });
-  const targets = allocateIntegerShares(Math.max(0, Math.round(resolvedTeamPts)), weights);
-  const rows = liveRotation.map((p, i) => buildPlayerGameRow(p, targets[i] || 0, oppRatingValue, { teamId, home, sourcePlayer: simPlayers[i], coachFx, teamPlan, gameMod: gameMods[i] }));
+  const fallbackTargets = allocateIntegerShares(
+    Math.max(0, Math.round(resolvedTeamPts)),
+    shotPlans.map(plan => plan.usageWeight)
+  );
+  const rows = liveRotation.map((p, i) => buildPlayerGameRow(p, fallbackTargets[i] || 0, oppRatingValue, {
+    teamId,
+    home,
+    sourcePlayer: simPlayers[i],
+    coachFx,
+    teamPlan,
+    gameMod: gameMods[i],
+    shotPlan: shotPlans[i]
+  }));
+  reconcileTeamRowsToTargetPoints(rows, resolvedTeamPts);
 
   if (teamId === parseNum(G.teamId, 0) && G.player?.injury?.active) {
     rows.push({

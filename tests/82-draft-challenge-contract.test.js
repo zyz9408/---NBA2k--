@@ -126,9 +126,28 @@ assert.ok(roster15.includes('胡卫东') && roster15.includes('山猫') && roste
 assert.ok(roster17.includes('Kareem Abdul-Jabbar') && roster17.includes('雄鹿') && roster17.includes(';24;2;'), 'rosters17 should be treated as the 1971-1972 Bucks-era roster');
 assert.ok(roster17.includes('鹈鹕1') && roster17.includes('超音速') && roster17.includes('勇敢者'), 'rosters17 includes placeholder future teams plus real 1971-1972 SuperSonics/Braves rows');
 assert.ok(roster19.includes('Michael Jordan') && roster19.includes('Stephen Curry') && roster19.includes('Larry Bird'), 'rosters19 should be recognized as an all-time/legend mixed roster');
+[
+  "name: '斯蒂夫-科尔', teamId: FANTASY_TEAM_ID, systemId: 'pace_space'",
+  "name: '菲尔-杰克逊', teamId: FANTASY_TEAM_ID, systemId: 'triangle'",
+  "name: '迈克-德安东尼', teamId: FANTASY_TEAM_ID, systemId: 'seven_seconds'",
+  "name: '查克-戴利', teamId: FANTASY_TEAM_ID, systemId: 'defense'",
+  "name: '格雷格-波波维奇', teamId: FANTASY_TEAM_ID, systemId: 'balance'"
+].forEach(fragment => assert.ok(script.includes(fragment), `82 special coach contract missing: ${fragment}`));
 assert.ok(sim.includes('estimateLeagueThreePctForRow'), 'league row simulation should estimate realistic three-point percentage');
 assert.ok(sim.includes('leagueThreeAttemptProfileForRow'), 'league row simulation should model three-point attempt volume separately from percentage');
 assert.ok(sim.includes('fitThreeMakesToAttempts'), 'league row simulation should fit made threes against final 3PA and target 3P%');
+assert.ok(sim.includes('function buildPlayerShotProfileForSim'), 'league row simulation should build an attribute/tendency/coach shot profile before scoring');
+assert.ok(sim.includes('function buildTeamShotPlansForSim'), 'league row simulation should allocate team FGA/3PA/FTA before player points');
+assert.ok(sim.includes('getPlayerShotTendenciesForSim'), 'league row simulation should read player tendencies for shot distribution');
+assert.ok(sim.includes('source?.att ?? rotationPlayer?.att'), 'league row simulation should use ATT in shot distribution');
+assert.ok(sim.includes('source?.coachFit?.score'), '82 fantasy coach fit should affect player shot distribution');
+assert.ok(sim.includes('coachSystemShotStyleForSim'), 'league row simulation should map coach systemId to shooting style');
+assert.ok(sim.includes('pace_space: { usage: 1.03, three: 1.20'), 'pace-space coach style should raise suitable three-point volume');
+assert.ok(sim.includes('seven_seconds: { usage: 1.07, three: 1.14'), 'seven-seconds coach style should raise pace and perimeter volume');
+assert.ok(sim.includes('defense: { usage: 0.94, three: 0.92'), 'defense coach style should not use the same shot profile as perimeter systems');
+assert.ok(sim.includes('triangle: { usage: 0.98, three: 0.94'), 'triangle coach style should keep a distinct balanced passing profile');
+assert.ok(sim.includes('shotPlan'), 'buildPlayerGameRow should accept a shotPlan for FGA-first box scores');
+assert.ok(sim.includes('reconcileTeamRowsToTargetPoints'), 'team box scores should reconcile player points to the simulated team score');
 assert.ok(sim.includes('lowVolumeBig'), 'league row simulation should keep non-shooting bigs at low three-point volume');
 assert.ok(sim.includes('sourceYear > 0 && sourceYear < 1980'), 'league row simulation should not assign threes before the NBA three-point era');
 assert.ok(sim.includes('frontcourtLimited'), 'league row simulation should cap frontcourt three-point volume by era and tendency');
