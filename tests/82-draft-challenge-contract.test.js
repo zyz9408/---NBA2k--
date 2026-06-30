@@ -147,6 +147,10 @@ assert.ok(core.includes('fr: parseNum(row.tendencyFr, 55)'), 'roster tendencyFr 
 assert.ok(!core.includes('ex: parseNum(row.tendencyFr, 55)'), 'roster tendencyFr must not be used as perimeter shot tendency');
 assert.ok(sim.includes('player?.tendencies?.fr ?? player?.tendencies?.foul ?? player?.tendencyFr'), 'foul tendency should feed free throw pressure in simulation');
 assert.ok(!sim.includes('player?.tendencies?.ex ?? player?.tendencyFr'), 'foul tendency must not feed three-point tendency');
+assert.ok(sim.includes('const foulPressure = weightedRotationAverage'), 'team free throw rate should use roster foul-drawing tendency');
+assert.ok(sim.includes('teamProfile?.foulPressure'), 'team offense plan should convert foul pressure into FTA volume');
+assert.ok(sim.includes('function realFreeThrowAttemptsPerGameForSim'), 'league row simulation should read real source-season FTA volume when available');
+assert.ok(sim.includes('stats.FTA ?? stats.fta'), 'real source-season FTA should be part of player free throw allocation');
 assert.ok(sim.includes('source?.att ?? rotationPlayer?.att'), 'league row simulation should use ATT in shot distribution');
 assert.ok(sim.includes('source?.coachFit?.score'), '82 fantasy coach fit should affect player shot distribution');
 assert.ok(sim.includes('function realThreeAttemptsPerGameForSim'), 'league row simulation should read real 3PA volume when source-season stats provide it');

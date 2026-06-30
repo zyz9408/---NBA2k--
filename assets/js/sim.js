@@ -2698,6 +2698,7 @@ function buildTeamSimulationProfile(teamId, { includeUser = false, home = false,
   const shotExt = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).shotExt, 55), 55);
   const shotInt = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).shotInt, 55), 55);
   const shotFree = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).shotFree, 68), 68);
+  const foulPressure = weightedRotationAverage(players, p => parseNum(p?.tendencies?.fr ?? p?.tendencies?.foul ?? p?.tendencyFr, 55), 55);
   const pass = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).pass, 55), 55);
   const rebounding = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).reb, 55), 55);
   const speed = weightedRotationAverage(players, p => parseNum(usagePlayerAttrs(p).speed, 55), 55);
@@ -2742,6 +2743,7 @@ function buildTeamSimulationProfile(teamId, { includeUser = false, home = false,
     shotExt,
     shotInt,
     shotFree,
+    foulPressure,
     pass,
     rebounding,
     speed,
@@ -2820,11 +2822,13 @@ function simulateTeamOffensePlan(teamProfile, oppProfile, { home = false, shared
   const ftr = clamp(
     0.20
     + (parseNum(teamProfile?.shotInt, 55) - parseNum(oppProfile?.rimProtection, 55)) / 260
+    + (parseNum(teamProfile?.foulPressure, 55) - 55) / 230
+    + (parseNum(teamProfile?.shotFree, 68) - 68) / 700
     + (parseNum(teamProfile?.coachFx?.paintRateMult, 1) - 1) * 0.26
     + homeBoost
     + rng(-0.015, 0.015),
-    0.12,
-    0.34
+    0.10,
+    0.40
   );
   const ftPct = clamp(
     0.73
@@ -2984,6 +2988,22 @@ function realThreeAttemptsPerGameForSim(player = null) {
     return direct > 20 && gp > 1 ? direct / gp : direct;
   }
   const total = parseNum(stats.threePointersAttempted ?? stats.totalTpa ?? stats.total3pa, NaN);
+  if (Number.isFinite(total)) return total / Math.max(1, parseNum(stats.GP ?? stats.gp, 1));
+  return NaN;
+}
+
+function realFreeThrowAttemptsPerGameForSim(player = null) {
+  const stats = player?.sourceRealStats || player?.realStats || player?.historicalStats || player?.sourceStats || null;
+  if (!stats || typeof stats !== 'object') return NaN;
+  const direct = parseNum(
+    stats.FTA ?? stats.fta ?? stats.freeThrowAttemptsPerGame,
+    NaN
+  );
+  if (Number.isFinite(direct)) {
+    const gp = Math.max(1, parseNum(stats.GP ?? stats.gp, 1));
+    return direct > 20 && gp > 1 ? direct / gp : direct;
+  }
+  const total = parseNum(stats.freeThrowsAttempted ?? stats.totalFta, NaN);
   if (Number.isFinite(total)) return total / Math.max(1, parseNum(stats.GP ?? stats.gp, 1));
   return NaN;
 }
@@ -3172,6 +3192,11 @@ function buildPlayerShotProfileForSim(player, rotationPlayer = null, {
     0.18,
     0.82
   );
+  const realFta = realFreeThrowAttemptsPerGameForSim(source);
+  const realFtaMult = Number.isFinite(realFta)
+    ? clamp(0.70 + realFta / 5.2, 0.58, 1.95)
+    : 1;
+  const foulPressureMult = clamp(0.80 + (tendencies.fr - 55) / 100, 0.62, 1.48);
   const freeThrowWeight = Math.max(0.05,
     usageWeight
     * clamp(
@@ -3182,6 +3207,8 @@ function buildPlayerShotProfileForSim(player, rotationPlayer = null, {
       0.45,
       1.85
     )
+    * foulPressureMult
+    * realFtaMult
     * style.ftr
   );
   const threeWeight = Math.max(0.001, usageWeight * clamp(threeShare, 0, 0.66));
@@ -3193,6 +3220,7 @@ function buildPlayerShotProfileForSim(player, rotationPlayer = null, {
     threeShare,
     insideLean,
     tendencies,
+    realFta,
     att,
     coachFitScore: fitScore,
     coachSystemId: systemId,
