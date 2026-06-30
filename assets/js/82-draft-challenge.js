@@ -203,11 +203,6 @@
     const pos2 = parseNum(player?.pos2, parseNum(player?.positionSecond, 0));
     const target = parseNum(positionId, 0);
     if (pos === target || pos2 === target) return true;
-    if (target === 1) return pos === 2;
-    if (target === 2) return pos === 1 || pos === 3;
-    if (target === 3) return pos === 2 || pos === 4;
-    if (target === 4) return pos === 3 || pos === 5;
-    if (target === 5) return pos === 4;
     return false;
   }
 
@@ -223,11 +218,7 @@
 
   function positionOptionsForPlayer(player) {
     const filled = filledPositionIds();
-    const natural = naturalPositionIds(player).filter(id => !filled.has(String(id)));
-    if (natural.length) return natural;
-    return POSITION_SLOTS
-      .filter(slot => !filled.has(String(slot.id)) && playerFitsPosition(player, slot.id))
-      .map(slot => slot.id);
+    return naturalPositionIds(player).filter(id => !filled.has(String(id)) && playerFitsPosition(player, id));
   }
 
   function sourceKey(player) {

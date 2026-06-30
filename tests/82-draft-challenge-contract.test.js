@@ -104,6 +104,9 @@ assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for
 ].forEach(fragment => assert.ok(script.includes(fragment), `challenge contract missing: ${fragment}`));
 
 assert.ok(!script.includes('targetTeamSelect'), 'challenge script should not depend on a carrier-team selector');
+assert.ok(!script.includes('if (target === 3) return pos === 2 || pos === 4'), 'PF/C players must not be auto-eligible at SF through adjacent-position fallback');
+assert.ok(!script.includes('if (target === 4) return pos === 3 || pos === 5'), 'C players must not be auto-eligible at PF unless PF is an explicit listed position');
+assert.ok(script.includes('return naturalPositionIds(player).filter(id => !filled.has(String(id)) && playerFitsPosition(player, id));'), 'position options should be limited to explicit primary/secondary positions');
 assert.ok(!script.includes('联盟排名</h3>'), 'challenge results should not render full league standings table');
 assert.ok(script.includes('玩家球队排名'), 'challenge results should show only the player team ranking summary');
 assert.ok(!script.includes("return { pts: '--', reb: '--', ast: '--', stl: '--', blk: '--' }"), 'challenge candidates should never fall back to all-empty stat lines');
