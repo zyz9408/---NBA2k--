@@ -142,6 +142,11 @@ assert.ok(sim.includes('fitThreeMakesToAttempts'), 'league row simulation should
 assert.ok(sim.includes('function buildPlayerShotProfileForSim'), 'league row simulation should build an attribute/tendency/coach shot profile before scoring');
 assert.ok(sim.includes('function buildTeamShotPlansForSim'), 'league row simulation should allocate team FGA/3PA/FTA before player points');
 assert.ok(sim.includes('getPlayerShotTendenciesForSim'), 'league row simulation should read player tendencies for shot distribution');
+assert.ok(core.includes('ex: parseNum(row.tendencyEx, 55)'), 'roster tendencyEx should map to perimeter shot tendency');
+assert.ok(core.includes('fr: parseNum(row.tendencyFr, 55)'), 'roster tendencyFr should map to foul-drawing tendency');
+assert.ok(!core.includes('ex: parseNum(row.tendencyFr, 55)'), 'roster tendencyFr must not be used as perimeter shot tendency');
+assert.ok(sim.includes('player?.tendencies?.fr ?? player?.tendencies?.foul ?? player?.tendencyFr'), 'foul tendency should feed free throw pressure in simulation');
+assert.ok(!sim.includes('player?.tendencies?.ex ?? player?.tendencyFr'), 'foul tendency must not feed three-point tendency');
 assert.ok(sim.includes('source?.att ?? rotationPlayer?.att'), 'league row simulation should use ATT in shot distribution');
 assert.ok(sim.includes('source?.coachFit?.score'), '82 fantasy coach fit should affect player shot distribution');
 assert.ok(sim.includes('function realThreeAttemptsPerGameForSim'), 'league row simulation should read real 3PA volume when source-season stats provide it');

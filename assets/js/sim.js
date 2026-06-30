@@ -2991,7 +2991,7 @@ function realThreeAttemptsPerGameForSim(player = null) {
 function leagueThreeAttemptProfileForRow(player, attrs, rating, pos, threeShareMult = 1) {
   const shotExt = clamp(parseNum(attrs?.shotExt, 55), 20, 99);
   const extTendency = clamp(parseNum(
-    player?.tendencies?.ex ?? player?.tendencyExt ?? player?.tendencyFr ?? player?.tendencyEx,
+    player?.tendencies?.ex ?? player?.tendencyExt ?? player?.tendencyEx,
     shotExt
   ), 20, 100);
   const realTpa = realThreeAttemptsPerGameForSim(player);
@@ -3081,8 +3081,9 @@ function getPlayerShotTendenciesForSim(player = {}) {
   const attrs = usagePlayerAttrs(player);
   return {
     in: clamp(parseNum(player?.tendencies?.in ?? player?.tendencyIn, parseNum(attrs.shotInt, 55)), 20, 100),
-    mid: clamp(parseNum(player?.tendencies?.mid ?? player?.tendencyEx, 55), 20, 100),
-    ex: clamp(parseNum(player?.tendencies?.ex ?? player?.tendencyFr ?? player?.tendencyExt ?? player?.tendencyEx, parseNum(attrs.shotExt, 55)), 20, 100)
+    mid: clamp(parseNum(player?.tendencies?.mid ?? player?.tendencyMid, 55), 20, 100),
+    ex: clamp(parseNum(player?.tendencies?.ex ?? player?.tendencyExt ?? player?.tendencyEx, parseNum(attrs.shotExt, 55)), 20, 100),
+    fr: clamp(parseNum(player?.tendencies?.fr ?? player?.tendencies?.foul ?? player?.tendencyFr, 55), 20, 100)
   };
 }
 
@@ -3173,7 +3174,14 @@ function buildPlayerShotProfileForSim(player, rotationPlayer = null, {
   );
   const freeThrowWeight = Math.max(0.05,
     usageWeight
-    * clamp(0.62 + insideLean * 0.95 + (parseNum(attrs.strength, parseNum(attrs.physique, 55)) - 60) / 230, 0.45, 1.65)
+    * clamp(
+      0.62
+      + insideLean * 0.95
+      + (tendencies.fr - 55) / 150
+      + (parseNum(attrs.strength, parseNum(attrs.physique, 55)) - 60) / 230,
+      0.45,
+      1.85
+    )
     * style.ftr
   );
   const threeWeight = Math.max(0.001, usageWeight * clamp(threeShare, 0, 0.66));

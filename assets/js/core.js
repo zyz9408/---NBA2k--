@@ -623,8 +623,10 @@ function rowToPlayer(row, fallbackId, extra = {}) {
     attrs,
     tendencies: {
       in: parseNum(row.tendencyIn, 55),
-      mid: parseNum(row.tendencyEx, 55),
-      ex: parseNum(row.tendencyFr, 55)
+      mid: 55,
+      ex: parseNum(row.tendencyEx, 55),
+      fr: parseNum(row.tendencyFr, 55),
+      foul: parseNum(row.tendencyFr, 55)
     },
     ...extra
   };
@@ -3264,8 +3266,8 @@ function buildBadgeRuleContext(player = {}) {
   const reb = parseNum(attrs.reb, 55);
   const physique = parseNum(attrs.physique, 55);
   const tendencyIn = parseNum(player?.tendencies?.in ?? player?.tendencyIn, 55);
-  const tendencyMid = parseNum(player?.tendencies?.mid ?? player?.tendencyEx, 55);
-  const tendencyExt = parseNum(player?.tendencies?.ex ?? player?.tendencyFr, 55);
+  const tendencyMid = parseNum(player?.tendencies?.mid ?? player?.tendencyMid, 55);
+  const tendencyExt = parseNum(player?.tendencies?.ex ?? player?.tendencyExt ?? player?.tendencyEx, 55);
   const pos = clamp(parseNum(player?.pos, 3), 1, 5);
   const isBig = pos === 4 || pos === 5;
   const shotMid = Math.round((shotInt + shotExt) / 2);
