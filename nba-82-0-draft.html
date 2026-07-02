@@ -6,61 +6,102 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>82胜抽卡挑战 | NBA Career Simulator</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="assets/css/82-draft-challenge.css?v=20260629simfix">
+  <style>
+    /* 关键样式内联：即使外部样式表加载失败，页面切换也不会互相堆叠 */
+    .screen-view.hidden { display: none !important; }
+    [hidden] { display: none !important; }
+  </style>
+  <link rel="stylesheet" href="assets/css/82-draft-arena.css?v=20260702arena2">
 </head>
 
 <body>
   <main class="manager-app" id="draftApp">
-    <div class="dynamic-svg-bg" aria-hidden="true">
-      <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+    <!-- 球馆背景：聚光灯 + 观众席 + 木地板 -->
+    <div class="arena-bg" aria-hidden="true">
+      <svg width="100%" height="100%" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
         <defs>
-          <pattern id="hex-grid" width="60" height="103.923" patternUnits="userSpaceOnUse" patternTransform="scale(1.5)">
-            <path d="M30 0l30 17.32v34.64L30 69.28 0 51.96V17.32z" stroke="rgba(255,255,255,0.02)" stroke-width="1" fill="none" />
+          <linearGradient id="beamGrad" x1="0.5" y1="0" x2="0.5" y2="1">
+            <stop offset="0%" stop-color="#e8f6ff" stop-opacity="0.16" />
+            <stop offset="70%" stop-color="#9ad8ff" stop-opacity="0.05" />
+            <stop offset="100%" stop-color="#9ad8ff" stop-opacity="0" />
+          </linearGradient>
+          <linearGradient id="beamGradGold" x1="0.5" y1="0" x2="0.5" y2="1">
+            <stop offset="0%" stop-color="#ffe9bd" stop-opacity="0.13" />
+            <stop offset="100%" stop-color="#ffd166" stop-opacity="0" />
+          </linearGradient>
+          <linearGradient id="woodGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#3b2712" />
+            <stop offset="55%" stop-color="#2a1c0d" />
+            <stop offset="100%" stop-color="#1a1108" />
+          </linearGradient>
+          <linearGradient id="sheenGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#ffffff" stop-opacity="0" />
+            <stop offset="50%" stop-color="#cfeaff" stop-opacity="0.06" />
+            <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+          </linearGradient>
+          <pattern id="plank" width="72" height="900" patternUnits="userSpaceOnUse">
+            <rect width="72" height="900" fill="none" />
+            <rect x="70" width="2" height="900" fill="rgba(0,0,0,0.22)" />
+            <rect x="0" width="1" height="900" fill="rgba(255,214,150,0.05)" />
           </pattern>
-          <radialGradient id="glow-grad-1" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.15" />
-            <stop offset="100%" stop-color="#00f2fe" stop-opacity="0" />
-          </radialGradient>
-          <radialGradient id="glow-grad-2" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.1" />
-            <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+          <radialGradient id="crowdGlow" cx="50%" cy="0%" r="90%">
+            <stop offset="0%" stop-color="#1d2839" stop-opacity="0.9" />
+            <stop offset="100%" stop-color="#0a0e18" stop-opacity="0" />
           </radialGradient>
         </defs>
-        <rect width="100%" height="100%" fill="url(#hex-grid)" />
-        <circle cx="20%" cy="30%" r="400" fill="url(#glow-grad-1)" class="svg-orb orb-1" />
-        <circle cx="85%" cy="75%" r="500" fill="url(#glow-grad-2)" class="svg-orb orb-2" />
+
+        <!-- 观众席暗色波带 -->
+        <rect x="0" y="0" width="1440" height="430" fill="url(#crowdGlow)" />
+        <path d="M0 300 Q360 250 720 300 T1440 300 V430 H0 Z" fill="#0b101b" opacity="0.85" />
+        <path d="M0 355 Q360 315 720 355 T1440 355 V450 H0 Z" fill="#080c14" opacity="0.9" />
+
+        <!-- 聚光灯束 -->
+        <g class="spot-beam beam-1">
+          <polygon points="300,-40 180,620 560,620" fill="url(#beamGrad)" />
+        </g>
+        <g class="spot-beam beam-2">
+          <polygon points="1120,-40 880,620 1300,620" fill="url(#beamGradGold)" />
+        </g>
+        <g class="spot-beam beam-3">
+          <polygon points="720,-60 600,560 860,560" fill="url(#beamGrad)" opacity="0.7" />
+        </g>
+
+        <!-- 木地板（带透视中圈与边线） -->
+        <g>
+          <rect x="0" y="560" width="1440" height="340" fill="url(#woodGrad)" />
+          <rect x="0" y="560" width="1440" height="340" fill="url(#plank)" opacity="0.9" />
+          <ellipse cx="720" cy="720" rx="190" ry="58" fill="none" stroke="rgba(34,211,238,0.28)" stroke-width="2.5" />
+          <ellipse cx="720" cy="720" rx="60" ry="19" fill="rgba(251,191,36,0.06)" stroke="rgba(251,191,36,0.3)" stroke-width="2" />
+          <path d="M0 620 H1440" stroke="rgba(251,191,36,0.22)" stroke-width="2.5" />
+          <path d="M720 620 V900" stroke="rgba(34,211,238,0.16)" stroke-width="2" />
+          <rect class="floor-sheen" x="360" y="560" width="720" height="340" fill="url(#sheenGrad)" />
+        </g>
       </svg>
     </div>
+    <div class="arena-dust" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
 
-    <!-- Screen 1: Main Menu -->
+    <!-- Screen 1: 主菜单 -->
     <section id="screenMainMenu" class="screen-view active">
       <div class="menu-content">
-        <div class="menu-hero-art" aria-hidden="true">
-          <svg viewBox="0 0 560 320" focusable="false">
-            <defs>
-              <linearGradient id="menuCourtGlow" x1="0" x2="1" y1="0" y2="1">
-                <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.38" />
-                <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.28" />
-              </linearGradient>
-            </defs>
-            <rect class="menu-scoreboard" x="150" y="18" width="260" height="72" rx="12" />
-            <text x="280" y="64" text-anchor="middle">82 - 0</text>
-            <path class="menu-court-line" d="M50 300h460M80 300V112h400v188M170 112v72h220v-72M182 184c28 62 168 62 196 0M120 300c26-106 294-106 320 0" />
-            <path class="menu-route-line" d="M280 266 C210 224 158 218 132 244 C198 160 286 144 372 174 C332 112 276 102 216 132" />
-            <g class="menu-position-dots">
-              <circle cx="132" cy="244" r="13" /><circle cx="428" cy="244" r="13" />
-              <circle cx="216" cy="132" r="13" /><circle cx="372" cy="174" r="13" />
-              <circle cx="280" cy="266" r="13" />
-            </g>
-            <g class="menu-ball">
-              <circle cx="280" cy="266" r="16" />
-              <path d="M264 266h32M280 250c-10 10-10 22 0 32M280 250c10 10 10 22 0 32" />
-            </g>
-          </svg>
+        <div class="menu-hero-board" aria-hidden="true">
+          <div class="board-rig"></div>
+          <div class="broadcast-board">
+            <div class="board-topline">
+              <span>Season <span id="challengeYearHeader">2025</span></span>
+              <span class="live-pill">LIVE</span>
+            </div>
+            <div class="board-score">
+              <span class="digits">82</span>
+              <span class="colon">:</span>
+              <span class="digits zero">0</span>
+            </div>
+            <div class="board-caption">Perfect Season Challenge</div>
+          </div>
         </div>
-        <p class="menu-kicker"><span id="challengeYearHeader">2025</span> League Season Challenge</p>
+
+        <p class="menu-kicker">League Season Challenge</p>
         <h1 class="menu-title">82胜抽卡挑战</h1>
-        <p class="menu-subtitle">五轮抽卡、一次重抽、锁定教练，挑战 82-0。</p>
+        <p class="menu-subtitle">五轮抽卡、一次重抽、锁定教练，冲击不败神话 82-0。</p>
 
         <div class="menu-stats" aria-label="挑战规则">
           <span><strong>5</strong>轮选秀</span>
@@ -71,10 +112,10 @@
         <div class="era-selector" id="eraSelector">
           <label>选择挑战时代</label>
           <div class="era-options">
-            <button class="era-btn active" data-year="2025">新世代<br><small>2025</small></button>
-            <button class="era-btn" data-year="2016">库里时代<br><small>2016</small></button>
-            <button class="era-btn" data-year="2008">科比时代<br><small>2008</small></button>
-            <button class="era-btn" data-year="1996">乔丹时代<br><small>1996</small></button>
+            <button class="era-btn active" data-year="2025">新世代<small>2025</small></button>
+            <button class="era-btn" data-year="2016">库里时代<small>2016</small></button>
+            <button class="era-btn" data-year="2008">科比时代<small>2008</small></button>
+            <button class="era-btn" data-year="1996">乔丹时代<small>1996</small></button>
           </div>
         </div>
 
@@ -82,7 +123,7 @@
       </div>
     </section>
 
-    <!-- Screen 2: Draft Room -->
+    <!-- Screen 2: 选秀室 -->
     <section id="screenDraftRoom" class="screen-view hidden">
       <header class="manager-topbar glass-panel">
         <div class="topbar-left">
@@ -95,7 +136,7 @@
       </header>
 
       <div class="draft-room-layout">
-        <!-- Left: Action Zone -->
+        <!-- 左：操作区 -->
         <section class="action-zone" aria-label="操作区">
           <header class="action-header">
             <div>
@@ -135,7 +176,7 @@
           </footer>
         </section>
 
-        <!-- Right: Roster Sidebar -->
+        <!-- 右：阵容战术板 -->
         <aside class="roster-sidebar" aria-label="阵容战术板">
           <header class="sidebar-header">
             <h2>战术板 & 阵容</h2>
@@ -147,14 +188,43 @@
       </div>
     </section>
 
-    <!-- Screen 3: Results -->
+    <!-- Screen 3: 模拟直播 + 赛季总结 -->
     <section id="screenResults" class="screen-view hidden">
       <div class="results-layout">
         <header class="results-header">
           <h1>赛季总结</h1>
-          <p><span id="resultYearText">2025</span> 赛季模拟已完成</p>
+          <p><span id="resultYearText">2025</span> Season Broadcast</p>
         </header>
-        <section class="simulation-panel" id="simulationPanel" hidden>
+
+        <!-- 转播模拟舞台 -->
+        <section class="live-sim-stage" id="simulationPanel" hidden>
+          <div class="live-topline">
+            <span class="game-no" id="liveGameNo">GAME 0 / 82</span>
+            <span class="live-pill">LIVE</span>
+            <span class="streak-badge" id="streakBadge">连胜 0</span>
+          </div>
+
+          <div class="live-scoreboard" id="liveScoreboard">
+            <div class="sb-team home" id="sbHome">
+              <span class="sb-abbr" id="sbHomeAbbr">820</span>
+              <span class="sb-score" id="sbHomeScore">0</span>
+              <span class="sb-name" id="sbHomeName">82-0挑战队</span>
+            </div>
+            <div class="sb-mid">
+              <span class="sb-vs">VS</span>
+              <span class="sb-result-tag" id="sbResultTag">W</span>
+            </div>
+            <div class="sb-team away" id="sbAway">
+              <span class="sb-abbr" id="sbAwayAbbr">---</span>
+              <span class="sb-score" id="sbAwayScore">0</span>
+              <span class="sb-name" id="sbAwayName">等待对手</span>
+            </div>
+          </div>
+
+          <div class="season-dots" id="seasonDots" aria-label="82场赛程点阵"></div>
+
+          <div class="live-feed" id="liveFeed" aria-live="polite"></div>
+
           <div class="sim-progress">
             <div class="sim-progress-copy">
               <span id="simStatus">等待模拟</span>
@@ -162,8 +232,18 @@
             </div>
             <div class="sim-progress-track"><div id="simProgressBar"></div></div>
           </div>
-          <div class="results-grid" id="resultsGrid"></div>
+
+          <div class="sim-actions">
+            <button class="manager-btn ghost" id="skipSimButton" type="button">⏩ 跳过动画，直接看结果</button>
+          </div>
         </section>
+
+        <!-- 评级印章 + 媒体头条 -->
+        <section class="results-hero" id="resultsHero" hidden></section>
+
+        <!-- 明细卡片 -->
+        <div class="results-grid" id="resultsGrid"></div>
+
         <footer class="results-footer">
           <button class="manager-btn massive primary" id="restartButton" type="button" hidden>重新开启挑战 (RESTART)</button>
         </footer>
@@ -180,7 +260,7 @@
   <script src="assets/js/text-pools-extra.js?v=20260429templates2"></script>
   <script src="assets/js/text-pools-long.js?v=20260429longtemplates"></script>
   <script src="assets/js/sim.js?v=20260629rookie3p"></script>
-  <script src="assets/js/82-draft-challenge.js?v=20260629rookieattrs"></script>
+  <script src="assets/js/82-draft-challenge.js?v=20260702arena"></script>
 </body>
 
 </html>

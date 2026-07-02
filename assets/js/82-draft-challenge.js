@@ -96,7 +96,8 @@
     result: null,
     challengeYear: 2025,
     yearRerollsLeft: 1,
-    teamRerollsLeft: 1
+    teamRerollsLeft: 1,
+    skipSim: false
   };
 
   const el = {
@@ -127,17 +128,40 @@
     backToMenuBtn: document.getElementById('backToMenuBtn'),
     challengeYearHeader: document.getElementById('challengeYearHeader'),
     rosterYearText: document.getElementById('rosterYearText'),
-    resultYearText: document.getElementById('resultYearText')
+    resultYearText: document.getElementById('resultYearText'),
+    liveGameNo: document.getElementById('liveGameNo'),
+    streakBadge: document.getElementById('streakBadge'),
+    liveScoreboard: document.getElementById('liveScoreboard'),
+    sbHome: document.getElementById('sbHome'),
+    sbAway: document.getElementById('sbAway'),
+    sbHomeAbbr: document.getElementById('sbHomeAbbr'),
+    sbHomeScore: document.getElementById('sbHomeScore'),
+    sbHomeName: document.getElementById('sbHomeName'),
+    sbAwayAbbr: document.getElementById('sbAwayAbbr'),
+    sbAwayScore: document.getElementById('sbAwayScore'),
+    sbAwayName: document.getElementById('sbAwayName'),
+    sbResultTag: document.getElementById('sbResultTag'),
+    seasonDots: document.getElementById('seasonDots'),
+    liveFeed: document.getElementById('liveFeed'),
+    skipSimButton: document.getElementById('skipSimButton'),
+    resultsHero: document.getElementById('resultsHero')
   };
 
   function switchScreen(screenId) {
-    el.screenMainMenu.classList.toggle('hidden', screenId !== 'main_menu');
-    el.screenMainMenu.classList.toggle('active', screenId === 'main_menu');
-    el.screenDraftRoom.classList.toggle('hidden', screenId !== 'draft_room');
-    el.screenDraftRoom.classList.toggle('active', screenId === 'draft_room');
-    el.screenResults.classList.toggle('hidden', screenId !== 'results');
-    el.screenResults.classList.toggle('active', screenId === 'results');
+    const mapping = [
+      [el.screenMainMenu, 'main_menu'],
+      [el.screenDraftRoom, 'draft_room'],
+      [el.screenResults, 'results']
+    ];
+    mapping.forEach(([node, id]) => {
+      const isActive = screenId === id;
+      node.classList.toggle('hidden', !isActive);
+      node.classList.toggle('active', isActive);
+      // 双保险：即使外部 CSS 未加载，也保证同一时间只显示一个屏幕
+      node.style.display = isActive ? '' : 'none';
+    });
     state.screen = screenId;
+    window.scrollTo({ top: 0, behavior: 'auto' });
   }
 
   function safeText(value) {
@@ -346,9 +370,25 @@
     if (btn) btn.addEventListener('click', requestDraftDataAccessAndRetry);
   }
 
+  async function loadJsonAsset(pathWithQuery) {
+    // 先走原生 fetch（HTTP 服务），失败后回退 fetchText（支持 file:// 目录授权）
+    try {
+      const res = await fetch(pathWithQuery);
+      if (res && res.ok) return await res.json();
+    } catch (err) { /* fall through */ }
+    if (typeof fetchText === 'function') {
+      try {
+        return JSON.parse(await fetchText(pathWithQuery.split('?')[0]));
+      } catch (err) {
+        if (isLocalFsPermissionError(err)) throw err;
+      }
+    }
+    return null;
+  }
+
   function sampleCandidatePool(pack, { fixedTeamId = null, excludeTeamId = null } = {}) {
     const usedKeys = new Set(state.selected.map(sourceKey));
-    let eligibleTeams = pack.teams
+    const buildEligible = (requireRealStats) => pack.teams
       .map(bucket => {
         const players = bucket.players
           .filter(player => !usedKeys.has(sourceKey({
@@ -357,11 +397,15 @@
             sourceRosterCode: pack.season.code,
             sourceTeamId: bucket.team.id
           })))
-          .filter(player => hasRealCandidateAverages(player))
+          .filter(player => !requireRealStats || hasRealCandidateAverages(player))
           .filter(player => positionOptionsForPlayer(player).length);
         return { team: bucket.team, players };
       })
       .filter(bucket => bucket.players.length >= 5);
+
+    let eligibleTeams = buildEligible(true);
+    // 真实数据缺失时降级：允许无历史场均的球员参选（卡片显示"真实数据缺失"）
+    if (!eligibleTeams.length) eligibleTeams = buildEligible(false);
 
     if (fixedTeamId) {
       eligibleTeams = eligibleTeams.filter(bucket => parseNum(bucket.team.id, 0) === parseNum(fixedTeamId, 0));
@@ -464,7 +508,10 @@
       });
       if (!pool) {
         const detail = skippedErrors.length ? `；已跳过读取失败赛季：${skippedErrors.slice(0, 3).join(' / ')}` : '';
-        throw new Error(`没有找到足够的候选球员${detail}`);
+        const dataHint = !historicalSeasonStats
+          ? '；历史数据文件未能加载（如果是直接双击打开 HTML，请改用本地 HTTP 服务，或点击授权数据目录）'
+          : '';
+        throw new Error(`没有找到足够的候选球员${detail}${dataHint}`);
       }
       state.currentPool = pool;
       state.pendingPlayer = null;
@@ -484,7 +531,15 @@
         bindDraftDataPermissionButton();
       } else {
         console.error(err);
-        el.emptyState.innerHTML = `<strong>抽取失败</strong><span>${safeText(err.message || err)}</span>`;
+        el.emptyState.innerHTML = `
+          <strong>抽取失败</strong>
+          <span>${safeText(err.message || err)}</span>
+          <div class="permission-actions">
+            <button class="btn primary" id="retryRollButton" type="button">重试抽取</button>
+          </div>
+        `;
+        const retryBtn = document.getElementById('retryRollButton');
+        if (retryBtn) retryBtn.addEventListener('click', () => rollTeamYear());
       }
     } finally {
       state.busy = false;
@@ -971,8 +1026,7 @@
       await historicalSeasonPackPromises.get(seasonYear);
       return;
     }
-    const promise = fetch(`assets/data/historical/player_seasons_${seasonYear}.json?v=20260629realstats`)
-      .then(r => (r.ok ? r.json() : null))
+    const promise = loadJsonAsset(`assets/data/historical/player_seasons_${seasonYear}.json?v=20260629realstats`)
       .then(data => {
         if (data) mergeHistoricalSeasonPack(seasonYear, data);
       })
@@ -1627,6 +1681,118 @@
     el.simProgressBar.style.width = `${pctValue}%`;
   }
 
+  /* ============ 转播式模拟舞台 ============ */
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function initLiveStage(totalGames = 82) {
+    state.skipSim = false;
+    el.seasonDots.innerHTML = Array.from({ length: totalGames }, () => '<i></i>').join('');
+    el.liveFeed.innerHTML = '';
+    el.liveGameNo.textContent = `GAME 0 / ${totalGames}`;
+    el.streakBadge.textContent = '连胜 0';
+    el.streakBadge.classList.remove('broken');
+    el.sbResultTag.classList.remove('show', 'w', 'l');
+    el.sbHomeAbbr.textContent = FANTASY_TEAM_META.a;
+    el.sbHomeName.textContent = FANTASY_TEAM_META.z;
+    el.sbHomeScore.textContent = '0';
+    el.sbAwayAbbr.textContent = '---';
+    el.sbAwayName.textContent = '等待对手';
+    el.sbAwayScore.textContent = '0';
+    el.sbHome.classList.remove('loser');
+    el.sbAway.classList.remove('loser');
+    el.skipSimButton.hidden = false;
+    el.skipSimButton.disabled = false;
+    el.skipSimButton.textContent = '⏩ 跳过动画，直接看结果';
+  }
+
+  function flipScore(node, value) {
+    node.textContent = value;
+    node.classList.remove('flip');
+    void node.offsetWidth;
+    node.classList.add('flip');
+  }
+
+  function gameFlag(game) {
+    if (!game.win) return { cls: 'loss', text: '💥 爆冷失利' };
+    if (game.diff <= 3) return { cls: 'close', text: '⚠ 险胜' };
+    if (game.diff >= 25) return { cls: 'blowout', text: '🔨 大胜' };
+    return null;
+  }
+
+  function renderLiveGame(game, totalGames, streak) {
+    el.liveGameNo.textContent = `GAME ${game.no} / ${totalGames}`;
+    el.sbAwayAbbr.textContent = game.oppAbbr || '---';
+    el.sbAwayName.textContent = `${game.home ? '' : '@ '}${game.oppName}`;
+    flipScore(el.sbHomeScore, game.myScore);
+    flipScore(el.sbAwayScore, game.oppScore);
+    el.sbHome.classList.toggle('loser', !game.win);
+    el.sbAway.classList.toggle('loser', game.win);
+
+    el.sbResultTag.textContent = game.win ? 'W' : 'L';
+    el.sbResultTag.classList.remove('show', 'w', 'l');
+    void el.sbResultTag.offsetWidth;
+    el.sbResultTag.classList.add('show', game.win ? 'w' : 'l');
+
+    el.liveScoreboard.classList.remove('flash-win', 'flash-loss');
+    void el.liveScoreboard.offsetWidth;
+    el.liveScoreboard.classList.add(game.win ? 'flash-win' : 'flash-loss');
+
+    el.streakBadge.textContent = game.win ? `连胜 ${streak} 🔥` : '连胜终结 💔';
+    el.streakBadge.classList.toggle('broken', !game.win);
+    el.streakBadge.classList.remove('bump');
+    void el.streakBadge.offsetWidth;
+    el.streakBadge.classList.add('bump');
+
+    const dot = el.seasonDots.children[game.no - 1];
+    if (dot) dot.className = game.win ? 'w' : 'l';
+
+    const flag = gameFlag(game);
+    const row = document.createElement('div');
+    row.className = `feed-row${!game.win ? ' hl-loss' : flag?.cls === 'close' ? ' hl-close' : ''}`;
+    row.innerHTML = `
+      <span class="f-no">#${game.no}</span>
+      <span class="f-wl ${game.win ? 'w' : 'l'}">${game.win ? 'W' : 'L'}</span>
+      <span class="f-score">${game.myScore}-${game.oppScore}</span>
+      <span class="f-opp">${game.home ? 'vs' : '@'} ${safeText(game.oppName)}</span>
+      ${flag ? `<span class="f-flag ${flag.cls}">${flag.text}</span>` : ''}
+    `;
+    el.liveFeed.prepend(row);
+    while (el.liveFeed.children.length > 5) el.liveFeed.removeChild(el.liveFeed.lastChild);
+
+    updateSimProgress(game.no, totalGames, `${game.win ? 'W' : 'L'} ${game.home ? 'vs' : '@'} ${game.oppName} ${game.myScore}-${game.oppScore}`);
+  }
+
+  function paintLiveDotsBulk(games, totalGames) {
+    games.forEach(game => {
+      const dot = el.seasonDots.children[game.no - 1];
+      if (dot) dot.className = game.win ? 'w' : 'l';
+    });
+    const last = games[games.length - 1];
+    if (last) updateSimProgress(last.no, totalGames, '快进中...');
+  }
+
+  function extractChallengeGame(no, targetTeamId, detail) {
+    if (!detail) return null;
+    const isHome = parseNum(detail.homeTeamId, 0) === parseNum(targetTeamId, 0);
+    const oppId = isHome ? detail.awayTeamId : detail.homeTeamId;
+    const oppTeam = getTeam(oppId) || (isHome ? detail.awayTeam : detail.homeTeam) || {};
+    const myScore = isHome ? detail.homeScore : detail.awayScore;
+    const oppScore = isHome ? detail.awayScore : detail.homeScore;
+    return {
+      no,
+      oppId,
+      oppName: oppTeam?.z || '对手',
+      oppAbbr: oppTeam?.a || '---',
+      home: isHome,
+      myScore,
+      oppScore,
+      win: myScore > oppScore,
+      diff: Math.abs(myScore - oppScore)
+    };
+  }
+
   function selectedStatRows(targetTeamId, selectedPlayers) {
     const rows = getLeaguePlayerSeasonRows();
     return selectedPlayers.map(player => {
@@ -1688,6 +1854,8 @@
     setButtons();
     el.simulationPanel.hidden = false;
     el.resultsGrid.innerHTML = '';
+    el.resultsHero.hidden = true;
+    el.resultsHero.innerHTML = '';
     updateSimProgress(0, 82);
 
     const targetTeamId = FANTASY_TEAM_ID;
@@ -1713,33 +1881,46 @@
       fantasy.teamObj.strength = calcTeamStrength(fantasy.teamObj);
 
       const rounds = buildSeasonRoundPairs(82, targetTeamId);
+      initLiveStage(rounds.length);
+      const schedule = [];
+      let streak = 0;
+      let skipBuffer = [];
       for (let roundIndex = 0; roundIndex < rounds.length; roundIndex++) {
         const pairs = rounds[roundIndex];
+        let challengeDetail = null;
         pairs.forEach(pair => {
-          simulateLeagueMatchup(pair.homeTeamId, pair.awayTeamId, {
+          const detail = simulateLeagueMatchup(pair.homeTeamId, pair.awayTeamId, {
             roundIndex,
             season: 1,
             year: state.challengeYear,
             phase: 'regular',
             userTeamId: targetTeamId
           });
-        });
-        if (roundIndex % 2 === 0 || roundIndex === rounds.length - 1) {
-          const teamResults = G.results.filter(r => r.awayId === targetTeamId || r.homeId === targetTeamId);
-          const latest = teamResults[teamResults.length - 1];
-          let extraText = '';
-          if (latest) {
-             const isHome = latest.homeId === targetTeamId;
-             const oppName = getTeam(isHome ? latest.awayId : latest.homeId)?.z || '对手';
-             const myScore = isHome ? latest.homeScore : latest.awayScore;
-             const oppScore = isHome ? latest.awayScore : latest.homeScore;
-             const wl = myScore > oppScore ? 'W' : 'L';
-             extraText = `${wl} vs ${oppName} ${myScore}-${oppScore}`;
+          if (detail && (parseNum(detail.homeTeamId, 0) === targetTeamId || parseNum(detail.awayTeamId, 0) === targetTeamId)) {
+            challengeDetail = detail;
           }
-          updateSimProgress(roundIndex + 1, rounds.length, extraText);
-          await new Promise(resolve => setTimeout(resolve, 30));
+        });
+        const game = extractChallengeGame(roundIndex + 1, targetTeamId, challengeDetail);
+        if (game) {
+          streak = game.win ? streak + 1 : 0;
+          game.streak = streak;
+          schedule.push(game);
+          if (state.skipSim) {
+            skipBuffer.push(game);
+            if (skipBuffer.length >= 10 || roundIndex === rounds.length - 1) {
+              paintLiveDotsBulk(skipBuffer, rounds.length);
+              skipBuffer = [];
+              await sleep(0);
+            }
+          } else {
+            renderLiveGame(game, rounds.length, streak);
+            const dramatic = !game.win || game.diff <= 3;
+            await sleep(dramatic ? 460 : 95);
+          }
         }
       }
+      if (skipBuffer.length) paintLiveDotsBulk(skipBuffer, rounds.length);
+      el.skipSimButton.hidden = true;
 
       const awards = leagueAwardEntryForSeason(1);
       const standings = getLeagueTeamRecordsArray()
@@ -1756,6 +1937,7 @@
         lineupProfile: analyzeLineup(fantasy.starters),
         coach: fantasy.coach,
         coachEffects,
+        schedule,
         gameCount: getLeagueGameDetails({ phase: 'regular' }).length
       };
       state.result = result;
@@ -1856,6 +2038,221 @@
     return { rank, positives, negatives };
   }
 
+  /* ============ 结算：评级 / 媒体头条 / 球员短评 ============ */
+  function gradeForRecord(w) {
+    if (w >= 82) return { letter: 'S+', cls: 'grade-s-plus', sub: 'IMMORTAL' };
+    if (w >= 78) return { letter: 'S', cls: 'grade-s', sub: 'LEGENDARY' };
+    if (w >= 70) return { letter: 'A', cls: 'grade-a', sub: 'ELITE' };
+    if (w >= 60) return { letter: 'B', cls: 'grade-b', sub: 'PLAYOFF' };
+    if (w >= 50) return { letter: 'C', cls: 'grade-c', sub: 'AVERAGE' };
+    return { letter: 'D', cls: 'grade-d', sub: 'LOTTERY' };
+  }
+
+  const HEADLINE_POOLS = [
+    {
+      min: 82,
+      titles: [
+        '历史见证！82-0 不败神迹就此诞生',
+        '完美赛季！{team}把"不可能"三个字扔进了垃圾桶',
+        '82连胜！{star}和{coach}联手改写篮球史',
+        '神迹达成：整个联盟 82 次尝试，无人能撼动他们'
+      ],
+      subs: [
+        '{year} 赛季的每一个夜晚，他们都是赢家。{coach}的战术板可以直接送进名人堂了。',
+        '从揭幕战到收官夜，{star}领衔的这套首发没有给任何对手留下活路。'
+      ]
+    },
+    {
+      min: 78,
+      titles: [
+        '距离神迹一步之遥：{l} 败之夜成为全联盟的叹息',
+        '{w} 胜狂潮！他们几乎触摸到了完美',
+        '伟大而残酷：{team}倒在了 82-0 的门槛上'
+      ],
+      subs: [
+        '{w}胜{l}负——历史级的统治力，只是完美赛季的容错是零。',
+        '{star}打出了生涯级表现，但那{l}个夜晚的失利将被反复回放。'
+      ]
+    },
+    {
+      min: 70,
+      titles: [
+        '{w} 胜！{team}交出联盟顶级答卷',
+        '强队成色十足：{coach}的体系正在轰鸣',
+        '{star}领衔，{team}锁定争冠第一梯队'
+      ],
+      subs: [
+        '{w}胜{l}负的战绩足以傲视联盟，只是距离 82-0 的狂想还差一段长路。',
+        '常规赛证明了阵容上限，但完美赛季需要的不只是天赋，还有运气。'
+      ]
+    },
+    {
+      min: 55,
+      titles: [
+        '{w} 胜赛季：不错，但"神迹"二字无从谈起',
+        '{team}的常规赛像一杯温水',
+        '起伏不定：{coach}还没找到真正的答案'
+      ],
+      subs: [
+        '{w}胜{l}负，一支合格的季后赛球队，距离 82-0 的目标却相当遥远。',
+        '阵容的短板在漫长赛季里被反复放大，{star}也无力独自填坑。'
+      ]
+    },
+    {
+      min: 0,
+      titles: [
+        '灾难赛季：{l} 场失利让 82-0 成了黑色幽默',
+        '翻车现场：这套抽卡阵容在现实面前碎了一地',
+        '{team}用一整个赛季诠释了什么叫"纸面阵容"'
+      ],
+      subs: [
+        '{w}胜{l}负。抽卡有风险，建队需谨慎——明年请重抽。',
+        '化学反应、体系适配、板凳深度……问题清单比胜场还长。'
+      ]
+    }
+  ];
+
+  function pickFrom(list) {
+    return list[rng(0, list.length - 1)];
+  }
+
+  function fillHeadline(template, ctx) {
+    return template
+      .replace(/\{w\}/g, ctx.w)
+      .replace(/\{l\}/g, ctx.l)
+      .replace(/\{year\}/g, ctx.year)
+      .replace(/\{team\}/g, ctx.team)
+      .replace(/\{star\}/g, ctx.star)
+      .replace(/\{coach\}/g, ctx.coach);
+  }
+
+  function buildHeadline(result) {
+    const w = parseNum(result.challengeRecord?.w, 0);
+    const l = parseNum(result.challengeRecord?.l, 0);
+    const star = [...result.selectedStats].sort((a, b) => b.ppg - a.ppg)[0];
+    const ctx = {
+      w, l,
+      year: state.challengeYear,
+      team: FANTASY_TEAM_META.z,
+      star: playerName(star?.player) || '核心球员',
+      coach: result.coach?.name || '主教练'
+    };
+    const pool = HEADLINE_POOLS.find(p => w >= p.min) || HEADLINE_POOLS[HEADLINE_POOLS.length - 1];
+    return {
+      title: fillHeadline(pickFrom(pool.titles), ctx),
+      sub: fillHeadline(pickFrom(pool.subs), ctx)
+    };
+  }
+
+  function playerSeasonComment(item, record) {
+    const name = playerName(item.player);
+    const slot = item.player.chosenSlotShort || '';
+    const fitScore = parseNum(item.player.coachFit?.score, 0);
+    const lines = [];
+    if (item.ppg >= 28) lines.push(`场均 ${item.ppg} 分的得分表演，${name}就是这套阵容的进攻发动机。`);
+    else if (item.ppg >= 20) lines.push(`场均 ${item.ppg} 分稳定输出，${name}扛起了${slot}位置的火力。`);
+    else if (item.ppg >= 12) lines.push(`${name}甘当绿叶，场均 ${item.ppg} 分 ${item.rpg} 板 ${item.apg} 助的均衡贡献不可或缺。`);
+    else lines.push(`${name}整季进攻端存在感稀薄（场均 ${item.ppg} 分），更多靠防守和无球价值撑住位置。`);
+    if (item.apg >= 8) lines.push(`场均 ${item.apg} 次助攻串联全队，进攻因他而流动。`);
+    else if (item.rpg >= 11) lines.push(`场均 ${item.rpg} 篮板筑起禁区屏障。`);
+    else if (parseNum(item.spg, 0) + parseNum(item.bpg, 0) >= 3) lines.push(`${item.spg}断${item.bpg}帽的防守事件产量堪称精英。`);
+    if (isThreeBlackHole(item)) lines.push(`但 ${item.tpPct}% 的三分命中率是对手最乐意看到的数字。`);
+    else if (fitScore >= 2) lines.push(`教练体系完美释放了他的技术包。`);
+    else if (fitScore < -1) lines.push(`可惜与教练体系互相别扭了一整年。`);
+    return lines.slice(0, 2).join('');
+  }
+
+  function verdictChipsHtml(entries, isBad) {
+    return entries.map(text => {
+      const match = /^【(.+?)】(.*)$/.exec(text);
+      const title = match ? match[1] : (isBad ? '隐患' : '优势');
+      const copy = match ? match[2] : text;
+      return `
+        <div class="verdict-chip${isBad ? ' bad' : ''}">
+          <span class="v-title">${isBad ? '⚠' : '✦'} ${safeText(title)}</span>
+          <span class="v-copy">${safeText(copy)}</span>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderResultsHero(result) {
+    const w = parseNum(result.challengeRecord?.w, 0);
+    const l = parseNum(result.challengeRecord?.l, 0);
+    const grade = gradeForRecord(w);
+    const headline = buildHeadline(result);
+    el.resultsHero.innerHTML = `
+      <div class="grade-stamp ${grade.cls}">
+        <svg viewBox="0 0 150 150" aria-hidden="true">
+          <circle class="stamp-ring" cx="75" cy="75" r="70" />
+          <circle class="stamp-ring inner" cx="75" cy="75" r="58" />
+        </svg>
+        <span class="grade-letter">${grade.letter}</span>
+        <span class="grade-sub">${grade.sub}</span>
+      </div>
+      <div class="headline-block">
+        <div class="headline-masthead">The Daily Hoops · ${state.challengeYear} Season Review</div>
+        <h2 class="headline-title">${safeText(headline.title)}</h2>
+        <p class="headline-sub">${safeText(headline.sub)}</p>
+        <span class="headline-record${w >= 82 ? ' perfect' : ''}">${w} - ${l}</span>
+      </div>
+    `;
+    el.resultsHero.hidden = false;
+  }
+
+  function scheduleReviewHtml(schedule) {
+    if (!Array.isArray(schedule) || !schedule.length) return '';
+    const losses = schedule.filter(g => !g.win).length;
+    const closest = schedule.filter(g => g.win).sort((a, b) => a.diff - b.diff)[0];
+    const biggest = [...schedule].sort((a, b) => b.diff - a.diff).find(g => g.win);
+    const cells = schedule.map(game => {
+      const flag = !game.win ? '💥' : game.diff <= 3 ? '⚠' : '';
+      const cls = ['sched-cell', game.win ? 'w' : 'l'];
+      if (game.win && game.diff <= 3) cls.push('close');
+      return `
+        <div class="${cls.join(' ')}">
+          <span class="sc-no">#${game.no}</span>
+          <span class="sc-body">
+            <span class="sc-opp">${game.home ? 'vs' : '@'} ${safeText(game.oppName)}</span>
+            <span class="sc-score">${game.myScore}-${game.oppScore}</span>
+          </span>
+          ${flag ? `<span class="sc-flag">${flag}</span>` : ''}
+          <span class="sc-wl">${game.win ? 'W' : 'L'}</span>
+        </div>
+      `;
+    }).join('');
+    const notes = [];
+    if (closest) notes.push(`最惊险一战：第 ${closest.no} 场 ${closest.myScore}-${closest.oppScore} 险胜${closest.oppName}`);
+    if (biggest) notes.push(`最大分差：第 ${biggest.no} 场净胜${biggest.oppName} ${biggest.diff} 分`);
+    return `
+      <article class="result-card full">
+        <h3>完整赛程回看</h3>
+        <button class="schedule-toggle" id="scheduleToggle" type="button">
+          <span>${schedule.length} 场比赛 · ${schedule.length - losses} 胜 ${losses} 负${notes.length ? ' · ' + notes.join(' · ') : ''}</span>
+          <span class="st-arrow">▼</span>
+        </button>
+        <div class="schedule-wrap" id="scheduleWrap">
+          <div class="schedule-grid">${cells}</div>
+          <div class="schedule-legend">
+            <span class="lg-w"><i></i>胜场</span>
+            <span class="lg-l"><i></i>败场</span>
+            <span class="lg-close"><i></i>险胜(≤3分)</span>
+          </div>
+        </div>
+      </article>
+    `;
+  }
+
+  function profileBarHtml(label, value, gold = false) {
+    const pct = clamp(parseNum(value, 0), 0, 99) / 99 * 100;
+    return `
+      <div class="profile-bar-row">
+        <div class="pb-head"><span>${safeText(label)}</span><strong>${value}</strong></div>
+        <div class="profile-bar"><i class="${gold ? 'gold' : ''}" style="width:${pct.toFixed(1)}%"></i></div>
+      </div>
+    `;
+  }
+
   function renderResults(result) {
     const record = result.challengeRecord || { w: 0, l: 0, pct: 0 };
     const review = buildStrengthReview(result);
@@ -1870,23 +2267,26 @@
       ['助攻王', awards.assist]
     ];
     const coachSummary = coachProfileSummary(result.coach);
+    const profile = result.lineupProfile;
+
+    renderResultsHero(result);
 
     el.resultsGrid.innerHTML = `
       <article class="result-card">
         <h3>挑战结果</h3>
         <div class="record-number ${hit ? 'win' : 'miss'}">${parseNum(record.w, 0)}-${parseNum(record.l, 0)}</div>
-        <p>${hit ? '完成 82 胜挑战。' : `玩家球队排名第 ${review.rank}，距离 82 胜还差 ${82 - parseNum(record.w, 0)} 场。`}</p>
+        <p>${hit ? '完成 82 胜挑战，赛季不败！' : `联盟排名第 ${review.rank}，距离 82 胜还差 ${82 - parseNum(record.w, 0)} 场。`}</p>
         <p>本次共模拟 ${parseNum(result.gameCount, 0)} 场常规赛。</p>
       </article>
 
       <article class="result-card">
         <h3>阵容评级</h3>
-        <ul class="compact-list">
-          <li><span>平均 OVR</span><strong>${result.lineupProfile.avgRating}</strong></li>
-          <li><span>进攻</span><strong>${result.lineupProfile.offense}</strong></li>
-          <li><span>防守</span><strong>${result.lineupProfile.defense}</strong></li>
-          <li><span>标签</span><strong>${safeText(result.lineupProfile.tags.join(' / '))}</strong></li>
-        </ul>
+        ${profileBarHtml('平均 OVR', profile.avgRating, true)}
+        ${profileBarHtml('进攻', profile.offense)}
+        ${profileBarHtml('防守', profile.defense)}
+        ${profileBarHtml('空间', profile.spacing)}
+        ${profileBarHtml('传导', profile.creation)}
+        <p style="margin-top:10px">${profile.tags.map(t => `<span class="tag gold">${safeText(t)}</span>`).join(' ')}</p>
       </article>
 
       <article class="result-card">
@@ -1899,16 +2299,13 @@
           <span><strong>强化</strong>${safeText(coachSummary.buffs.join(' / '))}</span>
           <span><strong>削弱</strong>${safeText(coachSummary.nerfs.join(' / '))}</span>
         </div>
-      </article>
-
-      <article class="result-card">
-        <h3>赛季奖项</h3>
+        <h3 style="margin-top:16px">赛季奖项</h3>
         ${awardRows.map(([label, item]) => `
           <div class="award-row"><span>${safeText(label)}</span><strong>${item ? `${safeText(item.name)} · ${safeText(item.team)}` : '--'}</strong></div>
         `).join('')}
       </article>
 
-      <article class="result-card wide">
+      <article class="result-card full">
         <h3>五人赛季数据</h3>
         <div class="tbl">
           <table>
@@ -1943,19 +2340,22 @@
                   <td>${item.tpPct}</td>
                   <td>${item.ftPct}</td>
                 </tr>
+                <tr class="player-note-row"><td colspan="17">${safeText(playerSeasonComment(item, record))}</td></tr>
               `;}).join('')}
             </tbody>
           </table>
         </div>
       </article>
 
-      <article class="result-card">
-        <h3>系统评价</h3>
-        <div class="strength-copy">
-          <div><strong>优点：</strong>${safeText(review.positives.join(' '))}</div>
-          <div><strong>缺点：</strong>${safeText(review.negatives.join(' '))}</div>
+      <article class="result-card full">
+        <h3>媒体点评</h3>
+        <div class="verdict-grid">
+          ${verdictChipsHtml(review.positives, false)}
+          ${verdictChipsHtml(review.negatives, true)}
         </div>
       </article>
+
+      ${scheduleReviewHtml(result.schedule)}
 
       <article class="result-card full">
         <h3>玩家球队排名</h3>
@@ -1976,6 +2376,15 @@
         </div>
       </article>
     `;
+
+    const toggle = document.getElementById('scheduleToggle');
+    const wrap = document.getElementById('scheduleWrap');
+    if (toggle && wrap) {
+      toggle.addEventListener('click', () => {
+        toggle.classList.toggle('open');
+        wrap.classList.toggle('open');
+      });
+    }
   }
 
   function renderGameToText() {
@@ -2028,6 +2437,8 @@
       result: state.result ? {
         record: `${state.result.challengeRecord?.w || 0}-${state.result.challengeRecord?.l || 0}`,
         rank: state.result.standings.findIndex(row => row.id === state.result.targetTeamId) + 1,
+        grade: gradeForRecord(parseNum(state.result.challengeRecord?.w, 0)).letter,
+        losses: (state.result.schedule || []).filter(g => !g.win).map(g => `#${g.no} vs ${g.oppName} ${g.myScore}-${g.oppScore}`),
         awards: {
           mvp: state.result.awards?.mvp?.name || null,
           dpoy: state.result.awards?.dpoy?.name || null
@@ -2048,11 +2459,17 @@
     state.busy = false;
     state.autoRolling = false;
     state.result = null;
+    state.skipSim = false;
     el.resultsGrid.innerHTML = '';
+    el.resultsHero.innerHTML = '';
+    el.resultsHero.hidden = true;
     el.simulationPanel.hidden = true;
     el.simPercent.textContent = '0%';
     el.simProgressBar.style.width = '0%';
     el.simStatus.textContent = '等待模拟';
+    el.seasonDots.innerHTML = '';
+    el.liveFeed.innerHTML = '';
+    el.skipSimButton.hidden = false;
     switchScreen('main_menu');
     renderAll();
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2072,8 +2489,7 @@
   }
 
   function bind() {
-    historicalStatsPromise = fetch('assets/data/historical_season_stats.json?v=20260629realstats')
-      .then(r => r.json())
+    historicalStatsPromise = loadJsonAsset('assets/data/historical_season_stats.json?v=20260629realstats')
       .then(data => { historicalSeasonStats = data; })
       .catch(() => { historicalSeasonStats = null; });
 
@@ -2106,6 +2522,11 @@
     });
     el.simulateButton.addEventListener('click', runFantasySeason);
     el.restartButton.addEventListener('click', resetChallenge);
+    el.skipSimButton.addEventListener('click', () => {
+      state.skipSim = true;
+      el.skipSimButton.disabled = true;
+      el.skipSimButton.textContent = '⏩ 快进中...';
+    });
     window.render_game_to_text = renderGameToText;
     window.advanceTime = () => {
       renderAll();
