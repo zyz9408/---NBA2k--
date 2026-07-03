@@ -541,7 +541,11 @@
 
   function selectPerfectTeam(teamId) {
     if (state.busy || state.challengeMode !== 'perfect') return;
-    clearPerfectSelections();
+    state.pendingPlayer = null;
+    state.result = null;
+    state.stage = 'player_select';
+    el.simulationPanel.hidden = true;
+    el.resultsGrid.innerHTML = '';
     state.perfectTeamId = parseNum(teamId, 0);
     buildPerfectPoolFromTeam();
     renderAll();

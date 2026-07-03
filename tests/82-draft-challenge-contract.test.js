@@ -124,6 +124,13 @@ assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for
   'window.advanceTime'
 ].forEach(fragment => assert.ok(script.includes(fragment), `challenge contract missing: ${fragment}`));
 
+const selectPerfectTeamBody = script.slice(
+  script.indexOf('function selectPerfectTeam'),
+  script.indexOf('function resetPerfectSelection')
+);
+assert.ok(!selectPerfectTeamBody.includes('clearPerfectSelections'), 'perfect mode team switching should preserve already selected players');
+assert.ok(selectPerfectTeamBody.includes("state.stage = 'player_select'"), 'perfect mode team switching should keep the user in player selection');
+
 assert.ok(!script.includes('targetTeamSelect'), 'challenge script should not depend on a carrier-team selector');
 assert.ok(!script.includes('if (target === 3) return pos === 2 || pos === 4'), 'PF/C players must not be auto-eligible at SF through adjacent-position fallback');
 assert.ok(!script.includes('if (target === 4) return pos === 3 || pos === 5'), 'C players must not be auto-eligible at PF unless PF is an explicit listed position');
