@@ -45,7 +45,8 @@ assert.ok(html.includes('当前阶段'), 'challenge page should describe the sta
 assert.ok(html.includes('id="restartButton"'), 'challenge page should expose restart button');
 assert.ok(html.includes('id="perfectModeBtn"'), 'challenge page should expose perfect mode entry button');
 assert.ok(html.includes('完美模式'), 'challenge page should label the perfect mode entry');
-assert.ok(html.includes('20260703perfectmode'), 'challenge page should bust cache for the perfect mode assets');
+assert.ok(html.includes('20260703teamfix'), 'challenge page should bust cache for the perfect mode team-switch fix');
+assert.ok(!html.includes('82-draft-challenge.js?v=20260703perfectmode'), 'challenge page must not reuse the cached perfect-mode JS URL after the team-switch fix');
 assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for a carrier team');
 
 [
