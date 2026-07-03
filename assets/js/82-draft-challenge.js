@@ -84,11 +84,17 @@
 
   const state = {
     screen: 'main_menu',
+    challengeMode: 'random',
     stage: 'spin',
     selected: [],
     pendingPlayer: null,
     currentPool: null,
     rosterCache: new Map(),
+    perfectSeasonCode: ROSTER_SEASONS[0].code,
+    perfectTeamId: 0,
+    perfectPack: null,
+    perfectTeams: [],
+    perfectLoadError: null,
     coachChoices: [],
     selectedCoach: null,
     busy: false,
@@ -122,6 +128,7 @@
     resultsGrid: document.getElementById('resultsGrid'),
     challengeRecord: document.getElementById('challengeRecord'),
     startGameBtn: document.getElementById('startGameBtn'),
+    perfectModeBtn: document.getElementById('perfectModeBtn'),
     screenMainMenu: document.getElementById('screenMainMenu'),
     screenDraftRoom: document.getElementById('screenDraftRoom'),
     screenResults: document.getElementById('screenResults'),
@@ -257,6 +264,13 @@
     return ids.map(posLabel).join(' / ');
   }
 
+  function setChallengeYear(year) {
+    state.challengeYear = parseNum(year, 2025);
+    if (el.challengeYearHeader) el.challengeYearHeader.textContent = state.challengeYear;
+    if (el.rosterYearText) el.rosterYearText.textContent = state.challengeYear;
+    if (el.resultYearText) el.resultYearText.textContent = state.challengeYear;
+  }
+
   function normalizeSourceTeamName(value) {
     if (typeof normalizeTeamToken === 'function') return normalizeTeamToken(value);
     return String(value || '').toLowerCase().trim()
@@ -386,6 +400,160 @@
     return null;
   }
 
+  function normalizeDraftCandidate(player, bucket, season, index) {
+    const out = {
+      ...clone(player),
+      cardIndex: index,
+      originalId: player.originalId || player.id,
+      sourceTeamId: bucket.team.id,
+      sourceTeamName: bucket.sourceTeamName || bucket.team.z,
+      sourceTeamAbbr: bucket.team.a,
+      sourceYear: season.year,
+      sourceStatsYear: season.statsYear || season.year,
+      sourceLabel: season.label,
+      sourceRosterCode: season.code
+    };
+    out.sourceRealStats = findHistoricalStatsForPlayer(out);
+    out.positionOptions = positionOptionsForPlayer(out);
+    return out;
+  }
+
+  function rosterSeasonByCode(code) {
+    const id = parseNum(code, ROSTER_SEASONS[0].code);
+    return ROSTER_SEASONS.find(season => parseNum(season.code, 0) === id) || ROSTER_SEASONS[0];
+  }
+
+  function teamCanFillPerfectLineup(bucket) {
+    if (!bucket || !Array.isArray(bucket.players)) return false;
+    const optionsBySlot = POSITION_SLOTS
+      .map(slot => ({
+        slot,
+        players: bucket.players.filter(player => playerFitsPosition(player, slot.id))
+      }))
+      .sort((a, b) => a.players.length - b.players.length);
+    if (optionsBySlot.some(item => !item.players.length)) return false;
+    const used = new Set();
+    const canFill = (index) => {
+      if (index >= optionsBySlot.length) return true;
+      for (const player of optionsBySlot[index].players) {
+        const key = sourceKey({
+          ...player,
+          originalId: player.id,
+          sourceRosterCode: bucket.players[0]?.sourceRosterCode || player.sourceRosterCode,
+          sourceTeamId: bucket.team.id
+        });
+        if (used.has(key)) continue;
+        used.add(key);
+        if (canFill(index + 1)) return true;
+        used.delete(key);
+      }
+      return false;
+    };
+    return canFill(0);
+  }
+
+  function clearPerfectSelections() {
+    state.selected = [];
+    state.pendingPlayer = null;
+    state.coachChoices = [];
+    state.selectedCoach = null;
+    state.result = null;
+    state.stage = 'player_select';
+    el.simulationPanel.hidden = true;
+    el.resultsGrid.innerHTML = '';
+  }
+
+  function buildPerfectPoolFromTeam() {
+    if (!state.perfectPack) {
+      state.currentPool = null;
+      return null;
+    }
+    const teamId = parseNum(state.perfectTeamId, 0);
+    const bucket = state.perfectTeams.find(item => parseNum(item.team.id, 0) === teamId) || state.perfectTeams[0];
+    if (!bucket) {
+      state.currentPool = null;
+      return null;
+    }
+    state.perfectTeamId = parseNum(bucket.team.id, 0);
+    const usedKeys = new Set(state.selected.map(sourceKey));
+    const candidates = bucket.players
+      .map((player, index) => normalizeDraftCandidate(player, bucket, state.perfectPack.season, index))
+      .filter(player => !usedKeys.has(sourceKey(player)))
+      .sort((a, b) => ratingOf(b) - ratingOf(a) || playerName(a).localeCompare(playerName(b)));
+    state.currentPool = {
+      season: state.perfectPack.season,
+      team: bucket.team,
+      sourceTeamName: bucket.sourceTeamName,
+      candidates,
+      perfectMode: true
+    };
+    return state.currentPool;
+  }
+
+  async function loadPerfectSeason(code = state.perfectSeasonCode) {
+    const season = rosterSeasonByCode(code);
+    state.perfectSeasonCode = season.code;
+    state.busy = true;
+    state.stage = 'player_select';
+    state.perfectPack = null;
+    state.perfectTeams = [];
+    state.currentPool = null;
+    state.perfectLoadError = null;
+    setChallengeYear(season.year);
+    renderAll();
+    try {
+      const pack = await loadRosterSeason(season);
+      await ensureHistoricalSeasonStatsForYear(season.statsYear || season.year);
+      state.perfectPack = pack;
+      state.perfectTeams = pack.teams
+        .filter(bucket => bucket.players.length >= POSITION_SLOTS.length && teamCanFillPerfectLineup(bucket))
+        .sort((a, b) => String(a.team.z || '').localeCompare(String(b.team.z || '')));
+      if (!state.perfectTeams.some(bucket => parseNum(bucket.team.id, 0) === parseNum(state.perfectTeamId, 0))) {
+        state.perfectTeamId = parseNum(state.perfectTeams[0]?.team.id, 0);
+      }
+      buildPerfectPoolFromTeam();
+    } catch (err) {
+      state.currentPool = null;
+      state.perfectPack = null;
+      state.perfectTeams = [];
+      state.perfectLoadError = err.message || String(err);
+      el.emptyState.hidden = false;
+      if (isLocalFsPermissionError(err)) {
+        el.emptyState.innerHTML = `<strong>需要本地数据目录权限</strong><span>${safeText(err.message || err)}</span>${draftDataPermissionActionsHtml()}`;
+        bindDraftDataPermissionButton();
+      } else {
+        console.error(err);
+        el.emptyState.innerHTML = `<strong>完美模式载入失败</strong><span>${safeText(err.message || err)}</span>`;
+      }
+    } finally {
+      state.busy = false;
+      renderAll();
+    }
+  }
+
+  async function selectPerfectSeason(code) {
+    if (state.busy || state.challengeMode !== 'perfect') return;
+    clearPerfectSelections();
+    state.perfectTeamId = 0;
+    state.currentPool = null;
+    await loadPerfectSeason(code);
+  }
+
+  function selectPerfectTeam(teamId) {
+    if (state.busy || state.challengeMode !== 'perfect') return;
+    clearPerfectSelections();
+    state.perfectTeamId = parseNum(teamId, 0);
+    buildPerfectPoolFromTeam();
+    renderAll();
+  }
+
+  function resetPerfectSelection() {
+    if (state.busy || state.challengeMode !== 'perfect') return;
+    clearPerfectSelections();
+    buildPerfectPoolFromTeam();
+    renderAll();
+  }
+
   function sampleCandidatePool(pack, { fixedTeamId = null, excludeTeamId = null } = {}) {
     const usedKeys = new Set(state.selected.map(sourceKey));
     const buildEligible = (requireRealStats) => pack.teams
@@ -419,23 +587,7 @@
     const candidates = shuffle(bucket.players)
       .sort((a, b) => ratingOf(b) - ratingOf(a))
       .slice(0, 5)
-      .map((player, index) => {
-        const out = {
-          ...clone(player),
-          cardIndex: index,
-          originalId: player.id,
-          sourceTeamId: bucket.team.id,
-          sourceTeamName: bucket.sourceTeamName || bucket.team.z,
-          sourceTeamAbbr: bucket.team.a,
-          sourceYear: pack.season.year,
-          sourceStatsYear: pack.season.statsYear || pack.season.year,
-          sourceLabel: pack.season.label,
-          sourceRosterCode: pack.season.code
-        };
-        out.sourceRealStats = findHistoricalStatsForPlayer(out);
-        out.positionOptions = positionOptionsForPlayer(out);
-        return out;
-      });
+      .map((player, index) => normalizeDraftCandidate(player, bucket, pack.season, index));
     return { season: pack.season, team: bucket.team, candidates };
   }
 
@@ -488,6 +640,7 @@
   }
 
   async function rollTeamYear({ rerollType = null } = {}) {
+    if (state.challengeMode === 'perfect') return;
     if (state.busy || selectedCount() >= POSITION_SLOTS.length) return;
     if (rerollType === 'year' && (!state.currentPool || state.yearRerollsLeft <= 0)) return;
     if (rerollType === 'team' && (!state.currentPool || state.teamRerollsLeft <= 0)) return;
@@ -586,14 +739,19 @@
     selected.fantasyStarter = true;
     state.selected.push(selected);
     state.pendingPlayer = null;
-    state.currentPool = null;
     state.result = null;
     el.simulationPanel.hidden = true;
     el.resultsGrid.innerHTML = '';
 
     if (selectedCount() >= POSITION_SLOTS.length) {
+      state.currentPool = null;
       await enterCoachStage();
+    } else if (state.challengeMode === 'perfect') {
+      state.stage = 'player_select';
+      buildPerfectPoolFromTeam();
+      renderAll();
     } else {
+      state.currentPool = null;
       state.stage = 'spin';
       state.autoRolling = true;
       renderAll();
@@ -839,6 +997,7 @@
 
   function renderStatus() {
     const count = selectedCount();
+    const perfectMode = state.challengeMode === 'perfect';
     el.currentSlotLabel.textContent = STAGE_LABELS[state.stage] || '抽取球队/年份';
     if (state.stage === 'results') {
       el.roundKicker.textContent = '赛季模拟完成';
@@ -846,6 +1005,11 @@
     } else if (state.stage === 'coach_select' || state.stage === 'ready_to_simulate') {
       el.roundKicker.textContent = '5 / 5 个位置完成';
       el.poolTitle.textContent = state.stage === 'coach_select' ? '选择主教练和战术体系' : '阵容与教练已锁定';
+    } else if (perfectMode) {
+      el.roundKicker.textContent = `完美模式 ${count} / 5`;
+      el.poolTitle.textContent = state.stage === 'position_select'
+        ? '选择这个球员要打的位置'
+        : '自选年份、球队和完整名单';
     } else {
       el.roundKicker.textContent = `第 ${currentRoundNumber()} / 5 轮`;
       el.poolTitle.textContent = state.stage === 'position_select'
@@ -863,22 +1027,25 @@
     } else if (state.stage === 'coach_select') {
       el.sourceLabel.textContent = `${state.challengeYear} 教练池`;
     } else {
-      el.sourceLabel.textContent = count >= 5 ? '等待教练选择' : '等待抽取';
+      el.sourceLabel.textContent = perfectMode
+        ? (state.busy ? '正在载入自选名单' : '等待选择年份和球队')
+        : count >= 5 ? '等待教练选择' : '等待抽取';
     }
 
-    el.rerollLabel.textContent = `年份 ${state.yearRerollsLeft} / 球队 ${state.teamRerollsLeft}`;
+    el.rerollLabel.textContent = perfectMode ? '自选模式' : `年份 ${state.yearRerollsLeft} / 球队 ${state.teamRerollsLeft}`;
     const wins = state.result?.challengeRecord?.w;
     const losses = state.result?.challengeRecord?.l;
     el.challengeRecord.textContent = Number.isFinite(wins) ? `结果 ${wins}-${losses}` : '目标 82-0';
   }
 
   function setButtons() {
-    const canRoll = state.stage === 'spin' && selectedCount() < POSITION_SLOTS.length && !state.autoRolling;
+    const perfectMode = state.challengeMode === 'perfect';
+    const canRoll = !perfectMode && state.stage === 'spin' && selectedCount() < POSITION_SLOTS.length && !state.autoRolling;
     el.rollButton.hidden = !canRoll;
     el.rollButton.disabled = state.busy;
-    el.rerollYearButton.hidden = state.stage !== 'player_select';
+    el.rerollYearButton.hidden = perfectMode || state.stage !== 'player_select';
     el.rerollYearButton.disabled = state.busy || !state.currentPool || state.yearRerollsLeft <= 0;
-    el.rerollTeamButton.hidden = state.stage !== 'player_select';
+    el.rerollTeamButton.hidden = perfectMode || state.stage !== 'player_select';
     el.rerollTeamButton.disabled = state.busy || !state.currentPool || state.teamRerollsLeft <= 0;
     el.simulateButton.hidden = state.stage !== 'ready_to_simulate';
     el.simulateButton.disabled = state.busy || selectedCount() < 5 || !state.selectedCoach;
@@ -1176,9 +1343,55 @@
     return ` ${stl}断 ${blk}帽${note}`;
   }
 
-  function renderPlayerChoices() {
-    if (!state.currentPool) return '';
+  function renderPerfectModePanel() {
+    if (state.challengeMode !== 'perfect') return '';
+    const selectedSeasonCode = parseNum(state.perfectSeasonCode, ROSTER_SEASONS[0].code);
+    const selectedTeamId = parseNum(state.perfectTeamId, 0);
+    const candidateCount = state.currentPool?.candidates?.length || 0;
+    const teamCount = state.perfectTeams.length;
+    const noteText = state.perfectLoadError
+      ? `载入失败：${state.perfectLoadError}`
+      : state.busy
+        ? '正在读取名单...'
+        : teamCount
+          ? `已选 ${selectedCount()} / 5，当前可选球员 ${candidateCount} 人。`
+          : '当前年份没有可覆盖五个位置的球队，请切换名单年份。';
     return `
+      <section class="perfect-mode-panel" aria-label="完美模式设置">
+        <div class="perfect-mode-head">
+          <strong>完美模式</strong>
+          <span>自选赛季、球队和完整名单；五人仍然打满 82 场。</span>
+          <button class="manager-btn secondary perfect-mode-reset" type="button" data-perfect-reset ${state.busy || selectedCount() <= 0 ? 'disabled' : ''}>清空已选</button>
+        </div>
+        <div class="perfect-mode-controls">
+          <div class="perfect-mode-field">
+            <label for="perfectSeasonSelect">名单年份</label>
+            <select id="perfectSeasonSelect" data-perfect-season ${state.busy ? 'disabled' : ''}>
+              ${ROSTER_SEASONS.map(season => `
+                <option value="${season.code}" ${parseNum(season.code, 0) === selectedSeasonCode ? 'selected' : ''}>${safeText(season.label)}</option>
+              `).join('')}
+            </select>
+          </div>
+          <div class="perfect-mode-field">
+            <label for="perfectTeamSelect">来源球队</label>
+            <select id="perfectTeamSelect" data-perfect-team ${state.busy || !teamCount ? 'disabled' : ''}>
+              ${teamCount
+                ? state.perfectTeams.map(bucket => `
+                    <option value="${bucket.team.id}" ${parseNum(bucket.team.id, 0) === selectedTeamId ? 'selected' : ''}>${safeText(bucket.team.z)} · ${safeText(bucket.team.a || '')}</option>
+                  `).join('')
+                : '<option value="0">无可用球队</option>'}
+            </select>
+          </div>
+        </div>
+        <div class="perfect-mode-note">${safeText(noteText)}</div>
+      </section>
+    `;
+  }
+
+  function renderPlayerChoices() {
+    if (!state.currentPool) return state.challengeMode === 'perfect' ? renderPerfectModePanel() : '';
+    return `
+      ${renderPerfectModePanel()}
       <div class="source-strip">
         <div class="source-chip team">${safeText(state.currentPool.team.a)}</div>
         <div class="source-chip year">${safeText(state.currentPool.season.label)}</div>
@@ -1340,6 +1553,11 @@
       el.emptyState.hidden = false;
       if (state.busy && state.stage === 'coach_select') {
         el.emptyState.innerHTML = renderEmptyScout(`读取 ${state.challengeYear} 教练池`, '战术板会强化或削弱不同类型球员。');
+      } else if (state.challengeMode === 'perfect' && state.stage === 'player_select') {
+        el.emptyState.innerHTML = renderEmptyScout(
+          state.busy ? '读取完美模式名单' : '选择完美模式来源',
+          state.busy ? '正在载入赛季球队和完整名单。' : '请选择名单年份和球队；若当前赛季没有可覆盖五个位置的球队，可切换年份。'
+        );
       } else {
         el.emptyState.innerHTML = renderEmptyScout();
       }
@@ -1353,6 +1571,15 @@
     });
     el.candidateGrid.querySelectorAll('[data-coach-choice]').forEach(btn => {
       btn.addEventListener('click', () => selectCoach(parseNum(btn.getAttribute('data-coach-choice'), -1)));
+    });
+    el.candidateGrid.querySelectorAll('[data-perfect-season]').forEach(select => {
+      select.addEventListener('change', () => selectPerfectSeason(parseNum(select.value, ROSTER_SEASONS[0].code)));
+    });
+    el.candidateGrid.querySelectorAll('[data-perfect-team]').forEach(select => {
+      select.addEventListener('change', () => selectPerfectTeam(parseNum(select.value, 0)));
+    });
+    el.candidateGrid.querySelectorAll('[data-perfect-reset]').forEach(btn => {
+      btn.addEventListener('click', resetPerfectSelection);
     });
   }
 
@@ -1385,7 +1612,9 @@
       const stockSummary = lineupStockSummary(realAverages);
       el.lineupSummary.innerHTML = `首发合计场均 <strong>${totalPts}分 ${totalReb}板 ${totalAst}助${safeText(stockSummary)}</strong>，进攻 <strong>${profile.offense}</strong>，防守 <strong>${profile.defense}</strong>${safeText(coachCopy)}。标签：${safeText(profile.tags.join(' / '))}`;
     } else {
-      el.lineupSummary.textContent = `已选 ${selectedCount()} / 5。每轮先抽来源、选球员，再选择位置。`;
+      el.lineupSummary.textContent = state.challengeMode === 'perfect'
+        ? `已选 ${selectedCount()} / 5。先选名单年份和来源球队，再从完整名单中自选五个位置。`
+        : `已选 ${selectedCount()} / 5。每轮先抽来源、选球员，再选择位置。`;
     }
   }
 
@@ -2387,6 +2616,13 @@
   function renderGameToText() {
     return JSON.stringify({
       mode: state.result ? 'results' : state.stage,
+      challengeMode: state.challengeMode,
+      perfectMode: state.challengeMode === 'perfect' ? {
+        seasonCode: state.perfectSeasonCode,
+        teamId: state.perfectTeamId,
+        teamCount: state.perfectTeams.length,
+        availablePlayers: state.currentPool?.candidates?.length || 0
+      } : null,
       coordinateSystem: 'DOM layout, no canvas coordinates',
       round: currentRoundNumber(),
       selected: POSITION_SLOTS.map(slot => {
@@ -2445,10 +2681,17 @@
   }
 
   function resetChallenge() {
+    const activeEraYear = document.querySelector('.era-btn.active')?.getAttribute('data-year') || 2025;
+    state.challengeMode = 'random';
     state.stage = 'spin';
     state.selected = [];
     state.pendingPlayer = null;
     state.currentPool = null;
+    state.perfectSeasonCode = ROSTER_SEASONS[0].code;
+    state.perfectTeamId = 0;
+    state.perfectPack = null;
+    state.perfectTeams = [];
+    state.perfectLoadError = null;
     state.yearRerollsLeft = 1;
     state.teamRerollsLeft = 1;
     state.coachChoices = [];
@@ -2457,6 +2700,7 @@
     state.autoRolling = false;
     state.result = null;
     state.skipSim = false;
+    setChallengeYear(activeEraYear);
     el.resultsGrid.innerHTML = '';
     el.resultsHero.innerHTML = '';
     el.resultsHero.hidden = true;
@@ -2472,6 +2716,35 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  function resetRunStateForMode(mode) {
+    state.challengeMode = mode;
+    state.stage = mode === 'perfect' ? 'player_select' : 'spin';
+    state.selected = [];
+    state.pendingPlayer = null;
+    state.currentPool = null;
+    state.coachChoices = [];
+    state.selectedCoach = null;
+    state.busy = false;
+    state.autoRolling = false;
+    state.result = null;
+    state.skipSim = false;
+    state.perfectLoadError = null;
+    state.yearRerollsLeft = 1;
+    state.teamRerollsLeft = 1;
+    el.resultsGrid.innerHTML = '';
+    el.resultsHero.innerHTML = '';
+    el.resultsHero.hidden = true;
+    el.simulationPanel.hidden = true;
+    el.simPercent.textContent = '0%';
+    el.simProgressBar.style.width = '0%';
+    el.simStatus.textContent = '等待模拟';
+    el.seasonDots.innerHTML = '';
+    el.liveFeed.innerHTML = '';
+    el.skipSimButton.hidden = false;
+    el.skipSimButton.disabled = false;
+    el.skipSimButton.textContent = '跳过动画';
+  }
+
   async function startCareer() {
     if (historicalStatsPromise) {
       const origText = el.startGameBtn.textContent;
@@ -2481,8 +2754,26 @@
       el.startGameBtn.textContent = origText;
       el.startGameBtn.disabled = false;
     }
+    resetRunStateForMode('random');
+    const activeEraYear = document.querySelector('.era-btn.active')?.getAttribute('data-year') || state.challengeYear;
+    setChallengeYear(activeEraYear);
     switchScreen('draft_room');
     rollTeamYear();
+  }
+
+  async function startPerfectMode() {
+    if (historicalStatsPromise) {
+      const origText = el.perfectModeBtn.textContent;
+      el.perfectModeBtn.textContent = '加载名单中...';
+      el.perfectModeBtn.disabled = true;
+      await historicalStatsPromise;
+      el.perfectModeBtn.textContent = origText;
+      el.perfectModeBtn.disabled = false;
+    }
+    resetRunStateForMode('perfect');
+    state.perfectSeasonCode = rosterSeasonByCode(state.perfectSeasonCode).code;
+    switchScreen('draft_room');
+    await loadPerfectSeason(state.perfectSeasonCode);
   }
 
   function bind() {
@@ -2494,6 +2785,7 @@
     switchScreen('main_menu');
     renderAll();
     el.startGameBtn.addEventListener('click', startCareer);
+    el.perfectModeBtn.addEventListener('click', startPerfectMode);
     el.backToMenuBtn.addEventListener('click', () => {
       if (state.stage !== 'spin' && !confirm('返回主菜单将重置当前挑战进度，确定吗？')) return;
       resetChallenge();
@@ -2503,10 +2795,7 @@
       btn.addEventListener('click', (e) => {
         document.querySelectorAll('.era-btn').forEach(b => b.classList.remove('active'));
         e.currentTarget.classList.add('active');
-        state.challengeYear = parseNum(e.currentTarget.getAttribute('data-year'), 2025);
-        if(el.challengeYearHeader) el.challengeYearHeader.textContent = state.challengeYear;
-        if(el.rosterYearText) el.rosterYearText.textContent = state.challengeYear;
-        if(el.resultYearText) el.resultYearText.textContent = state.challengeYear;
+        setChallengeYear(e.currentTarget.getAttribute('data-year'));
       });
     });
 

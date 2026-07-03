@@ -11,7 +11,7 @@
     .screen-view.hidden { display: none !important; }
     [hidden] { display: none !important; }
   </style>
-  <link rel="stylesheet" href="assets/css/82-draft-arena.css?v=20260702arena2">
+  <link rel="stylesheet" href="assets/css/82-draft-arena.css?v=20260703perfectmode">
 </head>
 
 <body>
@@ -119,7 +119,10 @@
           </div>
         </div>
 
-        <button class="manager-btn massive primary" id="startGameBtn" type="button">开始执教 (START CAREER)</button>
+        <div class="menu-actions">
+          <button class="manager-btn massive primary" id="startGameBtn" type="button">开始执教 (START CAREER)</button>
+          <button class="manager-btn massive secondary perfect-entry" id="perfectModeBtn" type="button">完美模式</button>
+        </div>
       </div>
     </section>
 
@@ -151,11 +154,11 @@
               <strong id="currentSlotLabel">抽取球队/年份</strong>
             </div>
             <div class="status-box">
-              <span class="status-label">随机来源</span>
+              <span class="status-label">来源</span>
               <strong id="sourceLabel">等待抽取</strong>
             </div>
             <div class="status-box">
-              <span class="status-label">重选次数</span>
+              <span class="status-label">重选 / 模式</span>
               <strong id="rerollLabel">年份 1 / 球队 1</strong>
             </div>
           </div>
@@ -260,7 +263,7 @@
   <script src="assets/js/text-pools-extra.js?v=20260429templates2"></script>
   <script src="assets/js/text-pools-long.js?v=20260429longtemplates"></script>
   <script src="assets/js/sim.js?v=20260703shotrealism"></script>
-  <script src="assets/js/82-draft-challenge.js?v=20260703shotrealism"></script>
+  <script src="assets/js/82-draft-challenge.js?v=20260703perfectmode"></script>
 </body>
 
 </html>

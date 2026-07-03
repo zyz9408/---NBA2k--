@@ -10,6 +10,7 @@ const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
 const html = read('nba-82-0-draft.html');
 const script = read('assets/js/82-draft-challenge.js');
 const css = read('assets/css/82-draft-challenge.css');
+const arenaCss = read('assets/css/82-draft-arena.css');
 const core = read('assets/js/core.js');
 const sim = read('assets/js/sim.js');
 const historicalStats = read('assets/data/historical_season_stats.json');
@@ -42,10 +43,17 @@ assert.ok(html.includes('id="candidateGrid"'), 'challenge page should expose can
 assert.ok(html.includes('id="simulationPanel"'), 'challenge page should expose simulation results panel');
 assert.ok(html.includes('当前阶段'), 'challenge page should describe the stage-based draft flow');
 assert.ok(html.includes('id="restartButton"'), 'challenge page should expose restart button');
+assert.ok(html.includes('id="perfectModeBtn"'), 'challenge page should expose perfect mode entry button');
+assert.ok(html.includes('完美模式'), 'challenge page should label the perfect mode entry');
+assert.ok(html.includes('20260703perfectmode'), 'challenge page should bust cache for the perfect mode assets');
 assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for a carrier team');
 
 [
   'const POSITION_SLOTS',
+  "challengeMode: 'random'",
+  'perfectSeasonCode',
+  'perfectTeamId',
+  'perfectTeams',
   'yearRerollsLeft: 1',
   'teamRerollsLeft: 1',
   'rerollYearButton',
@@ -94,6 +102,16 @@ assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for
   'buildEligible(true)',
   'buildEligible(false)',
   'loadRosterSeason',
+  'normalizeDraftCandidate',
+  'teamCanFillPerfectLineup',
+  'buildPerfectPoolFromTeam',
+  'loadPerfectSeason',
+  'selectPerfectSeason',
+  'selectPerfectTeam',
+  'resetPerfectSelection',
+  'renderPerfectModePanel',
+  'startPerfectMode',
+  "state.challengeMode === 'perfect'",
   'rowToPlayer',
   'loadLeagueData({ startYear: state.challengeYear, strictRoster: true })',
   'simulateLeagueMatchup',
@@ -267,3 +285,13 @@ assert.ok((historicalPlayerSeason1984.rows || historicalPlayerSeason1984).some(r
   'team-logo-chip',
   'player-photo'
 ].forEach(fragment => assert.ok(css.includes(fragment), `challenge CSS missing: ${fragment}`));
+
+[
+  '.menu-actions',
+  '.manager-btn.perfect-entry',
+  '.perfect-mode-panel',
+  '.perfect-mode-controls',
+  '.perfect-mode-field select',
+  '.perfect-mode-reset',
+  '@media (max-width: 720px)'
+].forEach(fragment => assert.ok(arenaCss.includes(fragment), `challenge arena CSS missing: ${fragment}`));

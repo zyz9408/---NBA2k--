@@ -395,6 +395,18 @@ img { max-width: 100%; }
   margin-right: 5px;
 }
 
+.menu-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.manager-btn.perfect-entry {
+  border-color: rgba(251, 191, 36, 0.48);
+  box-shadow: var(--glow-gold);
+}
+
 /* 时代选择 — 霓虹票根 */
 .era-selector { width: min(640px, 100%); }
 .era-selector > label {
@@ -453,6 +465,80 @@ img { max-width: 100%; }
 }
 .era-btn.active::before { opacity: 1; }
 .era-btn.active small { color: var(--neon-cyan); }
+
+.perfect-mode-panel {
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(135deg, rgba(251, 191, 36, 0.10), rgba(34, 211, 238, 0.04)),
+    rgba(255, 255, 255, 0.026);
+  padding: 14px;
+  margin-bottom: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.perfect-mode-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.perfect-mode-head strong {
+  color: var(--ink-bright);
+  font-size: 15px;
+}
+
+.perfect-mode-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.perfect-mode-reset {
+  min-height: 34px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.perfect-mode-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.perfect-mode-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.perfect-mode-field label {
+  color: var(--muted-dim);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.perfect-mode-field select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-sm);
+  background: rgba(7, 10, 17, 0.86);
+  color: var(--ink-bright);
+  font: inherit;
+  font-weight: 750;
+  padding: 0 12px;
+}
+
+.perfect-mode-note {
+  color: var(--muted-dim);
+  font-size: 12px;
+}
 
 /* ============================================================
    顶栏
@@ -1970,7 +2056,10 @@ img { max-width: 100%; }
 
 @media (max-width: 720px) {
   .screen-view { padding: 12px; }
+  .menu-actions { flex-direction: column; align-items: stretch; }
+  .menu-actions .manager-btn { width: 100%; }
   .era-options { grid-template-columns: repeat(2, 1fr); }
+  .perfect-mode-controls { grid-template-columns: 1fr; }
   .action-status-bar { grid-template-columns: 1fr; }
   .action-footer { justify-content: stretch; }
   .action-footer .manager-btn { flex: 1; }
