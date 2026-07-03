@@ -1786,12 +1786,18 @@
       const totalFta = parseNum(row?.fta, 0);
       const totalFtm = parseNum(row?.ftm, 0);
       const totalTwoPa = Math.max(0, totalFga - totalTpa);
+      const diagGames = Math.max(1, parseNum(row?.shotDiagnosticGames, 0));
       const fgaPerGame = +(totalFga / gp).toFixed(1);
       const twoPaPerGame = +(totalTwoPa / gp).toFixed(1);
       const tpaPerGame = +(totalTpa / gp).toFixed(1);
       const ftaPerGame = +(totalFta / gp).toFixed(1);
       const rawTpPct = totalTpa > 0 ? +(totalTpm / totalTpa * 100).toFixed(1) : null;
       const rawFtPct = totalFta > 0 ? +(totalFtm / totalFta * 100).toFixed(1) : null;
+      const avgUsageShare = +(parseNum(row?.usageShareTotal, 0) / diagGames * 100).toFixed(1);
+      const avgVolumePenalty = +(parseNum(row?.volumePenaltyTotal, 0) / diagGames * 100).toFixed(1);
+      const avgExpectedThreePct = +(parseNum(row?.expectedThreePctTotal, 0) / diagGames * 100).toFixed(1);
+      const avgTpaCap = +(parseNum(row?.tpaCapTotal, 0) / diagGames).toFixed(1);
+      const capHitCount = parseNum(row?.tpaCapHits, 0);
       return {
         player,
         row,
@@ -1814,7 +1820,12 @@
         twoPaPerGame,
         tpaPerGame,
         ftaPerGame,
-        ftPct: rawFtPct == null ? '--' : rawFtPct
+        ftPct: rawFtPct == null ? '--' : rawFtPct,
+        avgUsageShare,
+        avgVolumePenalty,
+        avgExpectedThreePct,
+        avgTpaCap,
+        capHitCount
       };
     });
   }
@@ -2139,6 +2150,8 @@
     else if (item.rpg >= 11) lines.push(`场均 ${item.rpg} 篮板筑起禁区屏障。`);
     else if (parseNum(item.spg, 0) + parseNum(item.bpg, 0) >= 3) lines.push(`${item.spg}断${item.bpg}帽的防守事件产量堪称精英。`);
     if (isThreeBlackHole(item)) lines.push(`但 ${item.tpPct}% 的三分命中率是对手最乐意看到的数字。`);
+    else if (parseNum(item.avgVolumePenalty, 0) >= 2.5) lines.push(`高负荷出手让他承受了约 ${item.avgVolumePenalty}% 的三分效率折损。`);
+    else if (parseNum(item.capHitCount, 0) >= 8) lines.push(`他的三分出手多次触及真实化上限，系统没有继续强塞离谱球权。`);
     else if (fitScore >= 2) lines.push(`教练体系完美释放了他的技术包。`);
     else if (fitScore < -1) lines.push(`可惜与教练体系互相别扭了一整年。`);
     return lines.slice(0, 2).join('');
@@ -2297,6 +2310,8 @@
                 const attrs = item.player.attrs || {};
                 const wTags = [];
                 if (isThreeBlackHole(item)) wTags.push('三分黑洞');
+                if (parseNum(item.avgVolumePenalty, 0) >= 2.5) wTags.push('高负荷降效');
+                if (parseNum(item.capHitCount, 0) >= 8) wTags.push('三分封顶');
                 if (item.player.def < 65) wTags.push('防守漏勺');
                 if (parseNum(attrs.pass, 55) < 65 && item.player.chosenSlotShort === 'PG') wTags.push('缺乏视野');
                 if (parseNum(attrs.reb, 55) < 65 && (item.player.chosenSlotShort === 'C' || item.player.chosenSlotShort === 'PF')) wTags.push('篮板弱点');

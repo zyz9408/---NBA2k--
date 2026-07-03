@@ -2042,6 +2042,24 @@ function applyPointDeltaToLine(line, delta, preferThree = false) {
   return recalcGameLinePoints(line);
 }
 
+function applyReconcilePointDeltaToLine(line, delta) {
+  let remain = Math.round(parseNum(delta, 0));
+  if (remain > 0) {
+    while (remain >= 2) {
+      line.fgm += 1; line.fga += 1; remain -= 2;
+    }
+    if (remain === 1) { line.ftm += 1; line.fta += 1; }
+    return recalcGameLinePoints(line);
+  }
+  remain = Math.abs(remain);
+  while (remain >= 2 && line.fgm > line.tpm) { line.fgm -= 1; remain -= 2; }
+  while (remain >= 2 && line.ftm >= 2) { line.ftm -= 2; remain -= 2; }
+  if (remain === 1 && line.ftm > 0) { line.ftm -= 1; remain -= 1; }
+  while (remain >= 3 && line.tpm > 0) { line.tpm -= 1; line.fgm -= 1; remain -= 3; }
+  while (remain > 0 && line.ftm > 0) { line.ftm -= 1; remain -= 1; }
+  return recalcGameLinePoints(line);
+}
+
 function applyPregamePlanToGameStats(st, plan = null, gameContext = {}) {
   const currentPlan = plan || getPregamePlan(gameContext?.gameKey || getCurrentGameKey(gameContext));
   const view = buildPregamePlanModifiers(currentPlan);
@@ -2800,6 +2818,9 @@ function buildTeamSimulationProfile(teamId, { includeUser = false, home = false,
   };
 }
 
+const POSSESSION_FT_WEIGHT = 0.44;
+const MAX_PLAYER_3PA_GAME = 16;
+
 function simulateTeamOffensePlan(teamProfile, oppProfile, { home = false, sharedPossessions = 96 } = {}) {
   const homeBoost = home ? 0.008 : 0;
   const offenseEdge = parseNum(teamProfile?.offense, 78) - parseNum(oppProfile?.defense, 78);
@@ -2876,7 +2897,7 @@ function simulateTeamOffensePlan(teamProfile, oppProfile, { home = false, shared
     0.87
   );
   const turnovers = clamp(Math.round(possessions * tovRate), 7, 22);
-  const denom = clamp(1 + (0.44 * ftr) - (orbRate * (1 - fgPct)), 0.74, 1.18);
+  const denom = clamp(1 + (POSSESSION_FT_WEIGHT * ftr) - (orbRate * (1 - fgPct)), 0.74, 1.18);
   const fga = clamp(Math.round((possessions - turnovers) / denom), 60, 104);
   const tpa = clamp(Math.round(fga * threeShare), 12, fga);
   const twoPa = Math.max(0, fga - tpa);
@@ -3013,6 +3034,30 @@ function estimateLeagueThreePctForRow(attrs, rating, pos, oppRating, coachFx = n
   );
 }
 
+function realMinutesPerGameForSim(player = null) {
+  const stats = player?.sourceRealStats || player?.realStats || player?.historicalStats || player?.sourceStats || null;
+  if (!stats || typeof stats !== 'object') return NaN;
+  const direct = parseNum(stats.MIN ?? stats.min ?? stats.mins ?? stats.minutes ?? stats.minutesPerGame, NaN);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  return NaN;
+}
+
+function realFieldGoalAttemptsPerGameForSim(player = null) {
+  const stats = player?.sourceRealStats || player?.realStats || player?.historicalStats || player?.sourceStats || null;
+  if (!stats || typeof stats !== 'object') return NaN;
+  const direct = parseNum(
+    stats.FGA ?? stats.fga ?? stats.fieldGoalAttemptsPerGame,
+    NaN
+  );
+  if (Number.isFinite(direct)) {
+    const gp = Math.max(1, parseNum(stats.GP ?? stats.gp, 1));
+    return direct > 40 && gp > 1 ? direct / gp : direct;
+  }
+  const total = parseNum(stats.fieldGoalAttempts ?? stats.totalFga, NaN);
+  if (Number.isFinite(total)) return total / Math.max(1, parseNum(stats.GP ?? stats.gp, 1));
+  return NaN;
+}
+
 function realThreeAttemptsPerGameForSim(player = null) {
   const stats = player?.sourceRealStats || player?.realStats || player?.historicalStats || player?.sourceStats || null;
   if (!stats || typeof stats !== 'object') return NaN;
@@ -3025,6 +3070,22 @@ function realThreeAttemptsPerGameForSim(player = null) {
     return direct > 20 && gp > 1 ? direct / gp : direct;
   }
   const total = parseNum(stats.threePointersAttempted ?? stats.totalTpa ?? stats.total3pa, NaN);
+  if (Number.isFinite(total)) return total / Math.max(1, parseNum(stats.GP ?? stats.gp, 1));
+  return NaN;
+}
+
+function realTurnoversPerGameForSim(player = null) {
+  const stats = player?.sourceRealStats || player?.realStats || player?.historicalStats || player?.sourceStats || null;
+  if (!stats || typeof stats !== 'object') return NaN;
+  const direct = parseNum(
+    stats.TOV ?? stats.tov ?? stats.turnovers ?? stats.turnoversPerGame,
+    NaN
+  );
+  if (Number.isFinite(direct)) {
+    const gp = Math.max(1, parseNum(stats.GP ?? stats.gp, 1));
+    return direct > 12 && gp > 1 ? direct / gp : direct;
+  }
+  const total = parseNum(stats.totalTov ?? stats.totalTurnovers, NaN);
   if (Number.isFinite(total)) return total / Math.max(1, parseNum(stats.GP ?? stats.gp, 1));
   return NaN;
 }
@@ -3042,6 +3103,20 @@ function realFreeThrowAttemptsPerGameForSim(player = null) {
   }
   const total = parseNum(stats.freeThrowsAttempted ?? stats.totalFta, NaN);
   if (Number.isFinite(total)) return total / Math.max(1, parseNum(stats.GP ?? stats.gp, 1));
+  return NaN;
+}
+
+function realThreePctForSim(player = null) {
+  const stats = player?.sourceRealStats || player?.realStats || player?.historicalStats || player?.sourceStats || null;
+  if (!stats || typeof stats !== 'object') return NaN;
+  const direct = parseNum(
+    stats.TP ?? stats.tpPct ?? stats.TPP ?? stats.threePct ?? stats.threePointPct ?? stats.threePointPercentage,
+    NaN
+  );
+  if (Number.isFinite(direct) && direct > 0) return clamp(direct > 1.5 ? direct / 100 : direct, 0.05, 0.65);
+  const tpm = parseNum(stats.TPM ?? stats.tpm ?? stats.threePointersMade ?? stats.totalTpm, NaN);
+  const tpa = parseNum(stats.TPA ?? stats.tpa ?? stats.threePointersAttempted ?? stats.totalTpa, NaN);
+  if (Number.isFinite(tpm) && Number.isFinite(tpa) && tpa > 0) return clamp(tpm / tpa, 0.05, 0.65);
   return NaN;
 }
 
@@ -3158,11 +3233,252 @@ function leagueThreeAttemptProfileForRow(player, attrs, rating, pos, threeShareM
   };
 }
 
+function threeAttemptEraCapPer48ForSim(sourceYear, pos) {
+  const year = parseNum(sourceYear, G?.year || 2025);
+  const slot = clamp(parseNum(pos, 3), 1, 5);
+  if (year > 0 && year < 1980) return 0;
+  if (year <= 1984) return slot <= 3 ? 2 : 0.5;
+  if (year <= 1994) return slot <= 2 ? 6 : slot === 3 ? 5 : slot === 4 ? 3 : 1.5;
+  if (year <= 2004) return slot <= 2 ? 9 : slot === 3 ? 8 : slot === 4 ? 5 : 3;
+  if (year <= 2016) return slot <= 2 ? 12 : slot === 3 ? 11 : slot === 4 ? 8 : 5;
+  return slot <= 2 ? 15 : slot === 3 ? 13 : slot === 4 ? 10 : 7;
+}
+
+function usageCapRateForSim(tierId, rating, att) {
+  const base = {
+    alpha: 0.36,
+    second: 0.30,
+    third: 0.25,
+    sixthman: 0.25,
+    rolestarter: 0.22,
+    bench: 0.19,
+    end: 0.15
+  }[tierId] || 0.21;
+  return clamp(base + Math.max(0, parseNum(rating, 70) - 92) * 0.001 + Math.max(0, parseNum(att, 65) - 94) * 0.001, 0.13, 0.38);
+}
+
+function buildPlayerOffensivePriorForSim(player, attrs, {
+  pos = 3,
+  minutes = 0,
+  rating = 65,
+  att = 65,
+  tierId = 'bench',
+  tendencies = null,
+  threeProfile = null,
+  threeShareMult = 1
+} = {}) {
+  const source = player || {};
+  const slot = clamp(parseNum(pos, 3), 1, 5);
+  const mins = clamp(parseNum(minutes, 0), 0, 48);
+  const realMins = realMinutesPerGameForSim(source);
+  const realMinuteBase = Number.isFinite(realMins) && realMins > 0 ? clamp(realMins, 10, 42) : NaN;
+  const per36 = value => Number.isFinite(value) && Number.isFinite(realMinuteBase) && realMinuteBase > 0
+    ? value / realMinuteBase * 36
+    : NaN;
+  const realFga = realFieldGoalAttemptsPerGameForSim(source);
+  const realTpa = realThreeAttemptsPerGameForSim(source);
+  const realFta = realFreeThrowAttemptsPerGameForSim(source);
+  const realTov = realTurnoversPerGameForSim(source);
+  const realFga36 = per36(realFga);
+  const realTpa36 = per36(realTpa);
+  const realFta36 = per36(realFta);
+  const realTov36 = per36(realTov);
+  const sourceYear = parseNum(source?.sourceStatsYear || source?.sourceYear || G?.year, G?.year || 2025);
+  const shotExt = clamp(parseNum(attrs?.shotExt, 55), 20, 99);
+  const tendencyEx = clamp(parseNum(tendencies?.ex, shotExt), 20, 100);
+  const realThreePct = realThreePctForSim(source);
+  const usageCapRate = usageCapRateForSim(tierId, rating, att);
+  const tierComfort = {
+    alpha: 0.305,
+    second: 0.265,
+    third: 0.225,
+    sixthman: 0.225,
+    rolestarter: 0.190,
+    bench: 0.155,
+    end: 0.115
+  }[tierId] || 0.175;
+  const realUsed36 = [realFga36, realFta36, realTov36].every(Number.isFinite)
+    ? realFga36 + POSSESSION_FT_WEIGHT * realFta36 + realTov36
+    : NaN;
+  const comfortUsageRate = Number.isFinite(realUsed36)
+    ? clamp(realUsed36 / 72, 0.09, usageCapRate)
+    : clamp(tierComfort + (parseNum(rating, 70) - 76) / 520 + (parseNum(att, 65) - 72) / 620, 0.09, usageCapRate);
+  const fallbackFga36 = clamp(9.0 + (parseNum(att, 65) - 62) / 3.9 + (parseNum(rating, 70) - 70) / 7 + (tierComfort - 0.18) * 32, 5.0, 23.5);
+  const comfortFgaPer36 = Number.isFinite(realFga36) ? clamp(realFga36, 2, 28) : fallbackFga36;
+  const comfortTpaPer36 = Number.isFinite(realTpa36)
+    ? clamp(realTpa36 * clamp(threeShareMult, 0.86, 1.18), 0, 13)
+    : clamp(parseNum(threeProfile?.attemptsPer36, 0), 0, 10.8);
+  const comfortFtaPer36 = Number.isFinite(realFta36)
+    ? clamp(realFta36, 0, 14)
+    : clamp(2.3 + (parseNum(attrs?.shotInt, 55) - 60) / 18 + (parseNum(attrs?.strength, parseNum(attrs?.physique, 55)) - 60) / 28, 0.6, 8.5);
+  const comfortTovPer36 = Number.isFinite(realTov36)
+    ? clamp(realTov36, 0.2, 6.5)
+    : clamp(1.2 + (parseNum(att, 65) - 62) / 55 - (parseNum(attrs?.pass, 55) - 55) / 80 + (slot <= 2 ? 0.25 : 0), 0.4, 4.5);
+  const tierFgaCapPer48 = { alpha: 34, second: 29, third: 25, sixthman: 25, rolestarter: 22, bench: 18, end: 12 }[tierId] || 20;
+  const realFgaCap = Number.isFinite(realFga36) ? (realFga36 * 1.35 + 2) * (mins / 36) : Infinity;
+  const fgaCap = clamp(Math.round(Math.min(realFgaCap, tierFgaCapPer48 * mins / 48 + 1)), 0, 38);
+  const realFtaCap = Number.isFinite(realFta36) ? (realFta36 * 1.45 + 1.5) * (mins / 36) : Infinity;
+  const ftaCap = clamp(Math.round(Math.min(realFtaCap, Math.max(3, comfortFtaPer36 * mins / 36 * 1.55 + 2))), 0, 18);
+  const eraCap = threeAttemptEraCapPer48ForSim(sourceYear, slot) * mins / 48;
+  const absoluteCap = MAX_PLAYER_3PA_GAME * mins / 48;
+  let tpaCap = Math.min(eraCap, absoluteCap);
+  let tpaCapReason = 'era-position';
+  if (Number.isFinite(realTpa)) {
+    const realCap = realTpa >= 9
+      ? Math.max(15.5, realTpa * 1.25 + 1.1)
+      : realTpa * 1.45 + 1.5;
+    tpaCap = Math.min(tpaCap, realCap * clamp(mins / 48, 0.45, 1.0));
+    tpaCapReason = 'real-volume';
+  } else {
+    const attrCapPer48 = (shotExt >= 92 || tendencyEx >= 92 || realThreePct >= 0.39)
+      ? (slot <= 2 ? 15 : slot === 3 ? 13 : slot === 4 ? 10 : 7)
+      : (shotExt >= 85 || realThreePct >= 0.36)
+        ? (slot <= 2 ? 11 : slot === 3 ? 10 : slot === 4 ? 7 : 5)
+        : (shotExt >= 78 || realThreePct >= 0.33)
+          ? (slot <= 2 ? 8 : slot === 3 ? 7 : slot === 4 ? 5 : 3)
+          : (shotExt >= 70 || realThreePct >= 0.30)
+            ? (slot <= 2 ? 6 : slot === 3 ? 5 : slot === 4 ? 3 : 2)
+            : (slot <= 2 ? 4 : slot === 3 ? 3 : slot === 4 ? 1.5 : 1);
+    const pctLimitedCap = Number.isFinite(realThreePct) && realThreePct < 0.33
+      ? (realThreePct < 0.30 ? (slot <= 3 ? 4 : 1.5) : (slot <= 2 ? 6 : slot === 3 ? 5 : slot === 4 ? 2.5 : 1.5))
+      : attrCapPer48;
+    tpaCap = Math.min(tpaCap, Math.min(attrCapPer48, pctLimitedCap) * mins / 48);
+    tpaCapReason = attrCapPer48 >= 13 ? 'elite-attribute' : 'attribute-volume';
+  }
+  if (threeProfile?.noThreeEra) {
+    tpaCap = 0;
+    tpaCapReason = 'pre-1980';
+  } else if (threeProfile?.lowVolumeBig || threeProfile?.frontcourtLimited) {
+    const profileCap = Math.max(0, parseNum(threeProfile?.attemptsPer36, 0) * mins / 36 + 0.75);
+    tpaCap = Math.min(tpaCap, profileCap);
+    tpaCapReason = threeProfile?.lowVolumeBig ? 'low-volume-big' : 'frontcourt-era';
+  }
+  return {
+    sourceYear,
+    realMins,
+    realFga,
+    realTpa,
+    realFta,
+    realTov,
+    comfortUsageRate: +comfortUsageRate.toFixed(3),
+    usageCapRate: +usageCapRate.toFixed(3),
+    comfortFgaPer36: +comfortFgaPer36.toFixed(2),
+    comfortTpaPer36: +comfortTpaPer36.toFixed(2),
+    comfortFtaPer36: +comfortFtaPer36.toFixed(2),
+    comfortTovPer36: +comfortTovPer36.toFixed(2),
+    fgaCap,
+    ftaCap,
+    tpaCap: clamp(Math.round(tpaCap), 0, Math.round(Math.min(absoluteCap, MAX_PLAYER_3PA_GAME))),
+    tpaCapReason
+  };
+}
+
+function capAllocatedShares(total, weights = [], caps = []) {
+  const count = Array.isArray(weights) ? weights.length : 0;
+  if (!count) return [];
+  const safeCaps = Array.from({ length: count }, (_, i) => clamp(Math.round(parseNum(caps?.[i], total)), 0, 999));
+  const cappedTotal = Math.min(Math.max(0, Math.round(parseNum(total, 0))), safeCaps.reduce((sum, value) => sum + value, 0));
+  const out = Array(count).fill(0);
+  let remaining = cappedTotal;
+  let open = [...Array(count).keys()].filter(i => safeCaps[i] > 0);
+  let guard = 0;
+  while (remaining > 0 && open.length && guard < count + 8) {
+    const adds = allocateIntegerShares(remaining, open.map(i => weights[i]));
+    let overflow = 0;
+    open.forEach((idx, orderIdx) => {
+      const room = Math.max(0, safeCaps[idx] - out[idx]);
+      const add = Math.max(0, adds[orderIdx] || 0);
+      const take = Math.min(room, add);
+      out[idx] += take;
+      overflow += add - take;
+    });
+    remaining = overflow;
+    open = open.filter(i => out[i] < safeCaps[i]);
+    guard++;
+  }
+  return out;
+}
+
+function adjustIntegerTargetsToTotal(targets = [], total = 0, weights = [], caps = []) {
+  const out = targets.map((value, i) => clamp(Math.round(parseNum(value, 0)), 0, Math.round(parseNum(caps?.[i], 999))));
+  const safeCaps = out.map((_, i) => clamp(Math.round(parseNum(caps?.[i], 999)), 0, 999));
+  const target = Math.min(Math.max(0, Math.round(parseNum(total, 0))), safeCaps.reduce((sum, value) => sum + value, 0));
+  let diff = target - out.reduce((sum, value) => sum + value, 0);
+  let guard = 0;
+  while (diff > 0 && guard < 1000) {
+    const order = out.map((value, i) => ({ i, room: safeCaps[i] - value, w: parseNum(weights?.[i], 1) }))
+      .filter(item => item.room > 0)
+      .sort((a, b) => b.w - a.w || b.room - a.room);
+    if (!order.length) break;
+    for (const item of order) {
+      if (diff <= 0) break;
+      out[item.i]++;
+      diff--;
+    }
+    guard++;
+  }
+  while (diff < 0 && guard < 2000) {
+    const order = out.map((value, i) => ({ i, value, w: parseNum(weights?.[i], 1) }))
+      .filter(item => item.value > 0)
+      .sort((a, b) => b.value - a.value || a.w - b.w);
+    if (!order.length) break;
+    for (const item of order) {
+      if (diff >= 0) break;
+      out[item.i]--;
+      diff++;
+    }
+    guard++;
+  }
+  return out;
+}
+
+function expectedThreePctForVolume(player, attrs, rating, pos, oppRating, coachFx, gameMod, {
+  teamPlan = null,
+  shotPlan = null,
+  tpa = 0,
+  usedPossessions = 0,
+  teamUsedPossessions = 96
+} = {}) {
+  const attempts = Math.max(0, Math.round(parseNum(tpa, 0)));
+  const minutes = Math.max(1, parseNum(shotPlan?.minutes, 0));
+  const realPct = realThreePctForSim(player);
+  const attrPct = estimateLeagueThreePctForRow(attrs, rating, pos, oppRating, coachFx, gameMod);
+  const teamPct = clamp(parseNum(teamPlan?.threePct, attrPct), 0.26, 0.45);
+  let expected = Number.isFinite(realPct)
+    ? (realPct * 0.68) + (attrPct * 0.24) + (teamPct * 0.08)
+    : (attrPct * 0.82) + (teamPct * 0.18);
+  const actualTpa36 = attempts / minutes * 36;
+  const extraTpa36 = Math.max(0, actualTpa36 - parseNum(shotPlan?.comfortTpaPer36, actualTpa36));
+  const volumePenalty = clamp(extraTpa36 * 0.006, 0, 0.055);
+  const usageBase = Math.max(1, parseNum(teamUsedPossessions, 96) * minutes / 48);
+  const usageRate = parseNum(usedPossessions, 0) / usageBase;
+  const usagePenalty = clamp(Math.max(0, usageRate - parseNum(shotPlan?.comfortUsageRate, 0.20) - 0.04) * 0.70, 0, 0.035);
+  expected -= volumePenalty + usagePenalty;
+  const shotExt = clamp(parseNum(attrs?.shotExt, 55), 20, 99);
+  let floor = 0.245;
+  if (attempts > 0 && (Number.isFinite(realPct) || shotExt >= 85)) {
+    if (realPct >= 0.39 || shotExt >= 92) floor = 0.345;
+    else if (realPct >= 0.36 || shotExt >= 85) floor = 0.315;
+  }
+  if (attempts <= 0 || shotPlan?.threeProfile?.noThreeEra) floor = 0;
+  return {
+    expectedThreePct: +clamp(expected, floor, 0.455).toFixed(3),
+    volumePenalty: +(volumePenalty + usagePenalty).toFixed(3),
+    actualTpa36: +actualTpa36.toFixed(2),
+    usageShare: +usageRate.toFixed(3)
+  };
+}
+
 function fitThreeMakesToAttempts(tpa, targetThreePct, fgPts, gameMod = null) {
   const attempts = clamp(Math.round(parseNum(tpa, 0)), 0, 40);
   const maxTpm = Math.min(attempts, Math.floor(parseNum(fgPts, 0) / 3));
   if (maxTpm <= 0) return 0;
-  return clamp(Math.round(attempts * targetThreePct + parseNum(gameMod?.efficiencyShift, 0) * 0.6 + rng(-0.35, 0.35)), 0, maxTpm);
+  const pct = clamp(parseNum(targetThreePct, 0.33) + parseNum(gameMod?.efficiencyShift, 0) * 0.18, 0, 0.52);
+  const exactMakes = attempts * pct;
+  const baseMakes = Math.floor(exactMakes);
+  const fraction = exactMakes - baseMakes;
+  const makeBump = Math.random() < fraction ? 1 : 0;
+  return clamp(baseMakes + makeBump, 0, maxTpm);
 }
 
 function getPlayerShotTendenciesForSim(player = {}) {
@@ -3281,11 +3597,33 @@ function buildPlayerShotProfileForSim(player, rotationPlayer = null, {
     * style.ftr
   );
   const threeWeight = Math.max(0.001, usageWeight * clamp(threeShare, 0, 0.66));
+  const offensivePrior = buildPlayerOffensivePriorForSim(source, attrs, {
+    pos,
+    minutes,
+    rating,
+    att,
+    tierId,
+    tendencies,
+    threeProfile,
+    threeShareMult
+  });
+  const tovWeight = Math.max(0.01,
+    usageWeight
+    * clamp(
+      0.76
+      + offensivePrior.comfortTovPer36 / 4.2
+      - (parseNum(attrs.pass, 55) - 55) / 140
+      + (pos <= 2 ? 0.12 : pos >= 4 ? -0.05 : 0),
+      0.48,
+      1.75
+    )
+  );
 
   return {
     usageWeight,
     threeWeight,
     freeThrowWeight,
+    tovWeight,
     threeShare,
     insideLean,
     tendencies,
@@ -3294,6 +3632,7 @@ function buildPlayerShotProfileForSim(player, rotationPlayer = null, {
     coachFitScore: fitScore,
     coachSystemId: systemId,
     threeProfile,
+    ...offensivePrior,
     astMult: style.creation,
     rebMult: style.reb,
     stocksMult: style.stocks
@@ -3309,28 +3648,64 @@ function buildTeamShotPlansForSim(liveRotation = [], simPlayers = [], {
   const totalFga = clamp(Math.round(parseNum(teamPlan?.fga, parseNum(teamPlan?.points, 104) / 1.20)), 48, 108);
   const totalTpa = clamp(Math.round(parseNum(teamPlan?.tpa, totalFga * parseNum(teamPlan?.threeShare, 0.34))), 0, totalFga);
   const totalFta = clamp(Math.round(parseNum(teamPlan?.fta, totalFga * parseNum(teamPlan?.ftr, 0.20))), 0, 42);
+  const totalTov = clamp(Math.round(parseNum(teamPlan?.turnovers, 12)), 4, 24);
+  const totalUsedPossessions = Math.round(totalFga + POSSESSION_FT_WEIGHT * totalFta + totalTov);
   const profiles = liveRotation.map((p, i) => {
     const simPlayer = simPlayers[i] || p;
     const roleFx = collectRoleEffects(getPlayerRole(simPlayer, simPlayers, coachFx, usageContext));
     return buildPlayerShotProfileForSim(simPlayer, p, { roleFx, coachFx, teamPlan, gameMod: gameMods[i] });
   });
-  const fgaTargets = allocateIntegerShares(totalFga, profiles.map(p => p.usageWeight));
-  const tpaTargets = allocateIntegerShares(totalTpa, profiles.map(p => p.threeWeight));
-  const ftaTargets = allocateIntegerShares(totalFta, profiles.map(p => p.freeThrowWeight));
+  const minutes = liveRotation.map(player => clamp(parseNum(player?.minutes, 0), 0, 48));
+  const usedCaps = profiles.map((profile, i) => Math.max(1, Math.round(totalUsedPossessions * parseNum(profile.usageCapRate, 0.21) * minutes[i] / 48)));
+  const usedTargets = capAllocatedShares(totalUsedPossessions, profiles.map(p => p.usageWeight), usedCaps);
+  const ftaCaps = profiles.map(profile => parseNum(profile.ftaCap, 14));
+  const ftaTargets = capAllocatedShares(totalFta, profiles.map(p => p.freeThrowWeight), ftaCaps);
+  const tovCaps = profiles.map((profile, i) => clamp(Math.round(parseNum(profile.comfortTovPer36, 2) * minutes[i] / 36 * 1.75 + 1.5), 1, 10));
+  const tovTargets = capAllocatedShares(totalTov, profiles.map(p => p.tovWeight), tovCaps);
+  const fgaCaps = profiles.map(profile => parseNum(profile.fgaCap, 32));
+  let fgaTargets = profiles.map((profile, i) => {
+    const used = parseNum(usedTargets[i], 0);
+    const rawFga = Math.round(used - POSSESSION_FT_WEIGHT * parseNum(ftaTargets[i], 0) - parseNum(tovTargets[i], 0));
+    return clamp(rawFga, 0, fgaCaps[i]);
+  });
+  fgaTargets = adjustIntegerTargetsToTotal(fgaTargets, totalFga, profiles.map(p => p.usageWeight), fgaCaps);
+  const tpaCaps = profiles.map((profile, i) => clamp(parseNum(profile.tpaCap, 0), 0, fgaTargets[i]));
+  const uncappedTpaTargets = allocateIntegerShares(totalTpa, profiles.map(p => p.threeWeight));
+  const tpaTargets = capAllocatedShares(totalTpa, profiles.map(p => p.threeWeight), tpaCaps);
   return profiles.map((profile, i) => {
-    const fga = clamp(fgaTargets[i] || 0, 0, 36);
-    let tpa = clamp(tpaTargets[i] || 0, 0, fga);
-    if (profile.threeProfile.noThreeEra) tpa = 0;
-    else if (profile.threeProfile.lowVolumeBig || profile.threeProfile.frontcourtLimited) {
-      const minuteCap = Math.max(0, Math.round((parseNum(liveRotation[i]?.minutes, 0) / 36) * profile.threeProfile.attemptsPer36 + rng(0, 0.7)));
-      tpa = clamp(tpa, 0, Math.min(fga, minuteCap));
-    }
+    const simPlayer = simPlayers[i] || liveRotation[i] || {};
+    const attrs = usagePlayerAttrs(simPlayer);
+    const pos = clamp(parseNum(liveRotation[i]?.pos ?? simPlayer?.pos, 3), 1, 5);
+    const rating = clamp(parseNum(liveRotation[i]?.rating ?? simPlayer?.rating, ovr(attrs)), 40, 99);
+    const fga = clamp(fgaTargets[i] || 0, 0, fgaCaps[i]);
+    const tpa = profile.threeProfile.noThreeEra ? 0 : clamp(tpaTargets[i] || 0, 0, Math.min(fga, tpaCaps[i]));
+    const fta = clamp(ftaTargets[i] || 0, 0, ftaCaps[i]);
+    const tov = clamp(tovTargets[i] || 0, 0, tovCaps[i]);
+    const usedPossessions = +(fga + POSSESSION_FT_WEIGHT * fta + tov).toFixed(2);
+    const pctModel = expectedThreePctForVolume(simPlayer, attrs, rating, pos, parseNum(teamPlan?.oppDefenseRating, 75), coachFx, gameMods[i], {
+      teamPlan,
+      shotPlan: { ...profile, minutes: minutes[i] },
+      tpa,
+      usedPossessions,
+      teamUsedPossessions: totalUsedPossessions
+    });
+    const capHit = tpaCaps[i] > 0 && (tpa >= tpaCaps[i] || parseNum(uncappedTpaTargets[i], 0) > tpa);
     return {
       ...profile,
+      minutes: minutes[i],
+      usedPossessions,
+      usageShare: pctModel.usageShare,
       fgaTarget: fga,
       fga,
+      tpaTarget: tpa,
+      tpaCap: tpaCaps[i],
+      capHit,
       tpa,
-      fta: clamp(ftaTargets[i] || 0, 0, 16)
+      fta,
+      tov,
+      expectedThreePct: pctModel.expectedThreePct,
+      volumePenalty: pctModel.volumePenalty,
+      actualTpa36: pctModel.actualTpa36
     };
   });
 }
@@ -3344,8 +3719,7 @@ function reconcileTeamRowsToTargetPoints(rows = [], targetPoints = 0) {
   while (diff !== 0 && guard < 60) {
     const row = order[guard % order.length];
     const step = diff > 0 ? Math.min(3, diff) : Math.max(-3, diff);
-    const preferThree = step > 0 && parseNum(row.tpa, 0) > 0 && parseNum(row.tpa, 0) >= parseNum(row.fga, 1) * 0.32;
-    applyPointDeltaToLine(row, step, preferThree);
+    applyReconcilePointDeltaToLine(row, step);
     diff -= step;
     guard++;
   }
@@ -3421,16 +3795,10 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
   }
 
   if (shotPlan && plannedFga > 0) {
-    const realThreePct = parseNum(simPlayer?.sourceRealStats?.TP ?? simPlayer?.sourceRealStats?.tpPct ?? simPlayer?.realStats?.TP ?? simPlayer?.historicalStats?.TP, NaN);
-    const attrsForShotModel = Number.isFinite(realThreePct) && realThreePct > 0 ? { ...attrs, __realThreePct: realThreePct } : attrs;
-    const targetThreePct = estimateLeagueThreePctForRow(attrsForShotModel, rating, pos, oppRating, teamCoachFx, gameMod);
     const threeProfile = shotPlan.threeProfile || leagueThreeAttemptProfileForRow(simPlayer, attrs, rating, pos, threeShareMult);
     let fga = plannedFga;
-    let tpa = threeProfile.noThreeEra ? 0 : clamp(Math.round(parseNum(shotPlan.tpa, fga * parseNum(shotPlan.threeShare, threeProfile.share))), 0, fga);
-    if (threeProfile.lowVolumeBig || threeProfile.frontcourtLimited) {
-      const lowVolumeCap = Math.max(0, Math.round((minutes / 36) * threeProfile.attemptsPer36 + rng(0, 0.7)));
-      tpa = clamp(tpa, 0, Math.min(fga, lowVolumeCap));
-    }
+    let tpa = threeProfile.noThreeEra ? 0 : clamp(Math.round(parseNum(shotPlan.tpa, fga * parseNum(shotPlan.threeShare, threeProfile.share))), 0, Math.min(fga, parseNum(shotPlan.tpaCap, fga)));
+    const targetThreePct = clamp(parseNum(shotPlan.expectedThreePct, estimateLeagueThreePctForRow(attrs, rating, pos, oppRating, teamCoachFx, gameMod)), 0, 0.455);
     const twoPa = Math.max(0, fga - tpa);
     const ftPct = realFreeThrowPctForSim(simPlayer);
     const twoPct = clamp(
@@ -3459,12 +3827,31 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
     row.ast = clamp(Math.round(((minutes / 13) * (pos <= 2 ? 1.55 : pos === 3 ? 0.95 : 0.5) + (rating - 60) / 45) * astMult * parseNum(shotPlan.astMult, 1) + parseNum(systemRole?.astMod, 0) + rng(-1, 2)), 0, 14);
     row.stl = clamp(Math.round(((minutes / 18) * (pos <= 3 ? 0.55 : 0.35)) * stocksMult * parseNum(shotPlan.stocksMult, 1) + parseNum(systemRole?.stlMod, 0) + rng(0, 1)), 0, 6);
     row.blk = clamp(Math.round(((minutes / 18) * (pos >= 4 ? 0.7 : 0.25)) * stocksMult * parseNum(shotPlan.stocksMult, 1) + parseNum(systemRole?.blkMod, 0) + rng(0, 1)), 0, 6);
-    row.tov = clamp(Math.round((minutes / 10) * (pos <= 2 ? 0.78 : 0.52) + fga / 14 - parseNum(attrs.pass, 55) / 180 + rng(0, 1)), 0, 8);
+    row.tov = clamp(Math.round(parseNum(shotPlan.tov, (minutes / 10) * (pos <= 2 ? 0.78 : 0.52) + fga / 14 - parseNum(attrs.pass, 55) / 180 + rng(0, 1))), 0, 10);
     row.pf = clamp(parseNum(gameMod?.foulCount, Math.round((minutes / 11.5) * (pos >= 4 ? 1.2 : 0.95) + Math.max(0, -parseNum(gameMod?.matchupEdge, 0)) + rng(-1, 1))), 0, 6);
     row.issueTag = String(gameMod?.issueTag || '').trim();
     row.foulTrouble = !!gameMod?.foulTrouble;
     row.varianceTag = String(gameMod?.varianceTag || 'steady');
     row.gameNotes = Array.isArray(gameMod?.notes) ? [...gameMod.notes] : [];
+    if (parseNum(shotPlan.volumePenalty, 0) >= 0.025) row.gameNotes.push('高负荷降效');
+    if (shotPlan.capHit) row.gameNotes.push('三分出手封顶');
+    row.usageShare = parseNum(shotPlan.usageShare, 0);
+    row.comfortUsageRate = parseNum(shotPlan.comfortUsageRate, 0);
+    row.tpaCap = parseNum(shotPlan.tpaCap, 0);
+    row.tpaCapReason = String(shotPlan.tpaCapReason || '');
+    row.volumePenalty = parseNum(shotPlan.volumePenalty, 0);
+    row.expectedThreePct = targetThreePct;
+    row.capHit = !!shotPlan.capHit;
+    row.shotDiagnostics = {
+      usageShare: row.usageShare,
+      comfortUsageRate: row.comfortUsageRate,
+      tpaCap: row.tpaCap,
+      tpaCapReason: row.tpaCapReason,
+      volumePenalty: row.volumePenalty,
+      expectedThreePct: row.expectedThreePct,
+      actualTpa36: parseNum(shotPlan.actualTpa36, 0),
+      usedPossessions: parseNum(shotPlan.usedPossessions, 0)
+    };
     return row;
   }
 
@@ -3974,6 +4361,15 @@ function simulateLeagueMatchup(homeTeamId, awayTeamId, opts = {}) {
     cur.tpa = parseNum(cur.tpa, 0) + parseNum(row.tpa, 0);
     cur.ftm = parseNum(cur.ftm, 0) + parseNum(row.ftm, 0);
     cur.fta = parseNum(cur.fta, 0) + parseNum(row.fta, 0);
+    if (row.shotDiagnostics || Number.isFinite(parseNum(row.expectedThreePct, NaN))) {
+      cur.shotDiagnosticGames = parseNum(cur.shotDiagnosticGames, 0) + 1;
+      cur.usageShareTotal = parseNum(cur.usageShareTotal, 0) + parseNum(row.usageShare, 0);
+      cur.comfortUsageRateTotal = parseNum(cur.comfortUsageRateTotal, 0) + parseNum(row.comfortUsageRate, 0);
+      cur.expectedThreePctTotal = parseNum(cur.expectedThreePctTotal, 0) + parseNum(row.expectedThreePct, 0);
+      cur.volumePenaltyTotal = parseNum(cur.volumePenaltyTotal, 0) + parseNum(row.volumePenalty, 0);
+      cur.tpaCapTotal = parseNum(cur.tpaCapTotal, 0) + parseNum(row.tpaCap, 0);
+      cur.tpaCapHits = parseNum(cur.tpaCapHits, 0) + (row.capHit ? 1 : 0);
+    }
     G.leagueSeason.playerStats[key] = cur;
   };
   (homeSnapshot.boxScore || []).forEach(updateStats);
@@ -5370,7 +5766,7 @@ function syncTeammateRelationsAfterGame(result) {
     const minutes = parseNum(row?.mins, 0);
     const pts = parseNum(row?.pts, 0);
     const ast = parseNum(row?.ast, 0);
-    const usage = parseNum(row?.fga, 0) + parseNum(row?.fta, 0) * 0.44;
+    const usage = parseNum(row?.fga, 0) + parseNum(row?.fta, 0) * POSSESSION_FT_WEIGHT;
 
     if (shareGame) {
       favorDelta += pts >= 10 ? 1 : 0;
@@ -6512,7 +6908,8 @@ function emptySeasonLine(teamId, playerId, name, pos, isSelf = false) {
     rookie: false,
     draft: 0,
     draftPick: 0,
-    gp: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0, mins: 0
+    gp: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0, mins: 0,
+    shotDiagnosticGames: 0, usageShareTotal: 0, comfortUsageRateTotal: 0, expectedThreePctTotal: 0, volumePenaltyTotal: 0, tpaCapTotal: 0, tpaCapHits: 0
   };
 }
 function ensureLeagueStateShape() {
