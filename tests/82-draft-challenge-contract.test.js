@@ -90,7 +90,9 @@ assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for
   'STOCKS_TRACKED_FROM_YEAR = 1974',
   "UNTRACKED_STAT_TEXT = '未统计'",
   'hasRealCandidateAverages',
-  '.filter(player => hasRealCandidateAverages(player))',
+  '.filter(player => !requireRealStats || hasRealCandidateAverages(player))',
+  'buildEligible(true)',
+  'buildEligible(false)',
   'loadRosterSeason',
   'rowToPlayer',
   'loadLeagueData({ startYear: state.challengeYear, strictRoster: true })',
@@ -99,6 +101,7 @@ assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for
   'getLeagueTeamRecordsArray',
   'getLeaguePlayerSeasonRows',
   'buildSeasonRoundPairs(82, targetTeamId)',
+  'fullStrengthTeamIds: [targetTeamId]',
   'window.render_game_to_text',
   'window.advanceTime'
 ].forEach(fragment => assert.ok(script.includes(fragment), `challenge contract missing: ${fragment}`));
@@ -193,6 +196,16 @@ assert.ok(rookieReal.includes('Allen Iverson') && rookieReal.includes(';1996;199
 assert.ok(sim.includes('yearsLeague: parseNum(simPlayer?.yearsLeague'), 'league game rows should preserve player experience for award eligibility');
 assert.ok(sim.includes('yearsLeague: parseNum(ps.yearsLeague, -1)'), 'league season row exports should preserve player experience for awards');
 assert.ok(sim.includes('parseNum(r.yearsLeague, -1) === 0'), 'ROY filtering should not treat missing experience as rookie eligibility');
+assert.ok(script.includes('minutes: 48'), '82 challenge starters should play full 48-minute games');
+assert.ok(script.includes('fullGameStarter: true'), '82 challenge starters should bypass normal rotation caps');
+assert.ok(script.includes('teamObj.noRotation = true'), '82 challenge team should be marked as no-rotation');
+assert.ok(script.includes('teamObj.players = starters'), '82 challenge should remove expansion bench from the fantasy team');
+assert.ok(sim.includes('function buildNoFatigueContext'), 'simulator should expose a no-fatigue context for full-strength challenge teams');
+assert.ok(sim.includes('fullStrengthTeamIds'), 'simulateLeagueMatchup should accept full-strength team IDs');
+assert.ok(sim.includes('fullStrength: homeFullStrength'), 'home full-strength flag should reach box-score generation');
+assert.ok(sim.includes('fullStrength: awayFullStrength'), 'away full-strength flag should reach box-score generation');
+assert.ok(sim.includes("notes: ['全力出战']"), 'full-strength team rows should use neutral all-out game modifiers');
+assert.ok(sim.includes('fixedFullGameRotation'), 'full-game rotations should bypass normal 10-man minute normalization');
 assert.ok(script.includes('isThreeBlackHole'), 'challenge result tags should use a volume-aware three-point black-hole rule');
 assert.ok(script.includes('tpaPerGame'), 'challenge result table should expose three-point attempt volume');
 assert.ok(script.includes('ftaPerGame'), 'challenge result table should expose free-throw attempt volume');

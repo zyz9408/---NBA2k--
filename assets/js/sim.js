@@ -192,6 +192,41 @@ function buildScheduleFatigueContext({ teamId = 0, home = false, roundIndex = 0,
   };
 }
 
+function teamIdInSimOption(teamId, optionValue) {
+  const tid = parseNum(teamId, 0);
+  if (!tid || !optionValue) return false;
+  if (optionValue === true) return true;
+  if (Array.isArray(optionValue)) return optionValue.some(id => parseNum(id, 0) === tid);
+  if (optionValue instanceof Set) return optionValue.has(tid) || optionValue.has(String(tid));
+  if (typeof optionValue === 'object') return !!optionValue[tid] || !!optionValue[String(tid)];
+  return parseNum(optionValue, 0) === tid;
+}
+
+function buildNoFatigueContext({ teamId = 0, home = false, roundIndex = 0, phase = 'regular' } = {}) {
+  return {
+    teamId: parseNum(teamId, 0),
+    roundIndex: Math.max(0, Math.floor(parseNum(roundIndex, 0))),
+    phase: String(phase || 'regular').trim() || 'regular',
+    home: !!home,
+    gameDay: NaN,
+    restDays: 3,
+    backToBack: false,
+    threeInFour: false,
+    fourInSix: false,
+    roadTripLength: home ? 0 : 1,
+    homeStandLength: home ? 1 : 0,
+    recentMinutes: 0,
+    loadScore: 0,
+    skillPenalty: 0,
+    pacePenalty: 0,
+    energyPenalty: 0,
+    injuryMult: 1,
+    summary: '全力出战',
+    noFatigue: true,
+    synthetic: true
+  };
+}
+
 
 
 // ============ 体力状态系统 (APK风格) ============
@@ -2409,8 +2444,9 @@ function getGameRotationSnapshot(teamId, { includeUser = false } = {}) {
   (getTeamPlayers(tid) || []).forEach(p => { if (p?.injury?.active) injuredIds.add(String(p.id)); });
   if (includeUser && tid === parseNum(G.teamId, 0) && G.player?.injury?.active) injuredIds.add('USER_SELF');
   rotation = rotation.filter(r => !injuredIds.has(String(r.id)));
-  if (typeof normalizeRotationMinutes === 'function') normalizeRotationMinutes(rotation, 240);
-  return rotation.slice(0, 10);
+  const fixedFullGameRotation = rotation.length > 0 && rotation.every(r => r?.fullGameStarter || r?.noFatigue);
+  if (typeof normalizeRotationMinutes === 'function' && !fixedFullGameRotation) normalizeRotationMinutes(rotation, 240);
+  return fixedFullGameRotation ? rotation.slice(0, 5) : rotation.slice(0, 10);
 }
 
 function allocateIntegerShares(total, weights = []) {
@@ -3163,7 +3199,8 @@ function buildPlayerShotProfileForSim(player, rotationPlayer = null, {
   const source = player || rotationPlayer || {};
   const attrs = usagePlayerAttrs(source);
   const pos = clamp(parseNum(rotationPlayer?.pos ?? source?.pos, 3), 1, 5);
-  const minutes = clamp(parseNum(rotationPlayer?.minutes ?? source?.minutes, 0), 0, 40);
+  const maxMinutes = rotationPlayer?.fullGameStarter || source?.fullGameStarter ? 48 : 40;
+  const minutes = clamp(parseNum(rotationPlayer?.minutes ?? source?.minutes, 0), 0, maxMinutes);
   const rating = clamp(parseNum(rotationPlayer?.rating ?? source?.rating, ovr(attrs)), 40, 99);
   const att = clamp(parseNum(source?.att ?? rotationPlayer?.att, calcPlayerAtt(attrs)), 25, 99);
   const tendencies = getPlayerShotTendenciesForSim(source);
@@ -3321,7 +3358,8 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
   const attrs = usagePlayerAttrs(simPlayer);
   const teamCoachFx = coachFx || getCoachEffects(teamId);
   const systemRole = buildCoachSystemRoleEffect(simPlayer, teamCoachFx);
-  const minutes = clamp(Math.round(parseNum(player.minutes, 0)), 0, 40);
+  const maxMinutes = player?.fullGameStarter || simPlayer?.fullGameStarter ? 48 : 40;
+  const minutes = clamp(Math.round(parseNum(player.minutes, 0)), 0, maxMinutes);
   const pos = clamp(parseNum(player.pos, 3), 1, 5);
   const rating = clamp(parseNum(player.rating, 65), 40, 99);
   const planPaceFactor = teamPlan ? clamp(Math.pow(parseNum(teamPlan?.possessions, 96) / 96, 0.55), 0.88, 1.14) : 1;
@@ -3499,7 +3537,7 @@ function buildPlayerGameRow(player, targetPts, oppRating, { teamId = 0, home = f
   return row;
 }
 
-function buildTeamGameBoxScore(teamId, teamPts, oppRating, { home = false, includeUser = false, teamProfile = null, oppProfile = null, fatigueContext = null } = {}) {
+function buildTeamGameBoxScore(teamId, teamPts, oppRating, { home = false, includeUser = false, teamProfile = null, oppProfile = null, fatigueContext = null, fullStrength = false } = {}) {
   const teamPlan = teamPts && typeof teamPts === 'object' ? teamPts : null;
   const resolvedTeamPts = parseNum(teamPlan?.points, parseNum(teamPts, 0));
   const oppRatingValue = parseNum(teamPlan?.oppDefenseRating, parseNum(oppRating?.defense, parseNum(oppRating, 75)));
@@ -3508,11 +3546,37 @@ function buildTeamGameBoxScore(teamId, teamPts, oppRating, { home = false, inclu
   const teamName = ctx.teamName;
   const abbr = ctx.abbr;
   const coachFx = ctx.coachFx;
-  const rotation = ctx.rotation;
-  const simPlayers = ctx.simPlayers;
+  const baseRotation = ctx.rotation;
+  const baseSimPlayers = ctx.simPlayers;
+  const activeIndexes = fullStrength
+    ? baseRotation
+      .map((player, index) => ({ player, index }))
+      .filter(item => item.player?.fullGameStarter || item.player?.fantasyStarter || baseRotation.length <= 5)
+      .slice(0, 5)
+      .map(item => item.index)
+    : baseRotation.map((_, index) => index);
+  const rotation = activeIndexes.map(index => baseRotation[index]);
+  const simPlayers = activeIndexes.map(index => baseSimPlayers[index] || baseRotation[index]);
   const ownProfile = teamProfile || buildTeamSimulationProfile(teamId, { includeUser, home, fatigueContext });
   const enemyProfile = oppProfile || (oppRating && typeof oppRating === 'object' ? oppRating : null);
-  const gameMods = rotation.map((p, i) => buildSingleGamePlayerModifier(simPlayers[i] || p, {
+  const gameMods = fullStrength
+    ? rotation.map(() => ({
+      minuteMult: 1,
+      usageMult: 1,
+      efficiencyShift: 0,
+      astMult: 1,
+      rebMult: 1,
+      stocksMult: 1,
+      matchupEdge: 0,
+      foulTrouble: false,
+      foulCount: 0,
+      fatigueLoad: 0,
+      stamina: 100,
+      varianceTag: 'steady',
+      issueTag: '',
+      notes: ['全力出战']
+    }))
+    : rotation.map((p, i) => buildSingleGamePlayerModifier(simPlayers[i] || p, {
     teamId,
     home,
     teamProfile: ownProfile,
@@ -3524,10 +3588,12 @@ function buildTeamGameBoxScore(teamId, teamPts, oppRating, { home = false, inclu
   const liveRotation = rotation.map((p, i) => ({
     ...p,
     baseMinutesRaw: parseNum(p?.minutes, 18),
-    minutes: clamp(Math.round(parseNum(p?.minutes, 18) * parseNum(gameMods[i]?.minuteMult, 1)), 0, 40)
+    minutes: fullStrength
+      ? clamp(Math.round(parseNum(p?.minutes, p?.fullGameStarter ? 48 : 18)), 0, p?.fullGameStarter ? 48 : 40)
+      : clamp(Math.round(parseNum(p?.minutes, 18) * parseNum(gameMods[i]?.minuteMult, 1)), 0, 40)
   }));
-  if (typeof normalizeRotationMinutes === 'function') normalizeRotationMinutes(liveRotation, 240);
-  applySingleGameMinuteCaps(liveRotation, gameMods);
+  if (!fullStrength && typeof normalizeRotationMinutes === 'function') normalizeRotationMinutes(liveRotation, 240);
+  if (!fullStrength) applySingleGameMinuteCaps(liveRotation, gameMods);
   const usageContext = buildTeamUsageContext(teamId, simPlayers, simPlayers);
   const shotPlans = buildTeamShotPlansForSim(liveRotation, simPlayers, {
     teamPlan,
@@ -3809,13 +3875,20 @@ function simulateLeagueMatchup(homeTeamId, awayTeamId, opts = {}) {
   const roundIndex = parseNum(opts.roundIndex, 0);
   const userTeamId = parseNum(opts.userTeamId, 0);
   const seq = (G.leagueSeason.gameDetails || []).length + 1;
-  const homeFatigue = buildScheduleFatigueContext({ teamId: homeId, home: true, roundIndex, phase, userTeamId });
-  const awayFatigue = buildScheduleFatigueContext({ teamId: awayId, home: false, roundIndex, phase, userTeamId });
+  const fullStrengthOption = opts.fullStrengthTeamIds ?? opts.fullStrengthTeamId ?? opts.noFatigueTeamIds ?? opts.noFatigueTeamId;
+  const homeFullStrength = teamIdInSimOption(homeId, fullStrengthOption);
+  const awayFullStrength = teamIdInSimOption(awayId, fullStrengthOption);
+  const homeFatigue = homeFullStrength
+    ? buildNoFatigueContext({ teamId: homeId, home: true, roundIndex, phase })
+    : buildScheduleFatigueContext({ teamId: homeId, home: true, roundIndex, phase, userTeamId });
+  const awayFatigue = awayFullStrength
+    ? buildNoFatigueContext({ teamId: awayId, home: false, roundIndex, phase })
+    : buildScheduleFatigueContext({ teamId: awayId, home: false, roundIndex, phase, userTeamId });
   const homeProfile = buildTeamSimulationProfile(homeId, { includeUser: homeId === userTeamId, home: true, fatigueContext: homeFatigue });
   const awayProfile = buildTeamSimulationProfile(awayId, { includeUser: awayId === userTeamId, home: false, fatigueContext: awayFatigue });
   const simPlans = buildMatchupSimulationPlans(homeProfile, awayProfile, { phase, roundIndex, userTeamId });
-  const homeSnapshot = buildTeamGameBoxScore(homeId, simPlans.homePlan, awayProfile, { home: true, includeUser: homeId === userTeamId, teamProfile: homeProfile, oppProfile: awayProfile, fatigueContext: homeFatigue });
-  const awaySnapshot = buildTeamGameBoxScore(awayId, simPlans.awayPlan, homeProfile, { home: false, includeUser: awayId === userTeamId, teamProfile: awayProfile, oppProfile: homeProfile, fatigueContext: awayFatigue });
+  const homeSnapshot = buildTeamGameBoxScore(homeId, simPlans.homePlan, awayProfile, { home: true, includeUser: homeId === userTeamId, teamProfile: homeProfile, oppProfile: awayProfile, fatigueContext: homeFatigue, fullStrength: homeFullStrength });
+  const awaySnapshot = buildTeamGameBoxScore(awayId, simPlans.awayPlan, homeProfile, { home: false, includeUser: awayId === userTeamId, teamProfile: awayProfile, oppProfile: homeProfile, fatigueContext: awayFatigue, fullStrength: awayFullStrength });
   const flow = buildGameFlow(homeSnapshot, awaySnapshot, {
     userTeamId: parseNum(opts.userTeamId, 0),
     homePlan: simPlans.homePlan,

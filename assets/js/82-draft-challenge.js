@@ -1461,9 +1461,7 @@
   }
 
   function buildForcedRotation(starters, benchPool) {
-    const starterMinutes = [37, 36, 35, 35, 34];
-    const benchMinutes = [24, 16, 12, 8, 3];
-    const rotation = starters.map((player, index) => {
+    return starters.map((player, index) => {
       const slot = POSITION_SLOTS.find(item => item.id === parseNum(player.chosenSlotId, 0)) || POSITION_SLOTS[index];
       return {
         id: player.id,
@@ -1473,7 +1471,7 @@
         slotPos: slot.id,
         rotationRole: 'starter',
         teamTier: index === 0 ? 'alpha' : index === 1 ? 'second' : index === 2 ? 'third' : 'rolestarter',
-        minutes: starterMinutes[index],
+        minutes: 48,
         rating: ratingOf(player),
         roleScore: ratingOf(player),
         photo: player.photo,
@@ -1482,30 +1480,11 @@
         sourceRealStats: player.sourceRealStats,
         sourceStatsYear: player.sourceStatsYear,
         isSelf: false,
-        fantasyStarter: true
+        fantasyStarter: true,
+        fullGameStarter: true,
+        noFatigue: true
       };
     });
-
-    benchPool.slice(0, 5).forEach((player, index) => {
-      rotation.push({
-        id: player.id,
-        name: playerName(player),
-        pos: parseNum(player.pos, 3),
-        pos2: parseNum(player.pos2, 0),
-        slotPos: 0,
-        rotationRole: index === 0 ? 'sixth' : 'role',
-        teamTier: index === 0 ? 'sixthman' : 'bench',
-        minutes: benchMinutes[index] || 6,
-        rating: ratingOf(player),
-        roleScore: ratingOf(player),
-        photo: player.photo,
-        avatar: player.avatar || '',
-        image: player.image,
-        isSelf: false
-      });
-    });
-    normalizeRotationMinutes(rotation, 240);
-    return rotation;
   }
 
   function buildExpansionBench(targetTeamId, starterIds) {
@@ -1632,10 +1611,12 @@
       .map(slot => getSelectedBySlot(slot.id))
       .filter(Boolean)
       .map((player, index) => makeFantasyPlayer(player, targetTeamId, index));
-    const benchPool = buildExpansionBench(targetTeamId, new Set(starters.map(player => player.originalId || player.id)));
+    const benchPool = [];
 
-    teamObj.players = [...starters, ...benchPool];
+    teamObj.players = starters;
     teamObj.meta = { ...FANTASY_TEAM_META };
+    teamObj.noFatigue = true;
+    teamObj.noRotation = true;
     if (state.selectedCoach) {
       const assignedCoach = normalizeCoachChoice(state.selectedCoach, 0);
       assignedCoach.teamId = targetTeamId;
@@ -1894,7 +1875,8 @@
             season: 1,
             year: state.challengeYear,
             phase: 'regular',
-            userTeamId: targetTeamId
+            userTeamId: targetTeamId,
+            fullStrengthTeamIds: [targetTeamId]
           });
           if (detail && (parseNum(detail.homeTeamId, 0) === targetTeamId || parseNum(detail.awayTeamId, 0) === targetTeamId)) {
             challengeDetail = detail;
