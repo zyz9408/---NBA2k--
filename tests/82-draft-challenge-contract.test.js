@@ -45,8 +45,9 @@ assert.ok(html.includes('当前阶段'), 'challenge page should describe the sta
 assert.ok(html.includes('id="restartButton"'), 'challenge page should expose restart button');
 assert.ok(html.includes('id="perfectModeBtn"'), 'challenge page should expose perfect mode entry button');
 assert.ok(html.includes('完美模式'), 'challenge page should label the perfect mode entry');
-assert.ok(html.includes('20260703teamfix'), 'challenge page should bust cache for the perfect mode team-switch fix');
+assert.ok(html.includes('20260703sourcefix'), 'challenge page should bust cache for the perfect mode source-switch fix');
 assert.ok(!html.includes('82-draft-challenge.js?v=20260703perfectmode'), 'challenge page must not reuse the cached perfect-mode JS URL after the team-switch fix');
+assert.ok(!html.includes('82-draft-challenge.js?v=20260703teamfix'), 'challenge page must not reuse the cached team-switch JS URL after the source-switch fix');
 assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for a carrier team');
 
 [
@@ -124,6 +125,13 @@ assert.ok(!html.includes('targetTeamSelect'), 'challenge page should not ask for
   'window.render_game_to_text',
   'window.advanceTime'
 ].forEach(fragment => assert.ok(script.includes(fragment), `challenge contract missing: ${fragment}`));
+
+const selectPerfectSeasonBody = script.slice(
+  script.indexOf('async function selectPerfectSeason'),
+  script.indexOf('function selectPerfectTeam')
+);
+assert.ok(!selectPerfectSeasonBody.includes('clearPerfectSelections'), 'perfect mode season switching should preserve already selected players');
+assert.ok(selectPerfectSeasonBody.includes("state.stage = 'player_select'"), 'perfect mode season switching should keep the user in player selection');
 
 const selectPerfectTeamBody = script.slice(
   script.indexOf('function selectPerfectTeam'),

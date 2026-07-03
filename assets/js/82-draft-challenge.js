@@ -533,8 +533,11 @@
 
   async function selectPerfectSeason(code) {
     if (state.busy || state.challengeMode !== 'perfect') return;
-    clearPerfectSelections();
-    state.perfectTeamId = 0;
+    state.pendingPlayer = null;
+    state.result = null;
+    state.stage = 'player_select';
+    el.simulationPanel.hidden = true;
+    el.resultsGrid.innerHTML = '';
     state.currentPool = null;
     await loadPerfectSeason(code);
   }
