@@ -1172,3 +1172,421 @@
     flex-basis: calc(100vw - 54px);
   }
 }
+
+/* ---------- 竖屏手机一屏模式: 5 张卡同屏,不横滑/不纵滑 ---------- */
+@media (orientation: portrait) and (max-width: 1100px) {
+  #screenShowdown {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+    padding: clamp(8px, 1.2vh, 16px) clamp(8px, 1.4vw, 16px);
+  }
+
+  #showdownRoot,
+  .sd-wrap {
+    height: 100%;
+    width: 100%;
+    min-height: 0;
+  }
+
+  .sd-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(6px, 0.8vh, 12px);
+    overflow: hidden;
+  }
+
+  .sd-topbar {
+    flex: none;
+    min-height: 0;
+    margin-bottom: 0;
+    padding: clamp(8px, 1vh, 13px) clamp(10px, 1.4vw, 18px);
+  }
+
+  .sd-draft-layout {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(6px, 0.9vh, 12px);
+    overflow: hidden;
+  }
+
+  .sd-main {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(6px, 0.8vh, 11px);
+    overflow: hidden;
+  }
+
+  .sd-side {
+    display: none;
+  }
+
+  .sd-flowbar {
+    flex: none;
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 0;
+  }
+
+  .sd-flow-steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: clamp(4px, 0.7vw, 8px);
+  }
+
+  .sd-flow-step {
+    min-height: 0;
+    padding: clamp(5px, 0.7vh, 8px) clamp(5px, 0.8vw, 10px);
+  }
+
+  .sd-flow-step-desc {
+    display: block;
+  }
+
+  .sd-mgr-strip {
+    flex: none;
+    width: 100%;
+    box-sizing: border-box;
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: clamp(4px, 0.7vw, 8px);
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+
+  .sd-mgr {
+    min-width: 0;
+    flex: none;
+    grid-template-columns: auto 1fr;
+    gap: clamp(4px, 0.6vw, 8px);
+    padding: clamp(6px, 0.8vh, 9px);
+    scroll-snap-align: unset;
+  }
+
+  .sd-mgr-order,
+  .sd-mgr-team {
+    display: none;
+  }
+
+  .sd-mgr-ava {
+    width: clamp(24px, 4.2vw, 34px);
+    height: clamp(24px, 4.2vw, 34px);
+  }
+
+  .sd-mgr-state {
+    grid-column: 1 / -1;
+    font-size: clamp(0.58rem, 1.3vw, 0.74rem);
+  }
+
+  .sd-card-stage {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .sd-headline {
+    flex: none;
+    align-self: start;
+    margin-bottom: clamp(5px, 0.7vh, 9px);
+  }
+
+  .sd-card-grid {
+    align-self: center;
+    justify-self: center;
+    display: grid !important;
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+    gap: clamp(4px, 0.8vw, 10px);
+    height: auto;
+    width: min(100%, 1040px);
+    min-width: 0;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+
+  .sd-card {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 0;
+    height: auto;
+    aspect-ratio: 2 / 3;
+    flex: none;
+    scroll-snap-align: unset;
+    overflow: hidden;
+  }
+
+  .sd-card-grid .sd-card {
+    grid-column: span 2;
+  }
+
+  .sd-card-grid .sd-card:nth-child(4) {
+    grid-column: 2 / span 2;
+  }
+
+  .sd-card-grid .sd-card:nth-child(5) {
+    grid-column: 4 / span 2;
+  }
+
+  .sd-card-inner,
+  .sd-card-back,
+  .sd-card-front,
+  .sdo-card .sd-card-back {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .sd-card-back,
+  .sd-card-front {
+    border-radius: clamp(8px, 1.2vw, 14px);
+    padding: clamp(6px, 0.9vw, 12px);
+    gap: clamp(4px, 0.55vh, 8px);
+    overflow: hidden;
+  }
+
+  .sd-owner-ribbon {
+    top: clamp(-7px, -0.5vh, -4px);
+    max-width: 96%;
+    font-size: clamp(0.48rem, 1.15vw, 0.68rem);
+    padding: 2px clamp(5px, 0.8vw, 10px);
+  }
+
+  .sd-card-head {
+    gap: 4px;
+  }
+
+  .sd-card-no,
+  .sd-lock,
+  .sd-sec-title,
+  .sd-stat-sub,
+  .sd-honor,
+  .sd-team-row,
+  .sd-act-hint {
+    font-size: clamp(0.5rem, 1.15vw, 0.74rem);
+  }
+
+  .sd-mystery {
+    min-height: clamp(28px, 5.5vh, 58px);
+    padding: 2px 0;
+  }
+
+  .sd-ic.big {
+    width: clamp(22px, 5vw, 54px);
+    height: clamp(22px, 5vw, 54px);
+  }
+
+  .sd-mystery em {
+    font-size: clamp(0.48rem, 1.05vw, 0.72rem);
+    letter-spacing: 0.08em;
+  }
+
+  .sd-sec {
+    padding: clamp(4px, 0.7vw, 8px);
+    border-radius: clamp(6px, 0.9vw, 10px);
+  }
+
+  .sd-sec-title {
+    margin-bottom: clamp(2px, 0.35vh, 5px);
+    letter-spacing: 0.04em;
+  }
+
+  .sd-sec-title em {
+    display: none;
+  }
+
+  .sd-stat-main {
+    gap: clamp(3px, 0.45vw, 6px);
+  }
+
+  .sd-stat-main div {
+    padding: clamp(4px, 0.5vw, 6px) 1px;
+    border-radius: clamp(5px, 0.8vw, 8px);
+  }
+
+  .sd-stat-main strong {
+    font-size: clamp(0.82rem, 2.05vw, 1.32rem);
+  }
+
+  .sd-stat-main span {
+    font-size: clamp(0.44rem, 0.95vw, 0.62rem);
+  }
+
+  .sd-stat-sub {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2px clamp(4px, 0.7vw, 8px);
+    margin-top: clamp(3px, 0.4vh, 6px);
+  }
+
+  .sd-honor-row {
+    min-height: 0;
+    gap: 3px;
+    max-height: clamp(38px, 6dvh, 78px);
+    overflow: hidden;
+  }
+
+  .sd-honor {
+    padding: 2px clamp(4px, 0.6vw, 7px);
+  }
+
+  .sd-photo {
+    width: clamp(52px, 11vw, 104px);
+    height: clamp(52px, 11vw, 104px);
+  }
+
+  .sd-front-name {
+    font-size: clamp(0.68rem, 1.8vw, 1.14rem);
+    line-height: 1.18;
+  }
+
+  .sd-front-sub,
+  .sd-front-ovr {
+    font-size: clamp(0.52rem, 1.15vw, 0.76rem);
+  }
+
+  .sd-action-zone {
+    flex: none;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 0;
+    margin-top: 0;
+  }
+
+  .sd-turn-banner,
+  .sd-callout,
+  .sd-hint {
+    padding: clamp(8px, 1vh, 12px) clamp(10px, 1.4vw, 16px);
+  }
+
+  .sd-turn-copy span {
+    max-height: 2.8em;
+    overflow: hidden;
+  }
+}
+
+@media (orientation: portrait) and (max-width: 640px) {
+  .sd-flow-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sd-mgr-strip {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+
+  .sd-mgr {
+    padding: 5px 4px;
+    border-left-width: 2px;
+  }
+
+  .sd-mgr-ava,
+  .sd-mgr-team,
+  .sd-mgr-hold,
+  .sd-mgr-turnchip {
+    display: none;
+  }
+
+  .sd-mgr-name {
+    font-size: 0.56rem;
+    text-align: center;
+  }
+
+  .sd-mgr-state {
+    justify-content: center;
+    font-size: 0.54rem;
+  }
+
+  .sd-card-grid {
+    gap: 2px;
+  }
+
+  .sd-card-back,
+  .sd-card-front {
+    padding: 5px 4px;
+    gap: 4px;
+  }
+
+  .sd-owner-ribbon {
+    font-size: 0.45rem;
+    padding: 1px 4px;
+  }
+
+  .sd-card-no,
+  .sd-lock,
+  .sd-sec-title,
+  .sd-stat-sub,
+  .sd-honor,
+  .sd-team-row,
+  .sd-act-hint {
+    font-size: 0.48rem;
+  }
+
+  .sd-lock .sd-ic,
+  .sd-card-no .sd-ic,
+  .sd-sec-title .sd-ic {
+    display: none;
+  }
+
+  .sd-mystery {
+    display: none;
+  }
+
+  .sd-stat-main {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
+  .sd-stat-main div {
+    padding: 3px 1px;
+  }
+
+  .sd-stat-main strong {
+    font-size: 0.74rem;
+  }
+
+  .sd-stat-main span {
+    font-size: 0.42rem;
+  }
+
+  .sd-stat-sub {
+    display: none;
+  }
+
+  .sd-sec {
+    padding: 4px;
+  }
+
+  .sd-honor-row {
+    max-height: 56px;
+  }
+
+  .sd-honor {
+    padding: 1px 3px;
+  }
+
+  .sd-team-row {
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+
+  .sd-act-hint {
+    padding: 4px 2px;
+    letter-spacing: 0;
+  }
+
+  .sd-action-row .manager-btn,
+  .sdo-actions .manager-btn {
+    min-height: 34px;
+  }
+}
