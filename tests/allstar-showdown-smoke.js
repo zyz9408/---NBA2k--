@@ -213,6 +213,11 @@ async function main() {
     for (let i = 1; i < st.result.length; i++) {
       assert.ok(st.result[i - 1].w >= st.result[i].w, '排名应按胜场降序');
     }
+    // 金币守恒: 身价制押金/退款后, 每人 剩余+花费 必须 = 15
+    st.result.forEach(r => {
+      assert.equal(r.coinsLeft + r.coinsSpent, 15, `${r.team} 金币不守恒: 剩${r.coinsLeft}+花${r.coinsSpent}`);
+      assert.ok(r.coinsLeft >= 0 && r.coinsSpent >= 0, `${r.team} 金币出现负数`);
+    });
 
     const fatalErrors = consoleErrors.filter(t => !/favicon|net::ERR_FAILED.*headshots|404/i.test(t));
     assert.deepEqual(fatalErrors, [], `不应有致命控制台错误: ${JSON.stringify(fatalErrors.slice(0, 5))}`);

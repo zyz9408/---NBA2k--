@@ -330,7 +330,7 @@
         player,
         owner: -1,
         locked: false,
-        paidBy: MANAGERS.map(() => 0),
+        price: 0,        // 当前身价: 现任持有者为这张卡押上的金币(位置内持续有效)
         acquiredBy: '',
         aiNoise: MANAGERS.map(m => m.human ? 0 : (Math.random() * 2 - 1) * m.noise)
       };
@@ -571,8 +571,10 @@
       }
     } else {
       const challengeMargin = mgr.style === 'gambler' ? 1.5 : mgr.style === 'miser' ? 6 : 3;
-      if (gain > challengeMargin && S.coins[mgr.idx] >= 1) {
-        await actionBeat(gen, mgr.idx, `盯上了 ${MANAGERS[best.owner].name} 锁定的 ${cardLabel(best)},发起金币比价!`, 'gavel', 1200);
+      const price = num(best.price, 0);
+      const worthIt = Math.round(gain * 0.3 * mgr.aggr) >= price + 1; // 身价已高于这张卡对我的价值就不追了
+      if (gain > challengeMargin && worthIt && S.coins[mgr.idx] >= price + 1) {
+        await actionBeat(gen, mgr.idx, `盯上了 ${MANAGERS[best.owner].name} 锁定的 ${cardLabel(best)}(身价${price}),发起比价!`, 'gavel', 1200);
         await runDuel(gen, mgr.idx, best);
         return;
       }
@@ -615,7 +617,9 @@
   }
 
   /* ---------- 金币比价 ---------- */
+  // AI 出价(身价制): 挑战者返回总出价 B(须>身价P), 守方返回总承诺 D(≥P, 差额为加价)
   function aiBidAmount(mgr, card, isDefender, oppIdx) {
+    const P = num(card.price, 0);
     const val = aiCardValue(mgr, card, S.stage);
     const mine = managerCard(mgr.idx);
     const backup = isDefender
@@ -624,83 +628,97 @@
     const gain = Math.max(0, val - backup);
     const remainingSlots = SLOTS.length - S.posIndex;
     const reserve = mgr.style === 'gambler' ? 0 : mgr.style === 'miser' ? Math.min(4, remainingSlots) : Math.max(0, remainingSlots - 2);
-    const budget = Math.max(0, S.coins[mgr.idx] - reserve);
-    let bid = Math.round(gain * 0.28 * mgr.aggr + (mgr.style === 'gambler' ? 1 : 0));
-    if (isDefender) bid = Math.round(bid * 0.9);
-    return Math.max(isDefender ? 0 : 1, Math.min(budget, bid));
+    const avail = Math.max(0, S.coins[mgr.idx] - reserve);
+    // 这张卡对我总共值多少金币(总承诺意愿)
+    const worth = Math.round(gain * 0.3 * mgr.aggr + (mgr.style === 'gambler' ? 1 : 0));
+    if (isDefender) {
+      // 守方: 总承诺 = min(意愿, P+可加金额); 意愿不足身价则维持不加价
+      return Math.max(P, Math.min(P + avail, Math.max(P, Math.round(worth * 1.05))));
+    }
+    // 挑战者: 出价须 > P 且 ≤ 可用金币(挑战者全额押上, 不留保留金也可由 avail 控制)
+    return Math.max(P + 1, Math.min(Math.max(0, S.coins[mgr.idx] - Math.max(0, reserve - 1)), worth));
   }
 
+  /* 身价制金币比价:
+   * - 卡有当前身价 P(现任持有者押上的金币, 位置内持续有效)
+   * - 挑战者必须暗出 B > P; 守方决定总承诺 D(≥P, 补差价即可, 不用重复掏钱)
+   * - D ≥ B 守方保住(补 D-P); B > D 挑战者接管(押 B, 守方全额退回 P)
+   * - 押金只在位置揭晓时真正消耗; 中途丢卡全额退回
+   */
   async function runDuel(gen, challengerIdx, card) {
     const defenderIdx = card.owner;
     const challenger = MANAGERS[challengerIdx];
     const defender = MANAGERS[defenderIdx];
-    if (S.coins[challengerIdx] < 1) return;
+    const P = num(card.price, 0);
+    if (S.coins[challengerIdx] < P + 1) return;
 
-    S.bidCtx = { cardIdx: card.idx, challengerIdx, defenderIdx, cBid: null, dBid: null, phase: 'input' };
-    pushLog(`⚔️ ${challenger.name} 对 ${defender.name} 锁定的 ${cardLabel(card)} 发起金币争夺!`, 'duel');
+    S.bidCtx = { cardIdx: card.idx, challengerIdx, defenderIdx, price: P, cBid: null, dBid: null, phase: 'input' };
+    pushLog(`⚔️ ${challenger.name} 对 ${defender.name} 锁定的 ${cardLabel(card)} 发起比价!当前身价 ${P}`, 'duel');
 
     let cBid;
     let dBid;
     if (challenger.human) {
       S.awaiting = 'bid';
       render();
-      cBid = num(await waitUI(), 1);
+      cBid = num(await waitUI(), P + 1);
       guard(gen);
     } else {
       cBid = aiBidAmount(challenger, card, false, defenderIdx);
     }
-    cBid = Math.max(1, Math.min(S.coins[challengerIdx], cBid));
+    cBid = Math.max(P + 1, Math.min(S.coins[challengerIdx], cBid));
     S.bidCtx.cBid = cBid;
 
     if (defender.human) {
       S.awaiting = 'bid';
       S.bidCtx.phase = 'defend';
       render();
-      dBid = num(await waitUI(), 0);
+      dBid = num(await waitUI(), P);
       guard(gen);
     } else {
       dBid = aiBidAmount(defender, card, true, challengerIdx);
     }
-    dBid = Math.max(0, Math.min(S.coins[defenderIdx], dBid));
+    // 守方总承诺: 至少维持身价 P, 加价上限 = P + 剩余金币
+    dBid = Math.max(P, Math.min(P + S.coins[defenderIdx], dBid));
     S.bidCtx.dBid = dBid;
 
     // 揭示
     S.awaiting = null;
     S.bidCtx.phase = 'reveal';
     render();
-    await sleep(1300);
+    await sleep(1500);
     guard(gen);
 
     const challengerWins = cBid > dBid;
-    const duelRec = {
+    S.duels.push({
       pos: slotNow().short, card: cardLabel(card),
       challenger: challenger.name, defender: defender.name,
-      cBid, dBid, winner: challengerWins ? challenger.name : defender.name
-    };
-    S.duels.push(duelRec);
+      cBid, dBid, priceBefore: P, winner: challengerWins ? challenger.name : defender.name
+    });
 
     if (challengerWins) {
+      // 挑战者押上 B 接管; 守方全额退回已押身价
       S.coins[challengerIdx] -= cBid;
-      S.spent[challengerIdx] += cBid;
+      S.coins[defenderIdx] += P;
       const mine = managerCard(challengerIdx);
       if (mine) mine.owner = -1;
       card.owner = challengerIdx;
       card.locked = true;
       card.acquiredBy = 'duel';
-      card.paidBy[challengerIdx] += cBid;
-      pushLog(`💰 ${challenger.name} 出 ${cBid} 金币 > ${defender.name} 的 ${dBid},夺走 ${cardLabel(card)}!`, 'duel');
+      card.price = cBid;
+      pushLog(`💰 ${challenger.name} 出 ${cBid} > ${defender.name} 的 ${dBid},接管 ${cardLabel(card)}(新身价 ${cBid});${defender.name} 退回 ${P} 金币`, 'duel');
       S.bidCtx = null;
       render();
       await reclaimFor(gen, defenderIdx);
     } else {
-      if (dBid > cBid) {
-        S.coins[defenderIdx] -= dBid;
-        S.spent[defenderIdx] += dBid;
-        card.paidBy[defenderIdx] += dBid;
-        pushLog(`🛡️ ${defender.name} 出 ${dBid} 金币 ≥ ${challenger.name} 的 ${cBid},保住 ${cardLabel(card)}`, 'duel');
+      const topUp = dBid - P;
+      if (topUp > 0) {
+        S.coins[defenderIdx] -= topUp;
+        card.price = dBid;
+        pushLog(`🛡️ ${defender.name} 总承诺 ${dBid} ≥ ${challenger.name} 的 ${cBid},加价 ${topUp} 保住 ${cardLabel(card)}(新身价 ${dBid})`, 'duel');
       } else {
-        pushLog(`🛡️ 双方各出 ${cBid} 金币打平,${defender.name} 保住 ${cardLabel(card)},双方不消耗`, 'duel');
+        pushLog(`🛡️ ${defender.name} 维持身价 ${P},但 ${challenger.name} 出价 ${cBid} 未超过守方承诺,保卡成功`, 'duel');
       }
+      pushLog(`${challenger.name} 比价失败,不消耗金币`, 'duel');
       S.bidCtx = null;
     }
     render();
@@ -718,6 +736,8 @@
       if (card.owner >= 0) {
         S.rosters[card.owner][slotIndex] = card;
         S.draftedIds.add(card.entry.id);
+        // 位置揭晓 = 押金正式消耗(此前只是押上,丢卡会退回)
+        S.spent[card.owner] += num(card.price, 0);
       }
     });
     render();
@@ -736,10 +756,10 @@
     return `${card.idx + 1}号卡`;
   }
 
-  // 当前持有者为这张卡实际支付的金币
+  // 当前持有者为这张卡押上的金币(=身价)
   function cardCost(card) {
     if (!card || card.owner < 0) return 0;
-    return num(card.paidBy && card.paidBy[card.owner], 0);
+    return num(card.price, 0);
   }
 
   /* ============================================================
@@ -1168,7 +1188,10 @@
     if (S.awaiting === 'action') {
       if (owner && owner.idx === 0) return null;
       if (!owner) return { act: 'claim', label: '点击换取', ic: 'swap' };
-      if (card.locked) return S.coins[0] >= 1 ? { act: 'duel', label: '金币比价', ic: 'gavel' } : null;
+      if (card.locked) {
+        const minBid = num(card.price, 0) + 1;
+        return S.coins[0] >= minBid ? { act: 'duel', label: `比价 ≥${minBid}`, ic: 'gavel' } : null;
+      }
       return { act: 'steal', label: '点击截胡', ic: 'bolt' };
     }
     return null;
@@ -1324,7 +1347,7 @@
       return turnBanner('认领一张卡', '点击任意一张【无主】卡牌,收入囊中');
     }
     if (S.awaiting === 'lockchoice') {
-      return turnBanner('是否锁定?', '锁定=不能再换,对手抢它必须金币比价;不锁=下一轮还能换,但可能被免费截胡', `
+      return turnBanner('是否锁定?', '锁定=不能再换,对手要抢必须比价且出价超过卡的当前身价;不锁=下一轮还能换,但可能被免费截胡', `
         <button class="manager-btn primary sd-btn-ic" data-sd="lock-yes">${icon('lock')}锁定这张卡</button>
         <button class="manager-btn secondary sd-btn-ic" data-sd="lock-no">${icon('unlock')}保持灵活</button>`);
     }
@@ -1409,8 +1432,8 @@
     const copy = stage === 1
       ? { b: '第1轮 · 数据轮', s: '只显示巅峰数据 → 按蛇形顺序认领一张卡,并决定是否锁定' }
       : stage === 2
-        ? { b: '第2轮 · 荣誉轮', s: '生涯荣誉已揭示 → 未锁定者轮流行动: 保持 / 换无主卡 / 截胡未锁卡 / 对锁定卡金币比价' }
-        : { b: '第3轮 · 球队轮(最终轮)', s: '效力球队已揭示 → 最后调整机会,本轮结束后全员强制锁定并翻牌' };
+        ? { b: '第2轮 · 荣誉轮', s: '生涯荣誉已揭示 → 未锁定者轮流行动: 保持 / 换无主卡 / 截胡未锁卡 / 对锁定卡比价(出价须超其身价)' }
+        : { b: '第3轮 · 球队轮(最终轮)', s: '效力球队已揭示 → 最后调整机会(比价同样须超身价),本轮结束后全员强制锁定并翻牌' };
     return `<div class="sd-headline s${stage}">${icon(STAGE_ICONS[stage - 1])}<b>${copy.b}</b><span>${copy.s}</span></div>`;
   }
 
@@ -1460,7 +1483,7 @@
     const challenger = MANAGERS[ctx.challengerIdx];
     const defender = MANAGERS[ctx.defenderIdx];
     const humanSide = S.awaiting === 'bid' ? (ctx.phase === 'defend' ? 'defend' : 'attack') : null;
-    const maxCoins = humanSide === 'defend' ? S.coins[0] : S.coins[0];
+    const P = num(ctx.price, 0);
     let body = '';
     if (ctx.phase === 'reveal') {
       const cWin = ctx.cBid > ctx.dBid;
@@ -1483,16 +1506,18 @@
         <p class="sd-bid-result">${cWin ? `${esc(challenger.name)} 出价更高,夺走球员!` : `${esc(defender.name)} 守住了球员!`}</p>`;
     } else if (humanSide) {
       const isDefend = humanSide === 'defend';
-      const minBid = isDefend ? 0 : 1;
+      // 挑战者: 总出价须 > 身价, 上限 = 手上金币; 守方: 总承诺 ≥ 身价, 上限 = 身价 + 手上金币
+      const minBid = isDefend ? P : P + 1;
+      const maxBid = isDefend ? P + S.coins[0] : S.coins[0];
       body = `
         <p class="sd-bid-tip">${isDefend
-          ? `<b>${esc(challenger.name)}</b> 想抢走你锁定的 <b>${cardLabel(card)}</b>!暗中出价防守 —— 出价高才保得住;赢了支付金币,输了不花钱`
-          : `对 <b>${esc(defender.name)}</b> 锁定的 <b>${cardLabel(card)}</b> 暗中出价 —— 超过对方才能抢到;赢了支付金币,输了不花钱`}</p>
+          ? `<b>${esc(challenger.name)}</b> 想抢走你锁定的 <b>${cardLabel(card)}</b>!你已押 <b>${P}</b> 金币在这张卡上 —— 决定<b>总承诺</b>(只需补差价): 对方总出价超过你的总承诺才能抢走;守住只扣差价,丢卡则全额退回 ${P} 金币`
+          : `对 <b>${esc(defender.name)}</b> 锁定的 <b>${cardLabel(card)}</b> 出价 —— 当前身价 <b>${P}</b>,总出价必须超过身价且高于守方总承诺才能抢到;赢了押上出价(成为新身价),输了不花钱`}</p>
         <div class="sd-bid-stepper">
           <button type="button" data-sd="bid-minus" aria-label="减少">−</button>
-          <span class="sd-bid-value">${icon('coin')}<b id="sdBidValue" data-min="${minBid}" data-max="${maxCoins}">${minBid}</b></span>
+          <span class="sd-bid-value">${icon('coin')}<b id="sdBidValue" data-min="${minBid}" data-max="${maxBid}">${minBid}</b></span>
           <button type="button" data-sd="bid-plus" aria-label="增加">+</button>
-          <em>/ 剩余 ${maxCoins} 枚</em>
+          <em>${isDefend ? `总承诺(已押${P},加价上限${S.coins[0]})` : `/ 手上 ${S.coins[0]} 枚`}</em>
         </div>
         <div class="sd-action-row center">
           <button class="manager-btn primary sd-btn-ic" data-sd="bid-confirm">${icon(isDefend ? 'shield' : 'gavel')}确认暗价</button>
@@ -1503,7 +1528,7 @@
     return `
       <div class="sd-modal-bg">
         <div class="sd-modal">
-          <h3>${icon('gavel')}金币比价 · ${cardLabel(card)}</h3>
+          <h3>${icon('gavel')}金币比价 · ${cardLabel(card)} <span class="sd-price-chip">${icon('coin')}身价 ${P}</span></h3>
           ${body}
         </div>
       </div>`;
@@ -1738,7 +1763,8 @@
     } else if (S.awaiting === 'action') {
       if (card.owner === 0) return; // 自己的卡用按钮处理
       if (card.locked && card.owner >= 0) {
-        if (S.coins[0] < 1) { pushLog('金币不足,无法发起比价', 'me'); render(); return; }
+        const minBid = num(card.price, 0) + 1;
+        if (S.coins[0] < minBid) { pushLog(`这张卡身价 ${card.price},至少要出 ${minBid} 金币,你的金币不足`, 'me'); render(); return; }
         S.awaiting = null;
         resolveUI({ type: 'challenge', cardIdx });
       } else {
@@ -1764,6 +1790,7 @@
         no: c.idx + 1,
         owner: c.owner >= 0 ? MANAGERS[c.owner].name : null,
         locked: c.locked,
+        price: c.price || 0,
         revealed: !!c.revealed,
         name: c.revealed ? c.entry.nameCn : undefined,
         stats: c.entry.stats,
@@ -1778,7 +1805,7 @@
       era: S.era ? S.era.year : null,
       simRound: S.simRound,
       simRows: S.simRows.map(r => ({ team: MANAGERS[r.idx].teamName, w: r.w, l: r.l, derbyW: r.derbyW || 0, derbyL: r.derbyL || 0 })),
-      result: S.result ? S.result.entries.map(e => ({ rank: e.rank, team: e.mgr.teamName, w: e.record.w, l: e.record.l })) : null,
+      result: S.result ? S.result.entries.map(e => ({ rank: e.rank, team: e.mgr.teamName, w: e.record.w, l: e.record.l, coinsLeft: e.coinsLeft, coinsSpent: e.coinsSpent })) : null,
       log: S.log.slice(0, 6).map(l => l.text)
     }, null, 1);
   };

@@ -468,6 +468,11 @@
 }
 @keyframes sdModalIn { from { opacity: 0; transform: translateY(18px) scale(0.94); } }
 .sd-modal h3 { display: flex; align-items: center; margin: 0 0 12px; color: #ffd166; }
+.sd-price-chip {
+  display: inline-flex; align-items: center; margin-left: auto; font-size: 0.72rem; font-weight: 900;
+  color: #ffd166; background: rgba(251, 191, 36, 0.14); border: 1px solid rgba(251, 191, 36, 0.4);
+  padding: 3px 10px; border-radius: 999px;
+}
 .sd-bid-tip { font-size: 0.84rem; line-height: 1.65; color: #c9d9e8; }
 .sd-bid-tip.center { text-align: center; }
 .sd-bid-tip b { color: #ffd166; }
