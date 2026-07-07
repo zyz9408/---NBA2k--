@@ -9,7 +9,7 @@ const path = require('node:path');
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 3001);
 const SERVICE = 'allstar-showdown-realtime';
-const VERSION = '0.3.1';
+const VERSION = '0.3.2';
 const START_COINS = 15;
 const TEAM_ID_BASE = 31;
 
@@ -1307,7 +1307,8 @@ function runSeasonLoop(roomCode) {
     }
     liveGame.simTimer = setTimeout(step, liveGame.simRound < 5 ? 260 : 85);
   };
-  game.simTimer = setTimeout(step, 240);
+  if (game.skipSim) step();
+  else game.simTimer = setTimeout(step, 240);
 }
 
 function finishDraft(room) {

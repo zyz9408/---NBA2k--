@@ -32,6 +32,36 @@
     { year: 1983, label: '黑白双雄', desc: '魔术师与大鸟的联盟' }
   ];
 
+  const ICONS = {
+    coin: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.6" fill="#fbbf24" stroke="#b45309" stroke-width="1.2"/><circle cx="8" cy="8" r="4.4" fill="none" stroke="#b45309" stroke-width="0.9" opacity="0.7"/><path d="M8 5.2 8.8 7h1.9L9.2 8.2l.6 1.9L8 8.9l-1.8 1.2.6-1.9L5.3 7h1.9Z" fill="#92400e"/></svg>',
+    lock: '<svg viewBox="0 0 16 16"><rect x="3.4" y="7" width="9.2" height="6.6" rx="1.6" fill="currentColor"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>',
+    unlock: '<svg viewBox="0 0 16 16"><rect x="3.4" y="7" width="9.2" height="6.6" rx="1.6" fill="currentColor" opacity="0.5"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5-.6" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>',
+    swap: '<svg viewBox="0 0 16 16"><path d="M3 5.5h8l-2.2-2.2M13 10.5H5l2.2 2.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    gavel: '<svg viewBox="0 0 16 16"><rect x="7.2" y="1.6" width="4.4" height="6.4" rx="1" transform="rotate(45 9.4 4.8)" fill="currentColor"/><path d="M8.2 8.4 3 13.6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M2 14.6h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+    trophy: '<svg viewBox="0 0 16 16"><path d="M4.5 2h7v3.6A3.5 3.5 0 0 1 8 9a3.5 3.5 0 0 1-3.5-3.4Z" fill="currentColor"/><path d="M4.5 3.2H2.6c0 2.2 1 3.4 2.4 3.6M11.5 3.2h1.9c0 2.2-1 3.4-2.4 3.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M8 9v2.4M5.6 13.8c0-1.3 1.1-2.4 2.4-2.4s2.4 1.1 2.4 2.4Z" fill="currentColor"/></svg>',
+    star: '<svg viewBox="0 0 16 16"><path d="m8 1.6 1.9 4 4.4.5-3.3 3 .9 4.4L8 11.3l-3.9 2.2.9-4.4-3.3-3 4.4-.5Z" fill="currentColor"/></svg>',
+    ball: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.6v12.8M1.6 8h12.8M3.4 3.4c2.5 2.5 6.7 2.5 9.2 0M3.4 12.6c2.5-2.5 6.7-2.5 9.2 0" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>',
+    chart: '<svg viewBox="0 0 16 16"><path d="M2 13.5h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><rect x="3.2" y="8" width="2.4" height="4" rx="0.6" fill="currentColor"/><rect x="6.8" y="5" width="2.4" height="7" rx="0.6" fill="currentColor"/><rect x="10.4" y="2.6" width="2.4" height="9.4" rx="0.6" fill="currentColor"/></svg>',
+    medal: '<svg viewBox="0 0 16 16"><path d="m4.4 1.6 2 4.2M11.6 1.6l-2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="10" r="4.2" fill="currentColor"/><path d="m8 7.9.8 1.6 1.8.2-1.3 1.2.3 1.8L8 11.8l-1.6.9.3-1.8-1.3-1.2 1.8-.2Z" fill="#0b1220"/></svg>',
+    jersey: '<svg viewBox="0 0 16 16"><path d="M5.4 1.8 2 4.4l1.6 2.4 1.2-.8v8h6.4V6l1.2.8L14 4.4l-3.4-2.6a2.6 2.6 0 0 1-5.2 0Z" fill="currentColor"/></svg>',
+    crown: '<svg viewBox="0 0 16 16"><path d="M2 5.4 5 8l3-4.4L11 8l3-2.6-1.2 7H3.2Z" fill="currentColor"/><rect x="3.2" y="13" width="9.6" height="1.6" rx="0.8" fill="currentColor"/></svg>',
+    bot: '<svg viewBox="0 0 16 16"><rect x="3" y="5" width="10" height="8" rx="2" fill="currentColor"/><circle cx="6.2" cy="8.6" r="1.2" fill="#0b1220"/><circle cx="9.8" cy="8.6" r="1.2" fill="#0b1220"/><path d="M8 5V2.6M8 2.4a1 1 0 1 1 .1 0" stroke="currentColor" stroke-width="1.4"/></svg>',
+    user: '<svg viewBox="0 0 16 16"><circle cx="8" cy="5" r="3.2" fill="currentColor"/><path d="M2.4 14.4a5.6 5.6 0 0 1 11.2 0Z" fill="currentColor"/></svg>',
+    flag: '<svg viewBox="0 0 16 16"><path d="M3.6 1.6v12.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M4.6 2.6h8l-2.2 2.8 2.2 2.8h-8Z" fill="currentColor"/></svg>',
+    eye: '<svg viewBox="0 0 16 16"><path d="M1.6 8s2.4-4.4 6.4-4.4S14.4 8 14.4 8 12 12.4 8 12.4 1.6 8 1.6 8Z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2.1" fill="currentColor"/></svg>',
+    silhouette: '<svg viewBox="0 0 64 64"><circle cx="32" cy="20" r="11" fill="currentColor"/><path d="M10 56c0-12.2 9.8-22 22-22s22 9.8 22 22Z" fill="currentColor"/></svg>',
+    bolt: '<svg viewBox="0 0 16 16"><path d="M9.2 1.2 3.6 9h3.2l-1 5.8L11.4 7H8.2Z" fill="currentColor"/></svg>',
+    shield: '<svg viewBox="0 0 16 16"><path d="M8 1.4 13.4 3.4v4.2c0 3.6-2.3 6-5.4 7-3.1-1-5.4-3.4-5.4-7V3.4Z" fill="currentColor"/></svg>'
+  };
+
+  function icon(name, cls = '') {
+    return `<i class="sd-ic ${cls}" aria-hidden="true">${ICONS[name] || ''}</i>`;
+  }
+
+  function coinsHtml(value) {
+    return `<span class="sd-coins">${icon('coin')}<b>${num(value, 0)}</b></span>`;
+  }
+
   const state = {
     mode: 'home',
     ws: null,
@@ -128,6 +158,72 @@
 
   function myManager() {
     return managerByIdx(state.game?.you?.managerIdx);
+  }
+
+  const STAGE_ICONS = ['chart', 'medal', 'jersey'];
+  const FLOW_STEPS = [
+    { key: 1, ic: 'chart', label: '① 数据轮', desc: '看数据 · 认领+锁定' },
+    { key: 2, ic: 'medal', label: '② 荣誉轮', desc: '荣誉揭示 · 可换/抢/比价' },
+    { key: 3, ic: 'jersey', label: '③ 球队轮', desc: '球队揭示 · 最后调整' },
+    { key: 4, ic: 'star', label: '④ 揭晓', desc: '翻牌 · 确认归属' }
+  ];
+
+  function stageNow() {
+    const game = state.game || {};
+    if (game.phase !== 'draft') return 4;
+    return Math.min(3, Math.max(1, num(game.stage, 1)));
+  }
+
+  function flowStepNow() {
+    const game = state.game || {};
+    return game.cards?.some(card => card.revealed) ? 4 : stageNow();
+  }
+
+  function statTone(value, hi, mid) {
+    const v = num(value, 0);
+    return v >= hi ? 'elite' : v >= mid ? 'good' : '';
+  }
+
+  function honorBadgeClass(text) {
+    if (/MVP|FMVP|冠军|一阵|得分王/.test(text)) return 'gold';
+    if (/防|篮板|助攻|盖帽|抢断|DPOY/.test(text)) return 'cyan';
+    if (/较少|暂无/.test(text)) return 'none';
+    return 'pri';
+  }
+
+  function honorBadgesHtml(summary, max = 8) {
+    const parts = String(summary || '').split('/').map(part => part.trim()).filter(Boolean);
+    if (!parts.length) return '<span class="sd-honor none">生涯荣誉较少</span>';
+    return parts.slice(0, max).map(part => `<span class="sd-honor ${honorBadgeClass(part)}">${esc(part)}</span>`).join('')
+      + (parts.length > max ? `<span class="sd-honor none">+${parts.length - max}</span>` : '');
+  }
+
+  function managerHoldingCard(idx) {
+    return state.game?.cards?.find(card => card.ownerIdx === idx) || null;
+  }
+
+  function managerTurnState(mgr) {
+    const game = state.game || {};
+    if (game.activeIdx === mgr.idx) return { key: 'acting', label: '行动中' };
+    if (!mgr.connected) return { key: 'skip', label: '离线' };
+    const card = managerHoldingCard(mgr.idx);
+    if (stageNow() >= 2 && card?.locked) return { key: 'skip', label: '锁定 · 跳过' };
+    if (card) return card.locked ? { key: 'done', label: '✓ 已锁定' } : { key: 'done', label: '✓ 已持卡' };
+    return { key: 'wait', label: '待行动' };
+  }
+
+  function resultOwner(entry) {
+    return {
+      name: entry.manager,
+      teamName: entry.teamName,
+      color: entry.color,
+      human: entry.managerIdx === state.game?.you?.managerIdx
+    };
+  }
+
+  function recordDiff(record) {
+    const gp = Math.max(1, num(record?.gp, 82));
+    return ((num(record?.pf, 0) - num(record?.pa, 0)) / gp).toFixed(1);
   }
 
   function stageLabel(game = state.game) {
@@ -464,20 +560,22 @@
     if (game.phase === 'results') return renderResults();
     return `
       ${topbar()}
-      ${renderFlowbar()}
-      ${renderManagerStrip()}
       <div class="sd-draft-layout">
-        <main>
-          ${renderActionBar()}
-          <div class="sd-card-stage" style="margin-top:12px">
+        <section class="sd-main">
+          ${renderFlowbar()}
+          ${renderManagerStrip()}
+          <div class="sd-card-stage">
+            ${renderStageHeadline()}
             <div class="sd-card-grid">
               ${game.cards.map(renderCard).join('')}
             </div>
           </div>
-        </main>
+          <div class="sd-action-zone">${renderActionBar()}</div>
+        </section>
         <aside class="sd-side">
-          <h3>阵容与日志</h3>
+          <h3>我的阵容</h3>
           ${renderRosters()}
+          <h3>实况</h3>
           ${renderLog()}
         </aside>
       </div>
@@ -486,50 +584,65 @@
 
   function renderFlowbar() {
     const game = state.game || {};
-    const dots = SLOTS.map((slot, index) => {
-      const cls = index < num(game.posIndex, 0) ? 'done' : index === num(game.posIndex, 0) ? 'now' : '';
-      return `<i class="${cls}" title="${esc(slot.short)}"></i>`;
-    }).join('');
+    const stepNow = flowStepNow();
     return `
       <div class="sd-flowbar">
         <div class="sd-flow-pos">
-          <div class="sd-flow-pos-big">${esc(game.pos || '--')}</div>
-          <div class="sd-flow-pos-sub">${esc(game.posName || '')}</div>
-          <div class="sd-flow-pos-dots">${dots}</div>
+          <span class="sd-flow-pos-big">${esc(game.pos || '--')}</span>
+          <span class="sd-flow-pos-sub">位置 ${num(game.posIndex, 0) + 1}/5</span>
+          <div class="sd-flow-pos-dots">
+            ${SLOTS.map((slot, index) => `<i class="${index < num(game.posIndex, 0) ? 'done' : index === num(game.posIndex, 0) ? 'now' : ''}" title="${esc(slot.short)}"></i>`).join('')}
+          </div>
         </div>
         <div class="sd-flow-steps">
-          ${[1, 2, 3].map(stage => `
-            <div class="sd-flow-step ${stage < game.stage ? 'done' : stage === game.stage ? 'now' : ''}">
-              <div class="sd-flow-step-head">第${stage}轮${stage < game.stage ? '<b>✓</b>' : ''}</div>
-              <div class="sd-flow-step-desc">${STAGE_LABELS[stage]}</div>
-            </div>
-            ${stage < 3 ? '<div class="sd-flow-link"></div>' : ''}
-          `).join('')}
+          ${FLOW_STEPS.map(step => {
+            const cls = stepNow > step.key ? 'done' : stepNow === step.key ? 'now' : '';
+            return `
+              <div class="sd-flow-step ${cls}">
+                <div class="sd-flow-step-head">${icon(step.ic)}${step.label}${cls === 'done' ? '<b>✓</b>' : ''}</div>
+                <div class="sd-flow-step-desc">${step.desc}</div>
+              </div>`;
+          }).join('<span class="sd-flow-link"></span>')}
         </div>
       </div>`;
+  }
+
+  function renderStageHeadline() {
+    const game = state.game || {};
+    if (game.cards?.some(card => card.revealed)) {
+      return `<div class="sd-headline reveal">${icon('star')}<b>身份揭晓</b><span>翻牌!看看每位经理抢到了谁</span></div>`;
+    }
+    const stage = stageNow();
+    const copy = stage === 1
+      ? { b: '第1轮 · 数据轮', s: '只显示巅峰数据 → 按顺序认领一张卡,并决定是否锁定' }
+      : stage === 2
+        ? { b: '第2轮 · 荣誉轮', s: '生涯荣誉已揭示 → 未锁定者轮流行动: 保持 / 换无主卡 / 截胡未锁卡 / 对锁定卡比价' }
+        : { b: '第3轮 · 球队轮(最终轮)', s: '效力球队已揭示 → 最后调整机会,本轮结束后全员强制锁定并翻牌' };
+    return `<div class="sd-headline s${stage}">${icon(STAGE_ICONS[stage - 1])}<b>${copy.b}</b><span>${copy.s}</span></div>`;
   }
 
   function renderManagerStrip() {
     const game = state.game;
     return `
       <div class="sd-mgr-strip" style="grid-template-columns:repeat(${Math.max(2, game.managers.length)},1fr)">
-        ${game.managers.map(mgr => {
+        ${game.managers.map((mgr, orderIdx) => {
           const active = game.activeIdx === mgr.idx;
           const mine = game.you?.managerIdx === mgr.idx;
           const card = game.cards.find(c => c.ownerIdx === mgr.idx);
+          const st = managerTurnState(mgr);
           return `
-            <div class="sd-mgr ${active ? 'active' : ''} ${mine ? 'human' : ''}" style="--mc:${mgr.color}">
-              <span class="sd-mgr-order">席位${mgr.idx + 1}</span>
-              <div class="sd-mgr-ava">${mgr.kind === 'ai' ? 'AI' : 'P'}</div>
+            <div class="sd-mgr ${active ? 'active' : ''} ${mine ? 'human' : ''} st-${st.key}" style="--mc:${mgr.color}">
+              <span class="sd-mgr-order">顺位${orderIdx + 1}</span>
+              <div class="sd-mgr-ava">${icon(mgr.kind === 'ai' ? 'bot' : 'user')}</div>
               <div class="sd-mgr-info">
                 <div class="sd-mgr-name">${esc(mgr.name)}${mine ? '（你）' : ''}</div>
                 <div class="sd-mgr-team">${esc(mgr.teamName)}</div>
               </div>
               <div class="sd-mgr-state">
-                <span class="sd-coins"><b>${num(mgr.coins, 0)}</b>金币</span>
-                <span class="sd-mgr-hold ${card?.locked ? 'lk' : ''}">${card ? `${card.no}号${card.locked ? ' 已锁' : ''}` : '未持卡'}</span>
+                ${coinsHtml(mgr.coins)}
+                <span class="sd-mgr-hold ${card?.locked ? 'lk' : ''}">${card ? `${icon(card.locked ? 'lock' : 'unlock')}${card.no}号` : '未持卡'}</span>
               </div>
-              <div class="sd-mgr-turnchip ${active ? 'acting' : 'wait'}">${active ? '行动中' : (mgr.connected ? '待命' : '离线')}</div>
+              <div class="sd-mgr-turnchip ${st.key}">${st.label}</div>
             </div>`;
         }).join('')}
       </div>`;
@@ -537,36 +650,48 @@
 
   function renderActionBar() {
     const game = state.game;
+    if (game.awaiting === 'bid_attack' || game.awaiting === 'bid_defend') {
+      return `<div class="sd-hint dim">${icon('gavel')}金币比价进行中...</div>`;
+    }
     if (!game.you?.canAct) {
       const active = game.activeName ? `等待 ${game.activeName} 操作` : '等待服务端推进';
-      return `<div class="sd-hint dim">${esc(active)}</div>`;
+      const activeMgr = game.managers.find(mgr => mgr.idx === game.activeIdx);
+      if (activeMgr && activeMgr.kind !== 'human') {
+        return `
+          <div class="sd-callout thinking" style="--mc:${activeMgr.color}">
+            <div class="sd-callout-ava">${icon('bot')}</div>
+            <div class="sd-callout-copy">
+              <b>轮到 ${esc(activeMgr.name)}</b>
+              <span class="sd-thinking">正在思考<i>.</i><i>.</i><i>.</i></span>
+            </div>
+          </div>`;
+      }
+      return `<div class="sd-hint dim">${icon('ball')}${esc(active)}</div>`;
     }
     if (game.awaiting === 'claim') {
-      return turnBanner('认领一张卡', '点击任意无主卡，随后决定是否锁定。');
+      return turnBanner('认领一张卡', '点击任意一张【无主】卡牌,收入囊中');
     }
     if (game.awaiting === 'reclaim') {
-      return turnBanner('重新认领', '你的上一张卡被抢走了，从无主卡里选一张补回。');
+      return turnBanner('重新认领', '你的卡被夺走了!点击一张【无主】卡牌补选');
     }
     if (game.awaiting === 'lockchoice') {
-      return turnBanner('是否锁定当前卡', '锁定后只能被金币比价抢走；不锁定则下一轮仍可调整。', `
-        <button class="manager-btn primary" data-sdo="lock-yes" type="button">锁定</button>
-        <button class="manager-btn secondary" data-sdo="lock-no" type="button">暂不锁</button>`);
+      return turnBanner('是否锁定?', '锁定=不能再换,对手要抢必须比价且出价超过卡的当前身价;不锁=下一轮还能换,但可能被免费截胡', `
+        <button class="manager-btn primary sd-btn-ic" data-sdo="lock-yes" type="button">${icon('lock')}锁定这张卡</button>
+        <button class="manager-btn secondary sd-btn-ic" data-sdo="lock-no" type="button">${icon('unlock')}保持灵活</button>`);
     }
     if (game.awaiting === 'action') {
-      return turnBanner('行动回合', '保留当前卡，或点击场上的其他卡进行换取、截胡、比价。', `
-        <button class="manager-btn primary" data-sdo="keep-lock" type="button">锁定当前卡</button>
-        <button class="manager-btn secondary" data-sdo="keep" type="button">保持观望</button>`);
+      const mine = managerHoldingCard(game.you.managerIdx);
+      return turnBanner('调整或坚守', '点对手的卡: 未锁定→免费截胡 / 已锁定→金币比价;或处理自己的持卡', `
+        <button class="manager-btn primary sd-btn-ic" data-sdo="keep-lock" type="button">${icon('lock')}锁定当前 ${mine ? `${mine.no}号卡` : ''}</button>
+        <button class="manager-btn secondary sd-btn-ic" data-sdo="keep" type="button">${icon('eye')}保持观望</button>`);
     }
-    if (game.awaiting === 'bid_attack' || game.awaiting === 'bid_defend') {
-      return renderBidBar();
-    }
-    return `<div class="sd-hint">等待操作</div>`;
+    return `<div class="sd-hint">${icon('ball')}等待操作</div>`;
   }
 
   function turnBanner(title, sub, extra = '') {
     return `
       <div class="sd-turn-banner">
-        <div class="sd-turn-badge">你的回合</div>
+        <div class="sd-turn-badge">${icon('user')}<b>你的回合</b></div>
         <div class="sd-turn-copy"><strong>${esc(title)}</strong><span>${esc(sub)}</span></div>
         ${extra ? `<div class="sd-action-row">${extra}</div>` : ''}
       </div>`;
@@ -600,15 +725,45 @@
       </div>`;
   }
 
+  function renderBidModal() {
+    const game = state.game;
+    const bid = game?.bid;
+    if (!bid || !['bid_attack', 'bid_defend'].includes(game.awaiting)) return '';
+    const card = game.cards.find(c => c.idx === bid.cardIdx);
+    const challenger = managerByIdx(bid.challengerIdx) || {};
+    const defender = managerByIdx(bid.defenderIdx) || {};
+    const isDefend = game.awaiting === 'bid_defend';
+    const limits = bidLimits();
+    state.bidValue = clamp(num(state.bidValue, limits.min), limits.min, limits.max);
+    return `
+      <div class="sd-modal-bg">
+        <div class="sd-modal">
+          <h3>${icon('gavel')}金币比价 · ${card ? `${card.no}号卡` : '目标卡'} <span class="sd-price-chip">${icon('coin')}身价 ${num(bid.price, 0)}</span></h3>
+          <p class="sd-bid-tip">${isDefend
+            ? `<b>${esc(challenger.name)}</b> 想抢走你锁定的卡。你已押 <b>${num(bid.price, 0)}</b> 金币在这张卡上,这里决定总承诺(只补差价)。`
+            : `对 <b>${esc(defender.name)}</b> 锁定的卡出价。当前身价 <b>${num(bid.price, 0)}</b>,总出价必须超过身价且高于守方总承诺才能抢到。`}</p>
+          <div class="sd-bid-stepper">
+            <button data-sdo="bid-minus" type="button" aria-label="减少">-</button>
+            <span class="sd-bid-value">${icon('coin')}<input class="sdo-bid-input" id="sdoBidInput" type="number" min="${limits.min}" max="${limits.max}" value="${state.bidValue}"></span>
+            <button data-sdo="bid-plus" type="button" aria-label="增加">+</button>
+            <em>${isDefend ? `总承诺(范围 ${limits.min}-${limits.max})` : `/ 手上 ${num(myManager()?.coins, 0)} 枚`}</em>
+          </div>
+          <div class="sd-action-row center">
+            <button class="manager-btn primary sd-btn-ic" data-sdo="submit-bid" type="button">${icon(isDefend ? 'shield' : 'gavel')}确认暗价</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
   function cardHint(card) {
     const game = state.game;
     if (!game?.you?.canAct) return null;
     if ((game.awaiting === 'claim' || game.awaiting === 'reclaim') && card.ownerIdx < 0) {
-      return game.awaiting === 'claim' ? '认领' : '重选';
+      return { label: game.awaiting === 'claim' ? '点击认领' : '点击补选', ic: 'star' };
     }
     if (game.awaiting === 'action' && card.ownerIdx !== game.you.managerIdx) {
-      if (card.locked && card.ownerIdx >= 0) return myManager()?.coins >= card.price + 1 ? `比价 ${card.price + 1}+` : null;
-      if (!card.locked) return card.ownerIdx >= 0 ? '截胡' : '换取';
+      if (card.locked && card.ownerIdx >= 0) return myManager()?.coins >= card.price + 1 ? { label: `比价 ≥${card.price + 1}`, ic: 'gavel' } : null;
+      if (!card.locked) return card.ownerIdx >= 0 ? { label: '点击截胡', ic: 'bolt' } : { label: '点击换取', ic: 'swap' };
     }
     return null;
   }
@@ -623,24 +778,24 @@
     if (card.ownerIdx === state.game?.you?.managerIdx) cls.push('is-mine');
     if (hint) cls.push('actionable');
     const stats = card.stats || {};
+    const stage = stageNow();
     return `
       <div class="${cls.join(' ')}" data-card="${card.idx}" style="--di:${card.idx}">
-        ${owner ? `<div class="sd-owner-ribbon" style="--mc:${owner.color}">${esc(owner.name)}${card.price ? ` · ${card.price}金` : ''}</div>`
-        : '<div class="sd-owner-ribbon free">无主</div>'}
+        ${owner ? `<div class="sd-owner-ribbon" style="--mc:${owner.color}">${icon(owner.kind === 'ai' ? 'bot' : 'user')}${esc(owner.name)}${card.price ? ` <span class="sd-rib-cost">${icon('coin')}${card.price}</span>` : ''}</div>`
+        : `<div class="sd-owner-ribbon free">${icon('eye')}无主</div>`}
         <div class="sd-card-inner">
           <div class="sd-card-back">
             <div class="sd-card-head">
-              <span class="sd-card-no">${card.no}号卡</span>
-              <span class="sdo-card-label">${card.locked ? '已锁定' : '可争夺'}</span>
+              <span class="sd-card-no">${icon('ball')}${card.no}号卡</span>
+              ${card.locked ? `<span class="sd-lock">${icon('lock')}已锁定</span>` : `<span class="sd-lock open">${icon('unlock')}可争夺</span>`}
             </div>
-            <div class="sdo-card-title">${esc(card.revealed ? card.name : '神秘全明星')}</div>
-            <div class="sdo-card-sub">${esc(card.peak || '球队轮揭示峰值赛季')}</div>
+            <div class="sd-mystery">${icon('silhouette', 'big')}<em>神秘全明星</em></div>
             <div class="sd-sec">
-              <div class="sd-sec-title on">巅峰数据</div>
+              <div class="sd-sec-title on">${icon('chart')}巅峰数据</div>
               <div class="sd-stat-main">
-                <div><strong>${fmt1(stats.ppg)}</strong><span>得分</span></div>
-                <div><strong>${fmt1(stats.rpg)}</strong><span>篮板</span></div>
-                <div><strong>${fmt1(stats.apg)}</strong><span>助攻</span></div>
+                <div class="${statTone(stats.ppg, 27, 20)}"><strong>${fmt1(stats.ppg)}</strong><span>得分</span></div>
+                <div class="${statTone(stats.rpg, 10, 7)}"><strong>${fmt1(stats.rpg)}</strong><span>篮板</span></div>
+                <div class="${statTone(stats.apg, 8, 5.5)}"><strong>${fmt1(stats.apg)}</strong><span>助攻</span></div>
               </div>
               <div class="sd-stat-sub">
                 <span>断 <b>${fmt1(stats.spg)}</b></span>
@@ -649,60 +804,58 @@
                 <span>三分 <b>${num(stats.tpPct, 0) > 0 ? `${fmt1(stats.tpPct)}%` : '--'}</b></span>
               </div>
             </div>
-            <div class="sd-sec ${card.honors ? '' : 'sealed'}">
-              <div class="sd-sec-title ${card.honors ? 'on' : ''}">生涯荣誉${card.honors ? '' : '<em>荣誉轮揭示</em>'}</div>
-              ${card.honors ? renderHonors(card.honors) : ''}
+            <div class="sd-sec ${card.honors ? (stage === 2 ? 'new-info' : '') : 'sealed'}">
+              <div class="sd-sec-title ${card.honors ? 'on' : ''}">${icon('medal')}生涯荣誉${card.honors ? '' : '<em>荣誉轮揭示</em>'}</div>
+              ${card.honors ? `<div class="sd-honor-row">${honorBadgesHtml(card.honors)}</div>` : ''}
             </div>
-            <div class="sd-sec ${card.peak ? '' : 'sealed'}">
-              <div class="sd-sec-title ${card.peak ? 'on' : ''}">效力球队${card.peak ? '' : '<em>球队轮揭示</em>'}</div>
+            <div class="sd-sec ${card.peak ? 'new-info' : 'sealed'}">
+              <div class="sd-sec-title ${card.peak ? 'on' : ''}">${icon('jersey')}效力球队${card.peak ? '' : '<em>球队轮揭示</em>'}</div>
               ${card.peak ? `<div class="sd-team-row">${esc(card.peak)}</div>` : ''}
             </div>
-            ${hint ? `<div class="sd-act-hint">${esc(hint)}</div>` : ''}
+            ${hint ? `<div class="sd-act-hint">${icon(hint.ic)}${esc(hint.label)}</div>` : ''}
           </div>
-          <div class="sd-card-front">
-            <div class="sdo-front">
-              <div class="sdo-front-name">${esc(card.name || '全明星')}</div>
-              <div class="sdo-front-peak">${esc(card.peak || '')}</div>
-              <div class="sdo-front-price">${card.price ? `身价 ${card.price} 金币` : '自由签入'}</div>
+          ${card.revealed ? `
+            <div class="sd-card-front">
+              <div class="sdo-front">
+                ${icon('silhouette', 'big')}
+                <div class="sd-front-name">${esc(card.name || '全明星')}</div>
+                <div class="sd-front-sub">${esc(card.peak || '')}</div>
+                <div class="sd-front-ovr">身价 <b>${num(card.price, 0)}</b> 金币</div>
+              </div>
             </div>
-          </div>
+          ` : ''}
         </div>
       </div>`;
   }
 
   function renderHonors(text) {
-    const parts = String(text || '').split('/').map(s => s.trim()).filter(Boolean).slice(0, 8);
-    if (!parts.length) return '<div class="sdo-honor-row"><span>荣誉较少</span></div>';
-    return `<div class="sdo-honor-row">${parts.map(part => `<span>${esc(part)}</span>`).join('')}</div>`;
+    return `<div class="sd-honor-row">${honorBadgesHtml(text)}</div>`;
   }
 
   function renderRosters() {
     const game = state.game;
+    const idx = Math.max(0, num(game.you?.managerIdx, 0));
+    const roster = game.rosters[idx] || game.rosters[0] || { players: [] };
     return `
-      <div class="sdo-roster-all">
-        ${game.rosters.map(roster => `
-          <div class="sdo-roster-team" style="--mc:${roster.color}">
-            <div class="sdo-roster-head">
-              <b>${esc(roster.teamName || roster.manager)}</b>
-              <span>${roster.players.filter(Boolean).length}/5</span>
-            </div>
-            <div class="sdo-roster-slots">
-              ${SLOTS.map((slot, idx) => {
-                const p = roster.players[idx];
-                return `<div class="sdo-roster-slot"><b>${slot.short}</b><span>${p ? `${esc(p.name)} · ${esc(p.peak)}` : '空位'}</span></div>`;
-              }).join('')}
-            </div>
-          </div>
-        `).join('')}
+      <div class="sd-roster">
+        ${SLOTS.map((slot, slotIdx) => {
+          const player = roster.players?.[slotIdx];
+          return `
+            <div class="sd-roster-row ${player ? 'filled' : ''} ${slotIdx === num(game.posIndex, -1) && game.phase === 'draft' ? 'now' : ''}">
+              <span class="sd-roster-pos">${slot.short}</span>
+              <span class="sd-roster-name">${player ? esc(player.name) : (slotIdx === num(game.posIndex, -1) ? '选秀中...' : '待选')}</span>
+              <span class="sd-roster-src">${player ? `${esc(player.peak)}${player.price ? ` ${coinsHtml(player.price)}` : ''}` : ''}</span>
+            </div>`;
+        }).join('')}
       </div>`;
   }
 
   function renderLog() {
     const logs = state.game?.log || [];
-    if (!logs.length) return '<div class="sd-log" style="margin-top:12px"><div class="sd-log-line">等待第一条日志</div></div>';
+    if (!logs.length) return '<div class="sd-log"><div class="sd-log-line">等待第一条日志</div></div>';
     return `
-      <div class="sd-log" style="margin-top:12px">
-        ${logs.map(item => `<div class="sd-log-line ${esc(item.kind || '')}">${esc(item.text)}</div>`).join('')}
+      <div class="sd-log">
+        ${logs.slice(0, 12).map(item => `<div class="sd-log-line ${esc(item.kind || '')}">${icon({ me: 'user', ai: 'bot', duel: 'gavel', stage: 'flag', reveal: 'star', info: 'ball' }[item.kind] || 'ball')}<span>${esc(item.text)}</span></div>`).join('')}
       </div>`;
   }
 
@@ -711,7 +864,7 @@
     const picked = game.era || null;
     return `
       ${topbar()}
-      <section class="sd-era-layout">
+      <div class="sd-era-layout">
         <h2 class="sd-era-title">${picked ? `命运降临 · ${picked.year} ${esc(picked.label)}` : '五支梦之队集结完毕'}</h2>
         <p class="sd-era-sub">${picked ? esc(picked.desc) : '由房主启动服务端年代转盘，所有玩家看到同一个年代结果'}</p>
         <div class="sd-era-wheel ${picked ? 'landed' : ''}">
@@ -723,20 +876,20 @@
             </div>
           `).join('')}
         </div>
-        ${game.you?.canRollEra ? `<button class="manager-btn massive primary" data-sdo="roll-era" type="button">启动命运转盘</button>` : ''}
-        ${!game.you?.canRollEra && !picked ? '<div class="sd-hint dim">等待房主启动年代转盘</div>' : ''}
+        ${game.you?.canRollEra ? `<button class="manager-btn massive primary sd-btn-ic" data-sdo="roll-era" type="button">${icon('bolt')}启动命运转盘</button>` : ''}
+        ${!game.you?.canRollEra && !picked ? `<div class="sd-hint dim">${icon('ball')}等待房主启动年代转盘</div>` : ''}
+        ${picked ? `<div class="sd-era-go">正在空降 ${picked.year} 联盟,所有玩家同步开打 82 场...</div>` : ''}
         <div class="sd-recap-grid">
           ${game.rosters.map(roster => `
             <div class="sd-recap-team" style="--mc:${roster.color}">
-              <div class="sd-recap-head"><b>${esc(roster.teamName)}</b><em>${roster.players.filter(Boolean).length}/5</em></div>
+              <div class="sd-recap-head">${icon(roster.managerIdx === game.you?.managerIdx ? 'user' : 'bot')}<b>${esc(roster.manager)} · ${esc(roster.teamName)}</b><em>${roster.players.filter(Boolean).length}/5</em></div>
               <div class="sd-recap-players">
-                ${roster.players.filter(Boolean).map(player => `<span><b>${esc(player.slot)}</b>${esc(player.name)}</span>`).join('')}
+                ${roster.players.filter(Boolean).map(player => `<span><b>${esc(player.slot)}</b> ${esc(player.name)}</span>`).join('')}
               </div>
             </div>
           `).join('')}
         </div>
-        ${renderLog()}
-      </section>`;
+      </div>`;
   }
 
   function renderSim() {
@@ -745,35 +898,35 @@
     const maxW = Math.max(1, ...rows.map(row => num(row.w, 0)));
     return `
       ${topbar()}
-      <section class="sd-sim-layout">
+      <div class="sd-sim-layout">
         <div class="sd-sim-head">
-          <h2>${game.era ? `${game.era.year} ${esc(game.era.label)} · 联网赛季直播` : '服务端赛季模拟'}</h2>
+          <h2>${icon('ball')}${game.era ? `${game.era.year} ${esc(game.era.label)} · 五队争霸直播` : '服务端赛季模拟'}</h2>
           <span class="sd-sim-round">ROUND ${num(game.simRound, 0)} / 82</span>
+          <span class="live-pill">LIVE</span>
         </div>
         <div class="sd-sim-progress"><i style="width:${(num(game.simRound, 0) / 82 * 100).toFixed(1)}%"></i></div>
         <div class="sd-race">
           ${rows.map((row, index) => {
             const pct = (num(row.w, 0) / maxW * 100).toFixed(1);
             const last = row.last || null;
+            const isMine = row.managerIdx === game.you?.managerIdx;
             return `
-              <div class="sd-race-row ${index === 0 ? 'leader' : ''}" style="--mc:${row.color}">
-                <span class="sd-race-rank">#${index + 1}</span>
-                <span class="sd-race-team">${esc(row.teamName)}<small>${esc(row.manager)}</small></span>
+              <div class="sd-race-row ${isMine ? 'human' : ''} ${index === 0 ? 'leader' : ''}" style="--mc:${row.color}">
+                <span class="sd-race-rank">${index === 0 ? icon('crown') : `#${index + 1}`}</span>
+                <span class="sd-race-team">${esc(row.teamName)}<small>${icon(isMine ? 'user' : 'bot')}${esc(row.manager)}</small></span>
                 <span class="sd-race-bar"><i style="width:${pct}%"></i></span>
-                <span class="sd-race-rec">${num(row.w, 0)}<em>-</em>${num(row.l, 0)}</span>
+                <span class="sd-race-rec">${num(row.w, 0)}<em>胜</em>${num(row.l, 0)}<em>负</em></span>
                 <span class="sd-race-last ${last?.win ? 'w' : 'l'} ${last?.derby ? 'derby' : ''}">
-                  ${last ? `${last.win ? 'W' : 'L'} ${last.my}-${last.opp} vs ${esc(last.oppName)}` : '等待开赛'}
+                  ${last ? `${last.derby ? icon('gavel') : ''}${last.win ? 'W' : 'L'} ${last.my}-${last.opp} ${last.home ? 'vs' : '@'} ${esc(last.oppName)}` : '--'}
                 </span>
-                <span class="sd-race-streak">${num(row.derbyW, 0)}-${num(row.derbyL, 0)} 德比</span>
+                <span class="sd-race-streak">${num(row.streak, 0) > 2 ? `${icon('bolt')}${num(row.streak, 0)}连胜` : num(row.streak, 0) < -2 ? `${-num(row.streak, 0)}连败` : `德比 ${num(row.derbyW, 0)}-${num(row.derbyL, 0)}`}</span>
               </div>`;
           }).join('')}
         </div>
         <div class="sim-actions">
-          ${game.you?.canSkipSim ? `<button class="manager-btn ghost" data-sdo="skip-sim" type="button">${game.skipSim ? '快进中...' : '跳过直播动画'}</button>` : ''}
+          ${game.you?.canSkipSim ? `<button class="manager-btn ghost" data-sdo="skip-sim" type="button">${game.skipSim ? '⏩ 快进中...' : '⏩ 跳过动画,直接看结果'}</button>` : ''}
         </div>
-        ${renderStandingsPreview()}
-        ${renderLog()}
-      </section>`;
+      </div>`;
   }
 
   function renderStandingsPreview() {
@@ -796,38 +949,88 @@
     const entries = game?.result?.entries || [];
     const champ = entries[0];
     const era = game?.result?.era || game?.era || {};
+    const standings = game?.result?.standings || game?.standings || [];
     return `
       ${topbar()}
-      <section class="sd-results">
+      <div class="sd-results">
         ${champ ? `
-          <div class="sd-champ-hero" style="--mc:${champ.color}">
-            <div class="sd-results grade-stamp"><div class="grade-letter">${esc(champ.grade?.letter || '#1')}</div><div class="grade-sub">${num(champ.record?.w, 0)} WINS</div></div>
-            <div>
+          <section class="sd-champ-hero" style="--mc:${champ.color}">
+            <div class="sd-confetti" aria-hidden="true">${Array.from({ length: 14 }, (_, i) => `<i style="--ci:${i}"></i>`).join('')}</div>
+            <div class="sd-champ-trophy">${icon('trophy', 'huge')}</div>
+            <div class="sd-champ-copy">
               <p class="sd-champ-kicker">${era.year ? `${era.year} ${esc(era.label)}` : 'ONLINE ALL-STAR SHOWDOWN'} · 最强球队</p>
               <h2>${esc(champ.teamName)}</h2>
               <p class="sd-champ-sub">${esc(champ.manager)} · 战绩 ${num(champ.record?.w, 0)}-${num(champ.record?.l, 0)} · 德比 ${num(champ.derbyW, 0)}-${num(champ.derbyL, 0)} · 联盟第 ${num(champ.leagueRank, 0)}</p>
+              <p class="sd-champ-motto">联网对局 · 服务端权威模拟</p>
             </div>
-          </div>` : ''}
-        <div class="sdo-result-grid">
+            <div class="grade-stamp ${esc(champ.grade?.cls || '')}">
+              <span class="grade-letter">${esc(champ.grade?.letter || '#1')}</span>
+              <span class="grade-sub">${num(champ.record?.w, 0)} WINS</span>
+            </div>
+          </section>` : ''}
+
+        <section class="sd-podium">
           ${entries.map(entry => `
-            <article class="sdo-panel sd-team-card" style="--mc:${entry.color}">
-              <div class="sdo-roster-head">
-                <b>#${entry.rank} ${esc(entry.teamName)}</b>
-                <span>${num(entry.record?.w, 0)}-${num(entry.record?.l, 0)}</span>
-              </div>
-              <p>${esc(entry.manager)} · 联盟第 ${num(entry.leagueRank, 0)} · 德比 ${num(entry.derbyW, 0)}-${num(entry.derbyL, 0)} · 强度 ${fmt1(entry.strength)} · 剩余 ${num(entry.coinsLeft, 0)} 金币 · 花费 ${num(entry.coinsSpent, 0)} 金币</p>
-              <div class="sdo-player-tags">
-                ${entry.players.map(player => `<span><b>${esc(player.slot)}</b> ${esc(player.name)} · ${fmt1(player.ppg)}分 ${fmt1(player.rpg)}板 ${fmt1(player.apg)}助 · ${fmt1(player.mpg)}分钟${player.price ? ` · ${player.price}金` : ''}</span>`).join('')}
-              </div>
-            </article>
+            <div class="sd-podium-row ${entry.rank === 1 ? 'first' : ''} ${entry.managerIdx === game.you?.managerIdx ? 'human' : ''}" style="--mc:${entry.color}">
+              <span class="sd-podium-rank">${entry.rank === 1 ? icon('crown') : `#${entry.rank}`}</span>
+              <span class="sd-podium-team">${esc(entry.teamName)}<small>${esc(entry.manager)}</small></span>
+              <span class="sd-podium-rec">${num(entry.record?.w, 0)}-${num(entry.record?.l, 0)}</span>
+              <span class="sd-podium-derby">德比 ${num(entry.derbyW, 0)}-${num(entry.derbyL, 0)}</span>
+              <span class="sd-podium-diff">净胜 ${recordDiff(entry.record)}</span>
+              <span class="sd-podium-rank2">联盟第${num(entry.leagueRank, 0)}</span>
+              <span class="sd-podium-coin">${coinsHtml(entry.coinsLeft)}</span>
+              <span class="sd-podium-grade ${esc(entry.grade?.cls || '')}">${esc(entry.grade?.letter || '')}</span>
+            </div>
           `).join('')}
+        </section>
+
+        ${entries.map(entry => `
+          <article class="result-card full sd-team-card ${entry.managerIdx === game.you?.managerIdx ? 'human' : ''}" style="--mc:${entry.color}">
+            <h3>${entry.rank === 1 ? '🏆 ' : `#${entry.rank} `}${esc(entry.teamName)} <small>· ${esc(entry.manager)} · ${num(entry.record?.w, 0)}-${num(entry.record?.l, 0)} · 花费💰${num(entry.coinsSpent, 0)}</small></h3>
+            <div class="tbl"><table>
+              <thead><tr><th>位置</th><th>球员</th><th>巅峰来源</th><th>获得方式</th><th>GP</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>FG%</th><th>3P%</th></tr></thead>
+              <tbody>
+                ${(entry.players || []).map(player => `
+                  <tr>
+                    <td>${esc(player.slot)}</td>
+                    <td class="sd-res-name">${esc(player.name)}</td>
+                    <td>${esc(player.peak || '--')}</td>
+                    <td>${esc(acquiredText(player))}</td>
+                    <td>${num(player.gp, 0)}</td>
+                    <td>${fmt1(player.mpg)}</td>
+                    <td>${fmt1(player.ppg)}</td>
+                    <td>${fmt1(player.rpg)}</td>
+                    <td>${fmt1(player.apg)}</td>
+                    <td>${fmt1(player.spg)}</td>
+                    <td>${fmt1(player.bpg)}</td>
+                    <td>${player.fgPct ?? '--'}</td>
+                    <td>${player.tpPct ?? '--'}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table></div>
+          </article>
+        `).join('')}
+
+        <div class="results-grid">
+          <article class="result-card">
+            <h3>金币账本</h3>
+            ${entries.map(entry => `
+              <div class="award-row"><span>${esc(entry.manager)}</span><strong>花 ${num(entry.coinsSpent, 0)} / 剩 ${num(entry.coinsLeft, 0)}</strong></div>`).join('')}
+            ${renderDuelRecapInline()}
+          </article>
+          <article class="result-card">
+            <h3>${era.year ? `${era.year} ` : ''}联盟格局</h3>
+            ${standings.slice(0, 10).map((row, index) => `
+              <div class="award-row ${row.kind === 'manager' ? 'sd-standing-us' : ''}">
+                <span>#${row.rank || index + 1} ${esc(row.name || row.z || row.n || '')}</span><strong>${num(row.w, 0)}-${num(row.l, 0)}</strong>
+              </div>`).join('')}
+          </article>
         </div>
-        ${renderFinalStandings()}
-        ${renderDuelRecap()}
+
         <footer class="results-footer">
-          <button class="manager-btn massive secondary" data-sdo="back" type="button">返回主菜单</button>
+          <button class="manager-btn massive secondary sd-btn-ic" data-sdo="back" type="button">${icon('flag')}返回主菜单</button>
         </footer>
-      </section>`;
+      </div>`;
   }
 
   function renderFinalStandings() {
@@ -843,6 +1046,21 @@
           </div>
         `).join('')}
       </article>`;
+  }
+
+  function acquiredText(player) {
+    if (!player) return '';
+    if (player.acquiredBy === 'duel') return `比价夺得${player.price ? ` 💰${player.price}` : ''}`;
+    if (player.acquiredBy === 'steal') return '中途截胡';
+    if (player.acquiredBy === 'reclaim') return '被抢后补选';
+    return player.price ? `防守保住 💰${player.price}` : '直接认领';
+  }
+
+  function renderDuelRecapInline() {
+    const duels = state.game?.result?.duels || state.game?.duels || [];
+    if (!duels.length) return '<p class="sd-duel-recap">全程和平,无人开启金币战争</p>';
+    const biggest = [...duels].sort((a, b) => Math.max(num(b.cBid, 0), num(b.dBid, 0)) - Math.max(num(a.cBid, 0), num(a.dBid, 0)))[0];
+    return `<p class="sd-duel-recap">共发生 ${duels.length} 次金币争夺${biggest ? `,最大手笔: ${esc(biggest.winner)} 为 ${esc(biggest.card)} 掷出 ${Math.max(num(biggest.cBid, 0), num(biggest.dBid, 0))} 金币` : ''}</p>`;
   }
 
   function renderDuelRecap() {
@@ -865,7 +1083,7 @@
     } else if (state.mode === 'lobby') {
       root.innerHTML = `<div class="sdo-wrap">${renderLobby()}</div>`;
     } else {
-      root.innerHTML = `<div class="sdo-wrap">${renderGame()}</div>`;
+      root.innerHTML = `<div class="sd-wrap">${renderGame()}${renderBidModal()}</div>`;
     }
     bindEvents();
   }
