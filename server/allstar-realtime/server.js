@@ -9,9 +9,10 @@ const path = require('node:path');
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 3001);
 const SERVICE = 'allstar-showdown-realtime';
-const VERSION = '0.3.2';
+const VERSION = '0.3.3';
 const START_COINS = 15;
 const TEAM_ID_BASE = 31;
+const CARDS_PER_POSITION = 5;
 
 const SLOTS = [
   { id: 1, short: 'PG', name: '控球后卫' },
@@ -216,6 +217,7 @@ function publicGame(room, client) {
 
 function cardView(game, room, card) {
   const owner = card.owner >= 0 ? room.managers[card.owner] : null;
+  const row = card.entry.row || {};
   return {
     idx: card.idx,
     no: card.idx + 1,
@@ -227,6 +229,15 @@ function cardView(game, room, card) {
     acquiredBy: card.acquiredBy || '',
     revealed: !!card.revealed,
     name: card.revealed ? card.entry.nameCn : null,
+    player: card.revealed ? {
+      id: num(row.id, 820000 + game.posIndex * 10 + card.idx),
+      uid: row.uid ? String(row.uid) : `allstar_${card.entry.id}`,
+      name: card.entry.nameCn,
+      nameCn: card.entry.nameCn,
+      nameEn: row.nameBirth || row.altName || '',
+      image: num(row.image, 0),
+      rating: hiddenScore(card)
+    } : null,
     peak: game.stage >= 3 || card.revealed ? `${card.entry.peakYear} ${card.entry.peakTeamCn}` : null,
     stats: card.entry.stats || {},
     honors: game.stage >= 2 || card.revealed ? card.entry.honorSummary : null,
@@ -433,8 +444,8 @@ function dealCards(room) {
   const slot = SLOTS[game.posIndex];
   const pool = loadPool();
   const eligible = pool.filter(entry => entryFits(entry, slot.id) && !game.draftedIds.includes(entry.id));
-  const picked = shuffleList(eligible).slice(0, room.managers.length);
-  if (picked.length < room.managers.length) throw new Error(`${slot.short} 可用卡池不足`);
+  const picked = shuffleList(eligible).slice(0, CARDS_PER_POSITION);
+  if (picked.length < CARDS_PER_POSITION) throw new Error(`${slot.short} 可用卡池不足`);
   game.cards = picked.map((entry, i) => ({
     key: `${slot.short}_${i}_${entry.id}`,
     idx: i,
@@ -502,6 +513,7 @@ function startDraft(room) {
     season: null,
     skipSim: false,
     simTimer: null,
+    revealTimer: null,
     result: null
   };
   pushLog(room.game, `选秀顺位: ${room.game.baseOrder.map(i => room.managers[i].name).join(' -> ')}`, 'stage');
@@ -565,7 +577,7 @@ function continueDraft(room) {
           pushLog(game, `${SLOTS[game.posIndex].short} 进入${game.stage === 2 ? '荣誉轮' : '球队轮'}`, 'stage');
           continue;
         }
-        finishPosition(room);
+        startPositionReveal(room);
         continue;
       }
       const idx = order[game.turnIndex];
@@ -590,6 +602,32 @@ function continueDraft(room) {
     }
   }
   throw new Error('draft_state_loop_guard');
+}
+
+function startPositionReveal(room) {
+  const game = room.game;
+  if (!game || game.awaiting === 'reveal') return;
+  const slot = SLOTS[game.posIndex];
+  for (const card of game.cards) {
+    card.locked = true;
+    card.revealed = true;
+  }
+  game.activeIdx = -1;
+  game.pendingCardIdx = -1;
+  game.awaiting = 'reveal';
+  room.updatedAt = new Date().toISOString();
+  pushLog(game, `${slot.short} 身份揭晓`, 'reveal');
+  broadcastGame(room);
+  if (game.revealTimer) clearTimeout(game.revealTimer);
+  game.revealTimer = setTimeout(() => {
+    const liveRoom = rooms.get(room.code);
+    if (!liveRoom || liveRoom.game !== game || game.awaiting !== 'reveal') return;
+    game.revealTimer = null;
+    clearWait(game);
+    finishPosition(liveRoom);
+    liveRoom.updatedAt = new Date().toISOString();
+    continueDraft(liveRoom);
+  }, 1500);
 }
 
 function aiClaim(room, idx) {

@@ -78,7 +78,14 @@
     error: '',
     notice: '',
     bidValue: 0,
-    bidKey: ''
+    bidKey: '',
+    fx: {
+      announce: null,
+      dealingUntil: 0,
+      revealingUntil: 0,
+      announceTimer: null,
+      renderTimer: null
+    }
   };
 
   function defaultWsUrl() {
@@ -160,6 +167,83 @@
     return managerByIdx(state.game?.you?.managerIdx);
   }
 
+  function isDealing() {
+    return Date.now() < num(state.fx.dealingUntil, 0);
+  }
+
+  function isRevealing() {
+    const game = state.game || {};
+    return game.awaiting === 'reveal' || Date.now() < num(state.fx.revealingUntil, 0);
+  }
+
+  function scheduleFxRender(delay) {
+    if (state.fx.renderTimer) window.clearTimeout(state.fx.renderTimer);
+    state.fx.renderTimer = window.setTimeout(() => {
+      state.fx.renderTimer = null;
+      render();
+    }, Math.max(0, num(delay, 0)));
+  }
+
+  function showAnnounce(announce, hold = 1500) {
+    state.fx.announce = announce;
+    if (state.fx.announceTimer) window.clearTimeout(state.fx.announceTimer);
+    state.fx.announceTimer = window.setTimeout(() => {
+      state.fx.announceTimer = null;
+      if (state.fx.announce === announce) {
+        state.fx.announce = null;
+        render();
+      }
+    }, Math.max(0, num(hold, 1500)));
+    render();
+  }
+
+  function startDealingFx(game) {
+    const pos = game?.pos || '';
+    state.fx.dealingUntil = Date.now() + 2150;
+    showAnnounce({
+      kicker: `位置 ${num(game?.posIndex, 0) + 1}/5`,
+      title: `${pos} 开始选牌`,
+      sub: `5 张 ${pos} 全明星卡正在从卡堆散开`,
+      ic: 'ball'
+    }, 1500);
+    scheduleFxRender(2160);
+  }
+
+  function applyGameFx(prevGame, nextGame) {
+    if (!nextGame) return;
+    if (nextGame.phase === 'draft') {
+      const hasCards = (nextGame.cards || []).length > 0;
+      const newPosition = !prevGame
+        || prevGame.phase !== 'draft'
+        || prevGame.posIndex !== nextGame.posIndex
+        || !(prevGame.cards || []).length;
+      if (hasCards && newPosition && nextGame.stage === 1) startDealingFx(nextGame);
+      if (prevGame?.phase === 'draft' && prevGame.posIndex === nextGame.posIndex && prevGame.stage !== nextGame.stage) {
+        if (nextGame.stage === 2) {
+          showAnnounce({ kicker: `${nextGame.pos} · 第2轮`, title: '荣誉轮开启', sub: '生涯荣誉揭示,未锁定者可以换卡/截胡/比价', ic: 'medal' }, 1450);
+        } else if (nextGame.stage === 3) {
+          showAnnounce({ kicker: `${nextGame.pos} · 第3轮`, title: '球队轮开启', sub: '效力球队揭示,这是本位置最后调整机会', ic: 'jersey' }, 1450);
+        }
+      }
+      const wasRevealed = (prevGame?.cards || []).some(card => card.revealed);
+      const revealedNow = (nextGame.cards || []).some(card => card.revealed) && !wasRevealed;
+      if (revealedNow) {
+        state.fx.revealingUntil = Date.now() + 1800;
+        showAnnounce({ kicker: `${nextGame.pos} · 揭晓`, title: '身份揭晓', sub: '翻牌!看看每位经理抢到了谁', ic: 'star' }, 1200);
+        scheduleFxRender(1810);
+      }
+    }
+    if (prevGame?.phase !== nextGame.phase) {
+      if (nextGame.phase === 'era') {
+        showAnnounce({ kicker: '五队集结', title: '命运转盘', sub: '等待房主启动年代转盘', ic: 'bolt' }, 1500);
+      } else if (nextGame.phase === 'sim') {
+        showAnnounce({ kicker: `${nextGame.era?.year || ''} ${nextGame.era?.label || ''}`, title: '82场赛季开打', sub: '服务端正在同步模拟全部赛程', ic: 'ball' }, 1500);
+      } else if (nextGame.phase === 'results') {
+        showAnnounce({ kicker: '赛季完成', title: '最终结算', sub: '冠军、战绩、球员数据全部生成', ic: 'trophy' }, 1200);
+      }
+    }
+  }
+
   const STAGE_ICONS = ['chart', 'medal', 'jersey'];
   const FLOW_STEPS = [
     { key: 1, ic: 'chart', label: '① 数据轮', desc: '看数据 · 认领+锁定' },
@@ -176,6 +260,7 @@
 
   function flowStepNow() {
     const game = state.game || {};
+    if (isRevealing()) return 4;
     return game.cards?.some(card => card.revealed) ? 4 : stageNow();
   }
 
@@ -395,11 +480,13 @@
       state.roomCode = state.room?.code || state.roomCode;
       state.mode = state.room?.status === 'lobby' ? 'lobby' : 'game';
     } else if (msg.type === 'game_state') {
+      const prevGame = state.game;
       state.room = msg.room || state.room;
       state.game = msg.game || state.game;
       state.roomCode = state.room?.code || state.roomCode;
       state.mode = 'game';
       syncBidValue();
+      applyGameFx(prevGame, state.game);
     } else if (msg.type === 'error') {
       state.error = msg.message || msg.code || '服务器拒绝了该操作';
     } else if (msg.type === 'pong') {
@@ -558,6 +645,8 @@
     if (game.phase === 'era') return renderEra();
     if (game.phase === 'sim') return renderSim();
     if (game.phase === 'results') return renderResults();
+    const dealing = isDealing();
+    const revealing = isRevealing();
     return `
       ${topbar()}
       <div class="sd-draft-layout">
@@ -566,7 +655,12 @@
           ${renderManagerStrip()}
           <div class="sd-card-stage">
             ${renderStageHeadline()}
-            <div class="sd-card-grid">
+            ${dealing ? `
+              <div class="sd-deck" aria-hidden="true">
+                <i></i><i></i><i></i>
+                <span class="sd-deck-label">${icon('ball')}${esc(game.pos || '')} 卡堆</span>
+              </div>` : ''}
+            <div class="sd-card-grid ${revealing ? 'revealing' : ''} ${dealing ? 'is-dealing' : ''}">
               ${game.cards.map(renderCard).join('')}
             </div>
           </div>
@@ -609,7 +703,10 @@
 
   function renderStageHeadline() {
     const game = state.game || {};
-    if (game.cards?.some(card => card.revealed)) {
+    if (isDealing()) {
+      return `<div class="sd-headline dealing">${icon('ball')}<b>发牌中</b><span>5 张 ${esc(game.pos || '')} 全明星卡正在从卡堆散开...</span></div>`;
+    }
+    if (isRevealing() || game.cards?.some(card => card.revealed)) {
       return `<div class="sd-headline reveal">${icon('star')}<b>身份揭晓</b><span>翻牌!看看每位经理抢到了谁</span></div>`;
     }
     const stage = stageNow();
@@ -650,6 +747,12 @@
 
   function renderActionBar() {
     const game = state.game;
+    if (isDealing()) {
+      return `<div class="sd-hint dim">${icon('ball')}正在发牌...</div>`;
+    }
+    if (isRevealing() || game.awaiting === 'reveal') {
+      return `<div class="sd-hint dim">${icon('star')}身份揭晓中...</div>`;
+    }
     if (game.awaiting === 'bid_attack' || game.awaiting === 'bid_defend') {
       return `<div class="sd-hint dim">${icon('gavel')}金币比价进行中...</div>`;
     }
@@ -757,6 +860,7 @@
 
   function cardHint(card) {
     const game = state.game;
+    if (isDealing() || isRevealing() || game?.awaiting === 'reveal') return null;
     if (!game?.you?.canAct) return null;
     if ((game.awaiting === 'claim' || game.awaiting === 'reclaim') && card.ownerIdx < 0) {
       return { label: game.awaiting === 'claim' ? '点击认领' : '点击补选', ic: 'star' };
@@ -776,9 +880,13 @@
     if (card.ownerIdx >= 0) cls.push('owned');
     if (card.revealed) cls.push('revealed');
     if (card.ownerIdx === state.game?.you?.managerIdx) cls.push('is-mine');
+    if (isDealing()) cls.push('dealing');
     if (hint) cls.push('actionable');
     const stats = card.stats || {};
     const stage = stageNow();
+    const player = card.player || {};
+    const fallbackPhoto = typeof getPlayerPhotoPath === 'function' ? getPlayerPhotoPath(0) : 'assets/images/Player/IMG0000.png';
+    const photoSrc = typeof getPlayerPhotoSrc === 'function' ? getPlayerPhotoSrc(player) : fallbackPhoto;
     return `
       <div class="${cls.join(' ')}" data-card="${card.idx}" style="--di:${card.idx}">
         ${owner ? `<div class="sd-owner-ribbon" style="--mc:${owner.color}">${icon(owner.kind === 'ai' ? 'bot' : 'user')}${esc(owner.name)}${card.price ? ` <span class="sd-rib-cost">${icon('coin')}${card.price}</span>` : ''}</div>`
@@ -816,14 +924,28 @@
           </div>
           ${card.revealed ? `
             <div class="sd-card-front">
-              <div class="sdo-front">
-                ${icon('silhouette', 'big')}
-                <div class="sd-front-name">${esc(card.name || '全明星')}</div>
-                <div class="sd-front-sub">${esc(card.peak || '')}</div>
-                <div class="sd-front-ovr">身价 <b>${num(card.price, 0)}</b> 金币</div>
-              </div>
+              <img class="sd-photo" src="${esc(photoSrc)}" alt="" onerror="this.src='${esc(fallbackPhoto)}'">
+              <div class="sd-front-name">${esc(card.name || '全明星')}</div>
+              <div class="sd-front-sub">${esc(card.peak || '')}</div>
+              <div class="sd-front-ovr">OVR <b>${num(player.rating, 0)}</b></div>
             </div>
           ` : ''}
+        </div>
+        <div class="sd-sleeve" aria-hidden="true">
+          <svg viewBox="0 0 200 300" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="slv" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#1c2c4e"/><stop offset="55%" stop-color="#101a30"/><stop offset="100%" stop-color="#0a1120"/>
+              </linearGradient>
+            </defs>
+            <rect width="200" height="300" rx="14" fill="url(#slv)" stroke="#3b5a8a" stroke-width="2"/>
+            <circle cx="100" cy="132" r="52" fill="none" stroke="#fbbf24" stroke-width="2.5" opacity="0.85"/>
+            <path d="M100 80v104M48 132h104M63 95c20 20 54 20 74 0M63 169c20-20 54-20 74 0" fill="none" stroke="#fbbf24" stroke-width="2" opacity="0.7"/>
+            <path d="m100 118 4.6 9.6 10.6 1.2-7.9 7.2 2.2 10.5-9.5-5.4-9.5 5.4 2.2-10.5-7.9-7.2 10.6-1.2Z" fill="#fbbf24"/>
+            <text x="100" y="228" text-anchor="middle" font-size="17" font-weight="900" fill="#e9f2f9" letter-spacing="3">ALL-STAR</text>
+            <text x="100" y="250" text-anchor="middle" font-size="11" fill="#7b93ab" letter-spacing="2">1996 - 2025</text>
+            <rect x="8" y="8" width="184" height="284" rx="10" fill="none" stroke="#fbbf24" stroke-width="1" opacity="0.35" stroke-dasharray="4 5"/>
+          </svg>
         </div>
       </div>`;
   }
@@ -1077,13 +1199,27 @@
       </article>`;
   }
 
+  function renderAnnounce() {
+    const a = state.fx.announce;
+    if (!a) return '';
+    return `
+      <div class="sd-announce-bg">
+        <div class="sd-announce">
+          <div class="sd-announce-ic">${icon(a.ic || 'flag')}</div>
+          ${a.kicker ? `<p class="sd-announce-kicker">${esc(a.kicker)}</p>` : ''}
+          <h2 class="sd-announce-title">${esc(a.title)}</h2>
+          ${a.sub ? `<p class="sd-announce-sub">${esc(a.sub)}</p>` : ''}
+        </div>
+      </div>`;
+  }
+
   function render() {
     if (state.mode === 'home') {
       root.innerHTML = `<div class="sdo-wrap">${renderHome()}</div>`;
     } else if (state.mode === 'lobby') {
       root.innerHTML = `<div class="sdo-wrap">${renderLobby()}</div>`;
     } else {
-      root.innerHTML = `<div class="sd-wrap">${renderGame()}${renderBidModal()}</div>`;
+      root.innerHTML = `<div class="sd-wrap">${renderGame()}${renderBidModal()}${renderAnnounce()}</div>`;
     }
     bindEvents();
   }
@@ -1192,6 +1328,7 @@
   function handleCardClick(cardIdx) {
     const game = state.game;
     const card = game?.cards?.find(c => c.idx === cardIdx);
+    if (isDealing() || isRevealing() || game?.awaiting === 'reveal') return;
     if (!game?.you?.canAct || !card) return;
     if (game.awaiting === 'claim' && card.ownerIdx < 0) {
       send('claim_card', { cardIdx });
