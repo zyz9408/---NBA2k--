@@ -35,7 +35,7 @@
   const state = {
     mode: 'home',
     ws: null,
-    wsUrl: localStorage.getItem('allstarOnlineWsUrl') || defaultWsUrl(),
+    wsUrl: normalizeWsUrl(localStorage.getItem('allstarOnlineWsUrl') || defaultWsUrl()),
     name: localStorage.getItem('allstarOnlineName') || '',
     roomCodeInput: '',
     connected: false,
@@ -52,10 +52,17 @@
   };
 
   function defaultWsUrl() {
-    const host = window.location.host;
-    if (host === '143.20.149.27') return 'ws://143.20.149.27/allstar/ws';
+    const host = window.location.hostname;
     if (host === 'localhost' || host.startsWith('127.0.0.1')) return 'ws://127.0.0.1:3001/ws';
-    return 'ws://143.20.149.27/allstar/ws';
+    if (host === '143.20.149.27') return 'ws://143.20.149.27/allstar/ws';
+    return 'wss://mofi1994.xyz/allstar/ws';
+  }
+
+  function normalizeWsUrl(url) {
+    if (window.location.protocol === 'https:' && url === 'ws://143.20.149.27/allstar/ws') {
+      return 'wss://mofi1994.xyz/allstar/ws';
+    }
+    return url;
   }
 
   function esc(value) {
