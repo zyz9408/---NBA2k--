@@ -1,6 +1,6 @@
 /* ============================================================
- * 全明星争夺战 (All-Star Showdown) 样式
- * 依附 82-draft-arena.css 的球馆暗色主题
+ * 全明星争夺战 (All-Star Showdown) 样式 v2
+ * 游戏化UI: 发牌动效 / 卡面信息分层 / SVG图标 / 回合横幅 / 对决动画
  * ============================================================ */
 
 .showdown-entry {
@@ -12,6 +12,15 @@
 
 #screenShowdown { padding: 18px clamp(10px, 3vw, 36px) 48px; }
 .sd-wrap { max-width: 1380px; margin: 0 auto; color: #e9f2f9; }
+
+/* ---------- SVG 图标 ---------- */
+.sd-ic { display: inline-flex; width: 1em; height: 1em; vertical-align: -0.12em; margin-right: 0.32em; color: inherit; flex: none; }
+.sd-ic svg { width: 100%; height: 100%; display: block; }
+.sd-ic.big { width: 54px; height: 54px; margin: 0; }
+.sd-ic.huge { width: 64px; height: 64px; margin: 0; color: #fbbf24; filter: drop-shadow(0 0 16px rgba(251, 191, 36, 0.55)); }
+.sd-coins { display: inline-flex; align-items: center; gap: 3px; font-weight: 900; color: #ffd166; }
+.sd-coins .sd-ic { margin-right: 0; font-size: 1.05em; }
+.sd-btn-ic { display: inline-flex !important; align-items: center; justify-content: center; }
 
 /* ---------- 顶栏 ---------- */
 .sd-topbar {
@@ -33,45 +42,158 @@
 }
 .sd-error strong { font-size: 1.2rem; color: #fca5a5; }
 
-/* ---------- 进度轨 ---------- */
-.sd-stage-rail {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
-  font-size: 0.78rem; margin-bottom: 12px; color: #7b93ab;
+/* ---------- 流程时间轴 (位置 + 4步骤) ---------- */
+@keyframes sdPulse { 50% { box-shadow: 0 0 14px rgba(251, 191, 36, 0.4); } }
+.sd-flowbar {
+  display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: stretch;
+  margin-bottom: 12px;
+  background: rgba(11, 17, 27, 0.66); border: 1px solid rgba(148, 190, 230, 0.12);
+  border-radius: 14px; padding: 10px 14px;
 }
-.sd-stage-rail i, .sd-stage-rail em { font-style: normal; opacity: 0.45; }
-.sd-stage-rail em { margin: 0 8px; }
-.sd-slot-step, .sd-info-step {
-  padding: 3px 10px; border-radius: 999px; font-weight: 800;
-  background: rgba(123, 147, 171, 0.12); border: 1px solid transparent;
+@media (max-width: 860px) { .sd-flowbar { grid-template-columns: 1fr; } }
+.sd-flow-pos {
+  display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; align-items: center;
+  column-gap: 10px; padding-right: 14px; border-right: 1px dashed rgba(123, 147, 171, 0.25);
 }
-.sd-slot-step.done, .sd-info-step.done { color: #4ade80; background: rgba(74, 222, 128, 0.1); }
-.sd-slot-step.now, .sd-info-step.now {
-  color: #ffd166; background: rgba(251, 191, 36, 0.14); border-color: rgba(251, 191, 36, 0.5);
-  animation: sdPulse 1.6s ease-in-out infinite;
+@media (max-width: 860px) { .sd-flow-pos { border-right: none; border-bottom: 1px dashed rgba(123, 147, 171, 0.25); padding: 0 0 8px; } }
+.sd-flow-pos-big {
+  grid-row: span 2; font-size: 2rem; font-weight: 900; color: #ffd166; line-height: 1;
+  text-shadow: 0 0 18px rgba(251, 191, 36, 0.35);
 }
-@keyframes sdPulse { 50% { box-shadow: 0 0 12px rgba(251, 191, 36, 0.35); } }
+.sd-flow-pos-sub { font-size: 0.68rem; font-weight: 800; color: #9fb6cb; letter-spacing: 0.08em; }
+.sd-flow-pos-dots { display: flex; gap: 4px; }
+.sd-flow-pos-dots i {
+  width: 14px; height: 5px; border-radius: 999px; background: rgba(123, 147, 171, 0.25);
+}
+.sd-flow-pos-dots i.done { background: #4ade80; }
+.sd-flow-pos-dots i.now { background: #fbbf24; box-shadow: 0 0 8px rgba(251, 191, 36, 0.6); }
+.sd-flow-steps { display: flex; align-items: center; gap: 6px; }
+.sd-flow-link { flex: none; width: 14px; height: 2px; background: rgba(123, 147, 171, 0.3); border-radius: 1px; }
+.sd-flow-step {
+  flex: 1; min-width: 0; padding: 6px 10px; border-radius: 10px;
+  background: rgba(123, 147, 171, 0.07); border: 1px solid transparent;
+  opacity: 0.55; transition: all 0.3s;
+}
+.sd-flow-step.done { opacity: 0.8; }
+.sd-flow-step.done .sd-flow-step-head { color: #4ade80; }
+.sd-flow-step.done .sd-flow-step-head b { margin-left: 4px; }
+.sd-flow-step.now {
+  opacity: 1; transform: scale(1.04);
+  background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.55);
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.18);
+}
+.sd-flow-step-head {
+  display: flex; align-items: center; font-size: 0.76rem; font-weight: 900; color: #c9d9e8; white-space: nowrap;
+}
+.sd-flow-step.now .sd-flow-step-head { color: #ffd166; }
+.sd-flow-step-desc { font-size: 0.62rem; color: #7b93ab; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- 卡区常驻指令条 ---------- */
+.sd-headline {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 10px; padding: 9px 14px; border-radius: 12px;
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.12), rgba(11, 17, 27, 0.6) 65%);
+  border: 1px solid rgba(251, 191, 36, 0.35); border-left: 4px solid #fbbf24;
+}
+.sd-headline b { font-size: 0.9rem; color: #ffd166; white-space: nowrap; }
+.sd-headline span { font-size: 0.76rem; color: #c9d9e8; }
+.sd-headline .sd-ic { color: #ffd166; }
+.sd-headline.s2 { border-left-color: #a78bfa; border-color: rgba(167, 139, 250, 0.4); background: linear-gradient(90deg, rgba(167, 139, 250, 0.12), rgba(11, 17, 27, 0.6) 65%); }
+.sd-headline.s2 b, .sd-headline.s2 .sd-ic { color: #c4b5fd; }
+.sd-headline.s3 { border-left-color: #22d3ee; border-color: rgba(34, 211, 238, 0.4); background: linear-gradient(90deg, rgba(34, 211, 238, 0.12), rgba(11, 17, 27, 0.6) 65%); }
+.sd-headline.s3 b, .sd-headline.s3 .sd-ic { color: #67e8f9; }
+.sd-headline.reveal { border-left-color: #4ade80; border-color: rgba(74, 222, 128, 0.4); }
+.sd-headline.reveal b, .sd-headline.reveal .sd-ic { color: #4ade80; }
+
+/* ---------- 回合行动气泡 ---------- */
+.sd-callout {
+  display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-radius: 14px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--mc, #7b93ab) 16%, transparent), rgba(11, 17, 27, 0.8) 60%);
+  border: 1.5px solid color-mix(in srgb, var(--mc, #7b93ab) 55%, transparent);
+  animation: sdCalloutIn 0.3s cubic-bezier(0.2, 1.3, 0.4, 1);
+}
+@keyframes sdCalloutIn { from { opacity: 0; transform: translateY(8px) scale(0.97); } }
+.sd-callout-ava {
+  width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: color-mix(in srgb, var(--mc) 22%, #0d1420); color: var(--mc); border: 2px solid var(--mc);
+}
+.sd-callout-ava .sd-ic { margin: 0; width: 18px; height: 18px; }
+.sd-callout-copy { display: grid; }
+.sd-callout-copy b { font-size: 0.8rem; color: var(--mc); }
+.sd-callout-copy span { display: inline-flex; align-items: center; font-size: 0.92rem; font-weight: 800; color: #e9f2f9; }
+.sd-callout.thinking .sd-callout-copy span { color: #9fb6cb; font-weight: 600; }
+.sd-thinking i { font-style: normal; animation: sdDot 1.2s infinite; }
+.sd-thinking i:nth-child(2) { animation-delay: 0.2s; }
+.sd-thinking i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes sdDot { 0%, 60% { opacity: 0.2; } 30% { opacity: 1; } }
+
+/* ---------- 全屏阶段过场 ---------- */
+.sd-announce-bg {
+  position: fixed; inset: 0; z-index: 70; display: grid; place-items: center;
+  background: rgba(4, 8, 14, 0.82); backdrop-filter: blur(5px);
+  animation: sdFadeIn 0.22s ease;
+}
+.sd-announce {
+  display: grid; justify-items: center; gap: 8px; text-align: center;
+  padding: 34px 52px; border-radius: 22px; max-width: min(620px, 90vw);
+  background: linear-gradient(165deg, #182742, #0b1220 78%);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.65), 0 0 40px rgba(251, 191, 36, 0.1);
+  animation: sdAnnounceIn 0.42s cubic-bezier(0.2, 1.25, 0.4, 1);
+}
+@keyframes sdAnnounceIn { from { opacity: 0; transform: translateY(26px) scale(0.9); } }
+.sd-announce-ic { color: #ffd166; }
+.sd-announce-ic .sd-ic { width: 44px; height: 44px; margin: 0; filter: drop-shadow(0 0 14px rgba(251, 191, 36, 0.5)); }
+.sd-announce-kicker {
+  margin: 0; font-size: 0.76rem; font-weight: 900; letter-spacing: 0.24em; color: #ffd166;
+}
+.sd-announce-title { margin: 0; font-size: 1.7rem; font-weight: 900; letter-spacing: 0.04em; }
+.sd-announce-sub { margin: 0; font-size: 0.84rem; color: #9fb6cb; line-height: 1.7; }
 
 /* ---------- 经理条 ---------- */
 .sd-mgr-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 14px; }
+@media (max-width: 900px) { .sd-mgr-strip { grid-template-columns: repeat(2, 1fr); } }
 .sd-mgr {
-  padding: 8px 10px; border-radius: 12px; border: 1px solid rgba(148, 190, 230, 0.14);
-  background: rgba(13, 20, 32, 0.66); position: relative; overflow: hidden;
-  border-top: 3px solid var(--mc, #7b93ab); transition: transform 0.25s, box-shadow 0.25s;
+  position: relative; display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 8px;
+  padding: 9px 10px 9px 12px; border-radius: 12px; overflow: hidden;
+  border: 1px solid rgba(148, 190, 230, 0.14);
+  background: rgba(13, 20, 32, 0.72);
+  border-left: 4px solid var(--mc, #7b93ab);
+  transition: transform 0.25s, box-shadow 0.25s;
 }
 .sd-mgr.active {
   transform: translateY(-3px);
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--mc);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1.5px var(--mc);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--mc) 14%, transparent), rgba(13, 20, 32, 0.72) 55%);
 }
-.sd-mgr.active::after {
-  content: '行动中'; position: absolute; top: 6px; right: 8px; font-size: 0.62rem;
-  color: var(--mc); font-weight: 800; animation: sdBlink 1s steps(2) infinite;
+.sd-mgr-order {
+  position: absolute; top: 0; right: 0; font-size: 0.6rem; font-weight: 900; color: #62788e;
+  background: rgba(123, 147, 171, 0.14); padding: 2px 7px; border-radius: 0 0 0 8px;
 }
-@keyframes sdBlink { 50% { opacity: 0.25; } }
-.sd-mgr-name { font-weight: 800; font-size: 0.82rem; }
+.sd-mgr-ava {
+  width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--mc) 22%, #0d1420); color: var(--mc);
+  border: 2px solid var(--mc); font-size: 1rem;
+}
+.sd-mgr-ava .sd-ic { margin: 0; width: 17px; height: 17px; }
+.sd-mgr-info { min-width: 0; }
+.sd-mgr-name { font-weight: 800; font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sd-mgr.human .sd-mgr-name { color: #22d3ee; }
-.sd-mgr-team { font-size: 0.68rem; color: #7b93ab; }
-.sd-mgr-coins { font-size: 0.8rem; color: #ffd166; font-weight: 800; margin-top: 3px; }
-.sd-mgr-hold { font-size: 0.68rem; color: #9fb6cb; }
+.sd-mgr-team { font-size: 0.66rem; color: #7b93ab; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sd-mgr-state { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 0.76rem; }
+.sd-mgr-hold { display: inline-flex; align-items: center; font-size: 0.68rem; color: #9fb6cb; }
+.sd-mgr-hold.lk { color: #ffd166; }
+/* 回合状态 chip: 待行动 / 行动中 / 已行动 / 锁定跳过 */
+.sd-mgr-turnchip {
+  position: absolute; bottom: 0; right: 0; font-size: 0.6rem; font-weight: 900; letter-spacing: 0.06em;
+  padding: 2.5px 9px; border-radius: 8px 0 0 0;
+}
+.sd-mgr-turnchip.wait { color: #9fb6cb; background: rgba(123, 147, 171, 0.18); }
+.sd-mgr-turnchip.acting { color: #0b1220; background: var(--mc); animation: sdBlink 1.1s steps(2) infinite; }
+.sd-mgr-turnchip.done { color: #4ade80; background: rgba(74, 222, 128, 0.14); }
+.sd-mgr-turnchip.skip { color: #ffd166; background: rgba(251, 191, 36, 0.14); }
+.sd-mgr.st-done, .sd-mgr.st-skip { opacity: 0.72; }
+@keyframes sdBlink { 50% { opacity: 0.35; } }
 
 /* ---------- 布局 ---------- */
 .sd-draft-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
@@ -82,96 +204,236 @@
 }
 .sd-side h3 { margin: 4px 0 10px; font-size: 0.86rem; color: #ffd166; letter-spacing: 0.08em; }
 
-/* ---------- 卡牌 ---------- */
+/* ---------- 卡堆 & 发牌 ---------- */
+.sd-card-stage { position: relative; }
+.sd-deck {
+  position: absolute; left: 50%; top: -12px; transform: translateX(-50%); z-index: 6;
+  width: 92px; height: 128px; pointer-events: none;
+}
+.sd-deck i {
+  position: absolute; inset: 0; border-radius: 10px;
+  background: linear-gradient(160deg, #1c2c4e, #0a1120 80%);
+  border: 1.5px solid #3b5a8a; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+.sd-deck i:nth-child(1) { transform: rotate(-6deg) translate(-5px, 3px); }
+.sd-deck i:nth-child(2) { transform: rotate(3deg) translate(4px, 1px); }
+.sd-deck i:nth-child(3) { transform: rotate(-1deg); }
+.sd-deck-label {
+  position: absolute; left: 50%; bottom: -26px; transform: translateX(-50%);
+  display: inline-flex; align-items: center; white-space: nowrap;
+  font-size: 0.72rem; font-weight: 900; color: #ffd166; letter-spacing: 0.08em;
+}
+.sd-deck { animation: sdDeckIn 0.3s ease backwards; }
+@keyframes sdDeckIn { from { opacity: 0; transform: translateX(-50%) translateY(-18px); } }
+
 .sd-card-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
 @media (max-width: 1250px) { .sd-card-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 760px) { .sd-card-grid { grid-template-columns: repeat(2, 1fr); } }
 
-.sd-card { perspective: 900px; cursor: pointer; min-height: 320px; }
+/* 发牌飞行: 从卡堆(网格中央上方)散开到各自格位 */
+.sd-card-grid.is-dealing .sd-card {
+  animation: sdFly 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.15) backwards;
+  animation-delay: calc(var(--di) * 0.16s + 0.3s);
+  pointer-events: none;
+}
+@keyframes sdFly {
+  from {
+    transform: translate(calc((2 - var(--di)) * 106%), -260px) rotate(calc((var(--di) - 2) * 10deg)) scale(0.55);
+    opacity: 0.25;
+  }
+}
+
+/* 牌背卡套: 发牌时覆盖,随后翻开 */
+.sd-sleeve { display: none; }
+.sd-card-grid.is-dealing .sd-sleeve {
+  display: block; position: absolute; inset: 0; z-index: 5; border-radius: 14px; overflow: hidden;
+  transform-origin: 8% 50%;
+  animation: sdSleeveFlip 0.5s ease-in forwards;
+  animation-delay: calc(var(--di) * 0.15s + 1.1s);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+}
+.sd-sleeve svg { width: 100%; height: 100%; display: block; }
+@keyframes sdSleeveFlip {
+  60% { opacity: 1; }
+  to { transform: perspective(700px) rotateY(-100deg); opacity: 0; }
+}
+
+/* ---------- 卡牌 ---------- */
+.sd-card { position: relative; perspective: 900px; cursor: default; min-height: 372px; --di: 0; }
 .sd-card-inner {
   position: relative; width: 100%; height: 100%;
   transform-style: preserve-3d; transition: transform 0.7s cubic-bezier(0.4, 0.1, 0.2, 1);
 }
-.sd-card.revealed .sd-card-inner { transform: rotateY(180deg); }
+.sd-card.revealed .sd-card-inner { transform: rotateY(180deg); transition-delay: calc(var(--di) * 0.22s); }
 .sd-card-back, .sd-card-front {
-  backface-visibility: hidden; border-radius: 14px; min-height: 320px;
-  border: 1px solid rgba(148, 190, 230, 0.2);
+  backface-visibility: hidden; border-radius: 14px; min-height: 372px;
+  border: 1px solid rgba(148, 190, 230, 0.22);
   background:
-    radial-gradient(120% 90% at 50% 0%, rgba(34, 211, 238, 0.09), transparent 55%),
-    linear-gradient(160deg, #12203a 0%, #0b1322 70%);
-  padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+    radial-gradient(120% 90% at 50% 0%, rgba(34, 211, 238, 0.1), transparent 55%),
+    linear-gradient(160deg, #15243f 0%, #0c1424 70%);
+  padding: 12px 12px 10px; display: flex; flex-direction: column; gap: 8px;
 }
 .sd-card-front {
   position: absolute; inset: 0; transform: rotateY(180deg);
   align-items: center; justify-content: center; text-align: center;
   background:
-    radial-gradient(120% 100% at 50% 0%, rgba(251, 191, 36, 0.16), transparent 60%),
-    linear-gradient(160deg, #1d2438 0%, #0d1120 75%);
-  border-color: rgba(251, 191, 36, 0.45);
+    radial-gradient(120% 100% at 50% 0%, rgba(251, 191, 36, 0.18), transparent 60%),
+    linear-gradient(160deg, #1f2740 0%, #0d1120 75%);
+  border-color: rgba(251, 191, 36, 0.5);
 }
-.sd-card:hover .sd-card-inner { transform: translateY(-4px); }
-.sd-card.revealed:hover .sd-card-inner { transform: rotateY(180deg) translateY(-4px); }
-.sd-card.locked .sd-card-back { border-color: rgba(251, 191, 36, 0.55); box-shadow: 0 0 18px rgba(251, 191, 36, 0.12); }
+.sd-card.locked .sd-card-back { border-color: rgba(251, 191, 36, 0.6); box-shadow: 0 0 20px rgba(251, 191, 36, 0.13); }
 .sd-card.is-mine .sd-card-back { box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.55), 0 10px 26px rgba(0, 0, 0, 0.45); }
 
-.sd-card-head { display: flex; justify-content: space-between; align-items: center; }
-.sd-card-no { font-weight: 900; font-size: 0.8rem; color: #9fb6cb; letter-spacing: 0.1em; }
-.sd-lock { font-size: 0.68rem; font-weight: 800; color: #ffd166; }
-.sd-mystery {
-  font-size: 2.2rem; font-weight: 900; text-align: center; color: rgba(159, 182, 203, 0.35);
-  background: rgba(123, 147, 171, 0.08); border-radius: 10px; padding: 2px 0;
-}
-.sd-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
-.sd-stat-grid div {
-  background: rgba(20, 30, 48, 0.85); border-radius: 8px; padding: 4px 6px;
-  display: flex; flex-direction: column; align-items: center;
-}
-.sd-stat-grid span { font-size: 0.6rem; color: #7b93ab; }
-.sd-stat-grid strong { font-size: 0.92rem; color: #e9f2f9; }
+/* 可交互反馈(可供性): 只有能点的卡才亮起手势 */
+.sd-card.actionable { cursor: pointer; }
+.sd-card.actionable:hover .sd-card-inner { transform: translateY(-6px) scale(1.02); }
+.sd-card.actionable .sd-card-back { border-color: rgba(34, 211, 238, 0.45); }
+.sd-card.actionable:hover .sd-card-back { box-shadow: 0 0 0 2px #22d3ee, 0 14px 30px rgba(0, 0, 0, 0.5); }
+.sd-card.actionable .sd-act-hint { opacity: 0.85; }
+.sd-card.actionable:hover .sd-act-hint { opacity: 1; transform: translateY(0) scale(1.04); }
 
-.sd-honor-row { display: flex; flex-wrap: wrap; gap: 4px; min-height: 40px; align-content: flex-start; }
-.sd-honor-row.dim, .sd-team-row.dim { opacity: 0.35; font-size: 0.66rem; color: #7b93ab; align-items: center; display: flex; }
+/* 持有者彩带 */
+.sd-owner-ribbon {
+  position: absolute; top: -9px; left: 50%; transform: translateX(-50%); z-index: 4;
+  display: inline-flex; align-items: center; white-space: nowrap; max-width: 94%;
+  font-size: 0.68rem; font-weight: 900; padding: 3px 12px; border-radius: 999px;
+  color: #0b1220; background: var(--mc, #62788e);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+}
+.sd-owner-ribbon.free { background: #2a3a50; color: #9fb6cb; }
+.sd-owner-ribbon .sd-rib-cost { display: inline-flex; align-items: center; margin-left: 5px; }
+.sd-owner-ribbon .sd-rib-cost .sd-ic { margin-right: 1px; }
+
+.sd-card-head { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+.sd-card-no { display: inline-flex; align-items: center; font-weight: 900; font-size: 0.8rem; color: #9fb6cb; letter-spacing: 0.08em; }
+.sd-lock {
+  display: inline-flex; align-items: center; font-size: 0.66rem; font-weight: 900; color: #0b1220;
+  background: linear-gradient(135deg, #ffd166, #f59e0b); padding: 2.5px 9px; border-radius: 999px;
+  animation: sdStamp 0.35s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+.sd-lock.open { background: rgba(123, 147, 171, 0.18); color: #9fb6cb; animation: none; }
+@keyframes sdStamp { 0% { transform: scale(2.2) rotate(-14deg); opacity: 0; } 70% { transform: scale(0.92); } }
+
+.sd-mystery {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  color: rgba(159, 182, 203, 0.4); border-radius: 10px; padding: 4px 0;
+  background: repeating-linear-gradient(-45deg, rgba(123, 147, 171, 0.07) 0 8px, transparent 8px 16px);
+}
+.sd-mystery em { font-style: normal; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.2em; color: #62788e; }
+
+/* 信息分区 */
+.sd-sec {
+  border-radius: 10px; padding: 7px 9px 8px;
+  background: rgba(17, 26, 42, 0.85); border: 1px solid rgba(148, 190, 230, 0.1);
+}
+.sd-sec.sealed {
+  background: repeating-linear-gradient(-45deg, rgba(123, 147, 171, 0.05) 0 8px, rgba(0, 0, 0, 0.12) 8px 16px);
+  border-style: dashed; border-color: rgba(123, 147, 171, 0.25);
+}
+.sd-sec-title {
+  display: flex; align-items: center; font-size: 0.68rem; font-weight: 900; letter-spacing: 0.12em;
+  color: #62788e; margin-bottom: 5px;
+}
+.sd-sec-title.on { color: #67e8f9; }
+.sd-sec-title em { font-style: normal; margin-left: auto; font-weight: 600; letter-spacing: 0; color: #55677c; font-size: 0.64rem; }
+.sd-sec.sealed .sd-sec-title { margin-bottom: 0; }
+
+/* 新揭示信息: 金色扫光 */
+.sd-sec.new-info { border-color: rgba(251, 191, 36, 0.45); position: relative; overflow: hidden; }
+.sd-sec.new-info::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 30%, rgba(251, 191, 36, 0.22) 50%, transparent 70%);
+  transform: translateX(-100%); animation: sdSweep 1.1s ease 0.15s forwards;
+}
+@keyframes sdSweep { to { transform: translateX(100%); } }
+
+/* 数据: 3 大 + 4 小 */
+.sd-stat-main { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.sd-stat-main div {
+  display: grid; justify-items: center; padding: 6px 2px 4px; border-radius: 8px;
+  background: rgba(9, 14, 24, 0.8); border: 1px solid rgba(148, 190, 230, 0.08);
+}
+.sd-stat-main strong { font-size: 1.32rem; font-weight: 900; line-height: 1.05; color: #e9f2f9; font-variant-numeric: tabular-nums; }
+.sd-stat-main span { font-size: 0.62rem; color: #7b93ab; }
+.sd-stat-main div.good strong { color: #67e8f9; }
+.sd-stat-main div.elite { border-color: rgba(251, 191, 36, 0.5); background: rgba(251, 191, 36, 0.08); }
+.sd-stat-main div.elite strong { color: #ffd166; text-shadow: 0 0 12px rgba(251, 191, 36, 0.4); }
+.sd-stat-sub { display: flex; justify-content: space-between; gap: 4px; margin-top: 6px; font-size: 0.66rem; color: #7b93ab; }
+.sd-stat-sub b { color: #c9d9e8; font-variant-numeric: tabular-nums; }
+
+.sd-honor-row { display: flex; flex-wrap: wrap; gap: 4px; min-height: 22px; align-content: flex-start; }
 .sd-honor {
-  font-size: 0.62rem; font-weight: 800; padding: 2px 7px; border-radius: 999px;
+  font-size: 0.63rem; font-weight: 800; padding: 2.5px 8px; border-radius: 999px;
   background: rgba(123, 147, 171, 0.14); color: #b9cbdc;
 }
-.sd-honor.gold { background: rgba(251, 191, 36, 0.16); color: #ffd166; }
-.sd-honor.cyan { background: rgba(34, 211, 238, 0.14); color: #67e8f9; }
-.sd-honor.pri { background: rgba(96, 165, 250, 0.15); color: #93c5fd; }
-.sd-honor.red { background: rgba(239, 68, 68, 0.16); color: #fca5a5; }
+.sd-honor.gold { background: rgba(251, 191, 36, 0.18); color: #ffd166; }
+.sd-honor.cyan { background: rgba(34, 211, 238, 0.15); color: #67e8f9; }
+.sd-honor.pri { background: rgba(96, 165, 250, 0.16); color: #93c5fd; }
+.sd-honor.red { background: rgba(239, 68, 68, 0.17); color: #fca5a5; }
 .sd-honor.none { background: transparent; color: #62788e; }
-.sd-team-row { font-size: 0.74rem; font-weight: 800; color: #67e8f9; }
+.sd-team-row { display: flex; align-items: center; font-size: 0.8rem; font-weight: 900; color: #ffd166; }
 
-.sd-owner-chip {
-  margin-top: auto; text-align: center; font-size: 0.72rem; font-weight: 800;
-  padding: 5px 8px; border-radius: 999px;
-  background: color-mix(in srgb, var(--mc, #62788e) 18%, transparent);
-  color: var(--mc, #9fb6cb); border: 1px solid color-mix(in srgb, var(--mc, #62788e) 45%, transparent);
+/* 卡底动作提示 */
+.sd-act-hint {
+  margin-top: auto; display: flex; align-items: center; justify-content: center;
+  font-size: 0.74rem; font-weight: 900; color: #0b1220; letter-spacing: 0.06em;
+  background: linear-gradient(135deg, #67e8f9, #22d3ee); border-radius: 999px; padding: 6px 10px;
+  opacity: 0; transform: translateY(2px); transition: all 0.22s;
+  box-shadow: 0 4px 14px rgba(34, 211, 238, 0.35);
 }
-.sd-owner-chip.free { --mc: #62788e; opacity: 0.75; }
+.sd-card .sd-card-back > :last-child { margin-top: auto; }
+.sd-card .sd-act-hint { margin-top: auto; }
 
-.sd-photo { width: 92px; height: 92px; border-radius: 50%; object-fit: cover; border: 3px solid rgba(251, 191, 36, 0.6); }
-.sd-front-name { font-size: 1.05rem; font-weight: 900; margin-top: 10px; }
-.sd-front-sub { font-size: 0.74rem; color: #ffd166; margin-top: 4px; }
-.sd-card-grid.revealing .sd-card { animation: sdCardPop 0.5s ease; }
-@keyframes sdCardPop { 40% { transform: scale(1.04); } }
+/* 翻面(揭晓) */
+.sd-photo { width: 104px; height: 104px; border-radius: 50%; object-fit: cover; border: 3px solid rgba(251, 191, 36, 0.65); box-shadow: 0 0 26px rgba(251, 191, 36, 0.25); }
+.sd-front-name { font-size: 1.14rem; font-weight: 900; margin-top: 12px; }
+.sd-front-sub { font-size: 0.76rem; color: #9fb6cb; margin-top: 4px; }
+.sd-front-ovr {
+  margin-top: 10px; font-size: 0.72rem; font-weight: 800; color: #ffd166;
+  border: 1px solid rgba(251, 191, 36, 0.5); border-radius: 999px; padding: 3px 12px;
+}
+.sd-front-ovr b { font-size: 1rem; }
+.sd-card-grid.revealing .sd-card { animation: sdCardPop 0.5s ease backwards; animation-delay: calc(var(--di) * 0.22s); }
+@keyframes sdCardPop { 40% { transform: scale(1.05); } }
 
-/* ---------- 行动区 ---------- */
-.sd-action-zone { margin-top: 14px; min-height: 66px; }
+/* ---------- 回合横幅 & 行动区 ---------- */
+.sd-action-zone { margin-top: 16px; min-height: 72px; }
+.sd-turn-banner {
+  position: relative; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px 14px;
+  padding: 12px 16px; border-radius: 14px;
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.13), rgba(11, 17, 27, 0.8) 55%);
+  border: 1.5px solid rgba(34, 211, 238, 0.55);
+  animation: sdBannerIn 0.35s cubic-bezier(0.2, 1.2, 0.4, 1), sdBannerGlow 2s ease-in-out infinite;
+}
+@keyframes sdBannerIn { from { opacity: 0; transform: translateY(10px); } }
+@keyframes sdBannerGlow { 50% { box-shadow: 0 0 22px rgba(34, 211, 238, 0.25); } }
+.sd-turn-badge {
+  display: inline-flex; align-items: center; font-size: 0.8rem; font-weight: 900; letter-spacing: 0.1em;
+  color: #0b1220; background: linear-gradient(135deg, #67e8f9, #22d3ee);
+  padding: 6px 14px; border-radius: 999px;
+}
+.sd-turn-copy { display: grid; }
+.sd-turn-copy strong { font-size: 0.95rem; }
+.sd-turn-copy span { font-size: 0.74rem; color: #9fb6cb; line-height: 1.5; }
+.sd-turn-banner .sd-action-row { grid-column: 1 / -1; margin-top: 2px; }
 .sd-hint {
-  padding: 10px 14px; border-radius: 12px; font-size: 0.86rem;
+  display: flex; align-items: center; padding: 12px 14px; border-radius: 12px; font-size: 0.86rem;
   background: rgba(34, 211, 238, 0.08); border: 1px dashed rgba(34, 211, 238, 0.35);
 }
-.sd-hint.pulse { animation: sdPulse 1.6s ease-in-out infinite; }
-.sd-hint.dim { opacity: 0.6; border-style: solid; border-color: rgba(123, 147, 171, 0.25); background: rgba(123, 147, 171, 0.06); }
+.sd-hint.dim { opacity: 0.75; border-style: solid; border-color: rgba(123, 147, 171, 0.25); background: rgba(123, 147, 171, 0.06); }
+.sd-hint.dim .sd-ic { animation: sdThink 1.2s ease-in-out infinite; }
+@keyframes sdThink { 50% { transform: translateY(-2px); } }
 .sd-action-row { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.sd-action-row.center { justify-content: center; }
 
 /* ---------- 日志 ---------- */
 .sd-log { display: flex; flex-direction: column; gap: 5px; max-height: 300px; overflow-y: auto; }
 .sd-log-line {
+  display: flex; align-items: flex-start; gap: 2px;
   font-size: 0.72rem; line-height: 1.45; padding: 5px 9px; border-radius: 8px;
   background: rgba(20, 30, 48, 0.6); color: #9fb6cb; animation: sdSlideIn 0.3s ease;
 }
+.sd-log-line .sd-ic { margin-top: 2px; flex: none; opacity: 0.8; }
 .sd-log-line.me { color: #67e8f9; border-left: 2px solid #22d3ee; }
 .sd-log-line.ai { border-left: 2px solid rgba(123, 147, 171, 0.6); }
 .sd-log-line.duel { color: #ffd166; border-left: 2px solid #fbbf24; background: rgba(251, 191, 36, 0.07); }
@@ -186,7 +448,7 @@
   padding: 7px 10px; border-radius: 10px; background: rgba(20, 30, 48, 0.6);
   border: 1px solid transparent; column-gap: 8px;
 }
-.sd-roster-row.now { border-color: rgba(251, 191, 36, 0.5); }
+.sd-roster-row.now { border-color: rgba(251, 191, 36, 0.5); animation: sdPulse 1.8s ease-in-out infinite; }
 .sd-roster-row.filled { border-color: rgba(74, 222, 128, 0.3); }
 .sd-roster-pos { grid-row: span 2; align-self: center; font-weight: 900; color: #ffd166; }
 .sd-roster-name { font-size: 0.82rem; font-weight: 700; }
@@ -199,31 +461,46 @@
 }
 @keyframes sdFadeIn { from { opacity: 0; } }
 .sd-modal {
-  width: min(480px, 92vw); border-radius: 18px; padding: 20px 22px;
+  width: min(500px, 92vw); border-radius: 18px; padding: 20px 22px;
   background: linear-gradient(165deg, #16233c, #0b1220 75%);
   border: 1px solid rgba(251, 191, 36, 0.4); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  animation: sdModalIn 0.32s cubic-bezier(0.2, 1.3, 0.4, 1);
 }
-.sd-modal h3 { margin: 0 0 12px; color: #ffd166; }
-.sd-bid-tip { font-size: 0.84rem; line-height: 1.6; color: #c9d9e8; }
-.sd-bid-stepper { display: flex; align-items: center; gap: 14px; margin: 14px 0; }
+@keyframes sdModalIn { from { opacity: 0; transform: translateY(18px) scale(0.94); } }
+.sd-modal h3 { display: flex; align-items: center; margin: 0 0 12px; color: #ffd166; }
+.sd-bid-tip { font-size: 0.84rem; line-height: 1.65; color: #c9d9e8; }
+.sd-bid-tip.center { text-align: center; }
+.sd-bid-tip b { color: #ffd166; }
+.sd-bid-stepper { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 16px 0 6px; }
 .sd-bid-stepper button {
-  width: 44px; height: 44px; border-radius: 12px; font-size: 1.4rem; font-weight: 900;
+  width: 46px; height: 46px; border-radius: 12px; font-size: 1.5rem; font-weight: 900;
   background: rgba(34, 211, 238, 0.12); color: #67e8f9; border: 1px solid rgba(34, 211, 238, 0.4); cursor: pointer;
+  transition: all 0.15s;
 }
-.sd-bid-stepper button:hover { background: rgba(34, 211, 238, 0.22); }
-.sd-bid-stepper span { font-size: 1.9rem; font-weight: 900; color: #ffd166; min-width: 56px; text-align: center; }
+.sd-bid-stepper button:hover { background: rgba(34, 211, 238, 0.25); transform: scale(1.06); }
+.sd-bid-value { display: inline-flex; align-items: center; gap: 6px; }
+.sd-bid-value .sd-ic { font-size: 1.5rem; margin: 0; }
+.sd-bid-value b { font-size: 2rem; font-weight: 900; color: #ffd166; min-width: 46px; text-align: center; font-variant-numeric: tabular-nums; }
 .sd-bid-stepper em { font-style: normal; font-size: 0.74rem; color: #7b93ab; }
-.sd-bid-reveal { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; margin: 14px 0; }
+.sd-bid-reveal { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: stretch; margin: 14px 0; }
 .sd-bid-side {
-  display: grid; gap: 6px; justify-items: center; padding: 14px 10px; border-radius: 14px;
+  display: grid; gap: 5px; justify-items: center; padding: 14px 10px; border-radius: 14px;
   background: color-mix(in srgb, var(--mc, #62788e) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--mc, #62788e) 35%, transparent);
 }
-.sd-bid-side span { font-size: 0.76rem; font-weight: 700; color: var(--mc); }
-.sd-bid-side strong { font-size: 1.5rem; animation: sdCoinFlip 0.8s ease; }
-.sd-bid-side.win { box-shadow: 0 0 0 2px var(--mc), 0 0 24px color-mix(in srgb, var(--mc) 40%, transparent); }
+.sd-bid-role { display: inline-flex; align-items: center; font-style: normal; font-size: 0.64rem; font-weight: 900; letter-spacing: 0.15em; color: #7b93ab; }
+.sd-bid-side span { font-size: 0.78rem; font-weight: 800; color: var(--mc); }
+.sd-bid-side strong { display: inline-flex; align-items: center; font-size: 1.5rem; animation: sdCoinFlip 0.8s ease; }
+.sd-bid-side.win { box-shadow: 0 0 0 2px var(--mc), 0 0 26px color-mix(in srgb, var(--mc) 45%, transparent); }
+.sd-bid-side.lose { opacity: 0.72; }
+.sd-bid-tag {
+  display: inline-flex; align-items: center; font-style: normal; font-size: 0.66rem; font-weight: 900;
+  color: #0b1220; background: linear-gradient(135deg, #ffd166, #fbbf24); border-radius: 999px; padding: 2px 10px;
+  animation: sdStamp 0.4s 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) backwards;
+}
+.sd-bid-tag.keep { background: rgba(123, 147, 171, 0.3); color: #c9d9e8; }
 @keyframes sdCoinFlip { 0% { transform: rotateX(90deg); opacity: 0; } 60% { transform: rotateX(-20deg); } }
-.sd-bid-vs { font-weight: 900; color: #7b93ab; }
+.sd-bid-vs { align-self: center; font-weight: 900; font-size: 1.1rem; color: #7b93ab; text-shadow: 0 0 12px rgba(251, 191, 36, 0.3); }
 .sd-bid-result { text-align: center; font-weight: 800; color: #ffd166; }
 
 /* ---------- 年代转盘 ---------- */
@@ -260,42 +537,52 @@
   padding: 10px 12px; border-radius: 12px; background: rgba(13, 20, 32, 0.66);
   border: 1px solid rgba(148, 190, 230, 0.14); border-top: 3px solid var(--mc);
 }
-.sd-recap-head { font-size: 0.78rem; font-weight: 800; margin-bottom: 6px; }
-.sd-recap-head em { font-style: normal; color: #ffd166; float: right; }
+.sd-recap-head { display: flex; align-items: center; font-size: 0.78rem; font-weight: 800; margin-bottom: 6px; }
+.sd-recap-head em { font-style: normal; color: #ffd166; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; }
 .sd-recap-players { display: flex; flex-wrap: wrap; gap: 5px; }
 .sd-recap-players span { font-size: 0.68rem; background: rgba(123, 147, 171, 0.12); padding: 2px 8px; border-radius: 999px; }
 .sd-recap-players b { color: #ffd166; margin-right: 3px; }
 
 /* ---------- 模拟直播 ---------- */
-.sd-sim-layout { display: grid; gap: 16px; padding: 10px 0 30px; }
+.sd-sim-layout { display: grid; gap: 14px; padding: 10px 0 30px; }
 .sd-sim-head { display: flex; align-items: center; gap: 14px; }
-.sd-sim-head h2 { margin: 0; font-size: 1.2rem; }
-.sd-sim-round { font-weight: 900; color: #ffd166; letter-spacing: 0.08em; }
+.sd-sim-head h2 { display: flex; align-items: center; margin: 0; font-size: 1.2rem; }
+.sd-sim-round { font-weight: 900; color: #ffd166; letter-spacing: 0.08em; font-variant-numeric: tabular-nums; }
+.sd-sim-progress { height: 6px; border-radius: 999px; background: rgba(123, 147, 171, 0.15); overflow: hidden; }
+.sd-sim-progress i { display: block; height: 100%; background: linear-gradient(90deg, #22d3ee, #fbbf24); border-radius: 999px; transition: width 0.25s ease; }
 .sd-race { display: grid; gap: 10px; }
 .sd-race-row {
-  display: grid; grid-template-columns: 46px 170px 1fr 90px minmax(150px, 220px) 90px;
+  display: grid; grid-template-columns: 62px 180px 1fr 96px minmax(150px, 230px) 100px;
   align-items: center; gap: 12px; padding: 12px 16px; border-radius: 14px;
   background: rgba(13, 20, 32, 0.7); border: 1px solid rgba(148, 190, 230, 0.13);
   border-left: 4px solid var(--mc); transition: transform 0.4s ease;
 }
-@media (max-width: 860px) { .sd-race-row { grid-template-columns: 40px 1fr 80px; } .sd-race-bar, .sd-race-last, .sd-race-streak { display: none; } }
+@media (max-width: 860px) { .sd-race-row { grid-template-columns: 52px 1fr 86px; } .sd-race-bar, .sd-race-last, .sd-race-streak { display: none; } }
 .sd-race-row.human { box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.4); }
-.sd-race-rank { font-size: 1.1rem; font-weight: 900; color: #ffd166; }
+.sd-race-row.leader { background: linear-gradient(90deg, rgba(251, 191, 36, 0.1), rgba(13, 20, 32, 0.7) 55%); }
+.sd-race-rank { display: inline-flex; align-items: center; gap: 3px; font-size: 1.1rem; font-weight: 900; color: #ffd166; }
+.sd-race-rank .sd-ic { margin: 0; font-size: 1.25rem; }
+.sd-race-rank .rk-up, .sd-race-rank .rk-dn { font-style: normal; font-size: 0.66rem; animation: sdRankPop 0.6s ease; }
+.sd-race-rank .rk-up { color: #4ade80; }
+.sd-race-rank .rk-dn { color: #f87171; }
+@keyframes sdRankPop { 0% { transform: translateY(4px); opacity: 0; } }
 .sd-race-team { font-weight: 800; display: grid; }
-.sd-race-team small { color: #7b93ab; font-weight: 600; }
+.sd-race-team small { display: inline-flex; align-items: center; color: #7b93ab; font-weight: 600; }
 .sd-race-bar { height: 10px; border-radius: 999px; background: rgba(123, 147, 171, 0.15); overflow: hidden; }
 .sd-race-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, color-mix(in srgb, var(--mc) 70%, transparent), var(--mc)); transition: width 0.3s ease; }
-.sd-race-rec { font-weight: 900; }
-.sd-race-last { font-size: 0.72rem; color: #9fb6cb; }
+.sd-race-rec { font-weight: 900; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.sd-race-rec em { font-style: normal; font-size: 0.66rem; color: #7b93ab; margin: 0 2px; font-weight: 600; }
+.sd-race-last { font-size: 0.72rem; color: #9fb6cb; display: inline-flex; align-items: center; }
 .sd-race-last.w { color: #4ade80; }
 .sd-race-last.l { color: #f87171; }
-.sd-race-streak { font-size: 0.72rem; font-weight: 800; color: #fbbf24; }
+.sd-race-last.derby { font-weight: 900; }
+.sd-race-streak { display: inline-flex; align-items: center; font-size: 0.72rem; font-weight: 800; color: #fbbf24; }
 
 /* ---------- 结算 ---------- */
 .sd-results { display: grid; gap: 18px; padding-bottom: 40px; }
 .sd-champ-hero {
-  display: grid; grid-template-columns: auto 1fr auto; gap: 22px; align-items: center;
-  padding: 26px 30px; border-radius: 20px;
+  position: relative; display: grid; grid-template-columns: auto 1fr auto; gap: 22px; align-items: center;
+  padding: 28px 32px; border-radius: 20px; overflow: hidden;
   background:
     radial-gradient(130% 120% at 20% 0%, color-mix(in srgb, var(--mc) 22%, transparent), transparent 60%),
     linear-gradient(160deg, #1a2439, #0b1220 78%);
@@ -304,12 +591,29 @@
 }
 @keyframes sdHeroIn { 0% { opacity: 0; transform: translateY(24px) scale(0.96); } }
 @media (max-width: 760px) { .sd-champ-hero { grid-template-columns: 1fr; text-align: center; justify-items: center; } }
-.sd-champ-trophy { font-size: 3.4rem; filter: drop-shadow(0 0 18px rgba(251, 191, 36, 0.6)); animation: sdTrophy 2.4s ease-in-out infinite; }
+.sd-champ-trophy { animation: sdTrophy 2.4s ease-in-out infinite; }
 @keyframes sdTrophy { 50% { transform: translateY(-6px); } }
 .sd-champ-kicker { margin: 0; font-size: 0.78rem; letter-spacing: 0.2em; color: #ffd166; font-weight: 800; }
 .sd-champ-hero h2 { margin: 4px 0; font-size: 2rem; }
 .sd-champ-sub { margin: 0; color: #c9d9e8; }
 .sd-champ-motto { margin: 6px 0 0; font-style: italic; color: #7b93ab; font-size: 0.82rem; }
+
+/* 彩带 */
+.sd-confetti { position: absolute; inset: 0; pointer-events: none; }
+.sd-confetti i {
+  position: absolute; top: -12px; left: calc(var(--ci) * 7.2% + 2%);
+  width: 7px; height: 13px; border-radius: 2px; opacity: 0;
+  background: #fbbf24;
+  animation: sdConfetti 3s linear infinite; animation-delay: calc(var(--ci) * 0.24s);
+}
+.sd-confetti i:nth-child(3n) { background: #22d3ee; width: 5px; height: 10px; }
+.sd-confetti i:nth-child(4n) { background: #a78bfa; }
+.sd-confetti i:nth-child(5n) { background: #4ade80; height: 8px; }
+@keyframes sdConfetti {
+  0% { transform: translateY(0) rotate(0) ; opacity: 0; }
+  8% { opacity: 0.9; }
+  100% { transform: translateY(240px) rotate(560deg); opacity: 0; }
+}
 
 .sd-results .grade-stamp {
   width: 96px; height: 96px; border-radius: 50%; display: grid; place-items: center; align-content: center;
@@ -325,17 +629,24 @@
   align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px;
   background: rgba(13, 20, 32, 0.7); border: 1px solid rgba(148, 190, 230, 0.13);
   border-left: 4px solid var(--mc);
+  animation: sdSlideIn 0.4s ease backwards;
 }
+.sd-podium-row:nth-child(1) { animation-delay: 0.1s; }
+.sd-podium-row:nth-child(2) { animation-delay: 0.22s; }
+.sd-podium-row:nth-child(3) { animation-delay: 0.34s; }
+.sd-podium-row:nth-child(4) { animation-delay: 0.46s; }
+.sd-podium-row:nth-child(5) { animation-delay: 0.58s; }
 @media (max-width: 860px) { .sd-podium-row { grid-template-columns: 44px 1fr 80px 50px; } .sd-podium-derby, .sd-podium-diff, .sd-podium-rank2, .sd-podium-coin { display: none; } }
-.sd-podium-derby { font-size: 0.76rem; font-weight: 800; color: #fbbf24; }
-.sd-race-last.derby { font-weight: 800; }
 .sd-podium-row.first { background: linear-gradient(90deg, rgba(251, 191, 36, 0.12), rgba(13, 20, 32, 0.7) 60%); border-color: rgba(251, 191, 36, 0.5); }
 .sd-podium-row.human { box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.35); }
-.sd-podium-rank { font-size: 1.2rem; font-weight: 900; color: #ffd166; }
+.sd-podium-rank { display: inline-flex; align-items: center; font-size: 1.2rem; font-weight: 900; color: #ffd166; }
+.sd-podium-rank .sd-ic { margin: 0; font-size: 1.35rem; }
 .sd-podium-team { font-weight: 800; display: grid; }
 .sd-podium-team small { color: #7b93ab; font-weight: 600; }
-.sd-podium-rec { font-weight: 900; font-size: 1.02rem; }
-.sd-podium-diff, .sd-podium-rank2, .sd-podium-coin { font-size: 0.74rem; color: #9fb6cb; }
+.sd-podium-rec { font-weight: 900; font-size: 1.02rem; font-variant-numeric: tabular-nums; }
+.sd-podium-derby { font-size: 0.76rem; font-weight: 800; color: #fbbf24; }
+.sd-podium-diff, .sd-podium-rank2 { font-size: 0.74rem; color: #9fb6cb; }
+.sd-podium-coin { font-size: 0.8rem; }
 .sd-podium-grade { font-weight: 900; color: #ffd166; text-align: center; }
 
 .sd-team-card { border-top: 3px solid var(--mc) !important; }
@@ -345,6 +656,5 @@
 .sd-duel-recap { font-size: 0.76rem; color: #9fb6cb; line-height: 1.6; margin: 10px 0 0; }
 .sd-standing-us { background: rgba(34, 211, 238, 0.08); border-radius: 8px; padding-left: 6px; padding-right: 6px; }
 
-/* 通用 award-row(结算复用) */
 .sd-results .award-row { display: flex; justify-content: space-between; padding: 6px 2px; font-size: 0.8rem; border-bottom: 1px dashed rgba(123, 147, 171, 0.16); }
 .sd-results .results-footer { display: flex; gap: 12px; justify-content: center; }

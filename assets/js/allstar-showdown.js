@@ -67,7 +67,12 @@
     simRound: 0,
     skipSim: false,
     result: null,
-    revealing: false
+    revealing: false,
+    dealing: false,
+    prevRanks: null,
+    announce: null,   // 全屏阶段过场 {kicker,title,sub}
+    acted: [],        // 本轮已行动的经理 idx
+    lastAction: null  // 回合行动结果气泡 {mgrIdx,text,ic}
   };
 
   let uiResolver = null;
@@ -95,6 +100,35 @@
   class Aborted extends Error { }
   function guard(gen) { if (gen !== S.gen) throw new Aborted('restarted'); }
 
+  /* ---------- SVG 图标库 (currentColor, 16x16 viewBox) ---------- */
+  const ICONS = {
+    coin: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.6" fill="#fbbf24" stroke="#b45309" stroke-width="1.2"/><circle cx="8" cy="8" r="4.4" fill="none" stroke="#b45309" stroke-width="0.9" opacity="0.7"/><path d="M8 5.2 8.8 7h1.9L9.2 8.2l.6 1.9L8 8.9l-1.8 1.2.6-1.9L5.3 7h1.9Z" fill="#92400e"/></svg>',
+    lock: '<svg viewBox="0 0 16 16"><rect x="3.4" y="7" width="9.2" height="6.6" rx="1.6" fill="currentColor"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>',
+    unlock: '<svg viewBox="0 0 16 16"><rect x="3.4" y="7" width="9.2" height="6.6" rx="1.6" fill="currentColor" opacity="0.5"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5-.6" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>',
+    swap: '<svg viewBox="0 0 16 16"><path d="M3 5.5h8l-2.2-2.2M13 10.5H5l2.2 2.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    gavel: '<svg viewBox="0 0 16 16"><rect x="7.2" y="1.6" width="4.4" height="6.4" rx="1" transform="rotate(45 9.4 4.8)" fill="currentColor"/><path d="M8.2 8.4 3 13.6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M2 14.6h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+    trophy: '<svg viewBox="0 0 16 16"><path d="M4.5 2h7v3.6A3.5 3.5 0 0 1 8 9a3.5 3.5 0 0 1-3.5-3.4Z" fill="currentColor"/><path d="M4.5 3.2H2.6c0 2.2 1 3.4 2.4 3.6M11.5 3.2h1.9c0 2.2-1 3.4-2.4 3.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M8 9v2.4M5.6 13.8c0-1.3 1.1-2.4 2.4-2.4s2.4 1.1 2.4 2.4Z" fill="currentColor"/></svg>',
+    star: '<svg viewBox="0 0 16 16"><path d="m8 1.6 1.9 4 4.4.5-3.3 3 .9 4.4L8 11.3l-3.9 2.2.9-4.4-3.3-3 4.4-.5Z" fill="currentColor"/></svg>',
+    ball: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.6v12.8M1.6 8h12.8M3.4 3.4c2.5 2.5 6.7 2.5 9.2 0M3.4 12.6c2.5-2.5 6.7-2.5 9.2 0" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>',
+    chart: '<svg viewBox="0 0 16 16"><path d="M2 13.5h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><rect x="3.2" y="8" width="2.4" height="4" rx="0.6" fill="currentColor"/><rect x="6.8" y="5" width="2.4" height="7" rx="0.6" fill="currentColor"/><rect x="10.4" y="2.6" width="2.4" height="9.4" rx="0.6" fill="currentColor"/></svg>',
+    medal: '<svg viewBox="0 0 16 16"><path d="m4.4 1.6 2 4.2M11.6 1.6l-2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="10" r="4.2" fill="currentColor"/><path d="m8 7.9.8 1.6 1.8.2-1.3 1.2.3 1.8L8 11.8l-1.6.9.3-1.8-1.3-1.2 1.8-.2Z" fill="#0b1220"/></svg>',
+    jersey: '<svg viewBox="0 0 16 16"><path d="M5.4 1.8 2 4.4l1.6 2.4 1.2-.8v8h6.4V6l1.2.8L14 4.4l-3.4-2.6a2.6 2.6 0 0 1-5.2 0Z" fill="currentColor"/></svg>',
+    crown: '<svg viewBox="0 0 16 16"><path d="M2 5.4 5 8l3-4.4L11 8l3-2.6-1.2 7H3.2Z" fill="currentColor"/><rect x="3.2" y="13" width="9.6" height="1.6" rx="0.8" fill="currentColor"/></svg>',
+    bot: '<svg viewBox="0 0 16 16"><rect x="3" y="5" width="10" height="8" rx="2" fill="currentColor"/><circle cx="6.2" cy="8.6" r="1.2" fill="#0b1220"/><circle cx="9.8" cy="8.6" r="1.2" fill="#0b1220"/><path d="M8 5V2.6M8 2.4a1 1 0 1 1 .1 0" stroke="currentColor" stroke-width="1.4"/></svg>',
+    user: '<svg viewBox="0 0 16 16"><circle cx="8" cy="5" r="3.2" fill="currentColor"/><path d="M2.4 14.4a5.6 5.6 0 0 1 11.2 0Z" fill="currentColor"/></svg>',
+    flag: '<svg viewBox="0 0 16 16"><path d="M3.6 1.6v12.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M4.6 2.6h8l-2.2 2.8 2.2 2.8h-8Z" fill="currentColor"/></svg>',
+    eye: '<svg viewBox="0 0 16 16"><path d="M1.6 8s2.4-4.4 6.4-4.4S14.4 8 14.4 8 12 12.4 8 12.4 1.6 8 1.6 8Z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2.1" fill="currentColor"/></svg>',
+    silhouette: '<svg viewBox="0 0 64 64"><circle cx="32" cy="20" r="11" fill="currentColor"/><path d="M10 56c0-12.2 9.8-22 22-22s22 9.8 22 22Z" fill="currentColor"/></svg>',
+    bolt: '<svg viewBox="0 0 16 16"><path d="M9.2 1.2 3.6 9h3.2l-1 5.8L11.4 7H8.2Z" fill="currentColor"/></svg>',
+    shield: '<svg viewBox="0 0 16 16"><path d="M8 1.4 13.4 3.4v4.2c0 3.6-2.3 6-5.4 7-3.1-1-5.4-3.4-5.4-7V3.4Z" fill="currentColor"/></svg>'
+  };
+  function icon(name, cls = '') {
+    return `<i class="sd-ic ${cls}" aria-hidden="true">${ICONS[name] || ''}</i>`;
+  }
+  function coinsHtml(n) {
+    return `<span class="sd-coins">${icon('coin')}<b>${n}</b></span>`;
+  }
+
   function waitUI() {
     return new Promise(resolve => { uiResolver = resolve; });
   }
@@ -108,6 +142,27 @@
   function pushLog(text, kind = 'info') {
     S.log.unshift({ text, kind, t: Date.now() });
     if (S.log.length > 40) S.log.pop();
+  }
+
+  // 全屏阶段过场: 明确告诉玩家现在进行到哪一步、该做什么
+  async function announce(gen, { kicker = '', title = '', sub = '', ic = 'flag', hold = 1500 } = {}) {
+    guard(gen);
+    S.announce = { kicker, title, sub, ic };
+    render();
+    await sleep(hold);
+    guard(gen);
+    S.announce = null;
+    render();
+  }
+
+  // 回合制行动拍: AI 的行动结果以大字气泡停留展示,再进入下一个回合
+  async function actionBeat(gen, mgrIdx, text, ic = 'bolt', hold = 1000) {
+    guard(gen);
+    S.lastAction = { mgrIdx, text, ic };
+    render();
+    await sleep(hold);
+    guard(gen);
+    S.lastAction = null;
   }
 
   /* ---------- 卡池 ---------- */
@@ -212,6 +267,11 @@
     S.skipSim = false;
     S.result = null;
     S.revealing = false;
+    S.dealing = false;
+    S.prevRanks = null;
+    S.announce = null;
+    S.acted = [];
+    S.lastAction = null;
   }
 
   async function startShowdown() {
@@ -281,37 +341,80 @@
     for (S.posIndex = 0; S.posIndex < SLOTS.length; S.posIndex++) {
       guard(gen);
       S.stage = 1;
+      S.acted = [];
       dealCards(gen);
       pushLog(`—— ${slotNow().short} 位置开抽: 5 张全明星卡(${STAGE_INFO[0].label}) ——`, 'stage');
+
+      // 过场①: 位置开始
+      await announce(gen, {
+        kicker: `第 ${S.posIndex + 1} / 5 个位置`,
+        title: `${slotNow().short} · ${slotNow().name}`,
+        sub: '发 5 张全明星卡 → 第1轮只看【巅峰数据】,按顺序认领并决定是否锁定',
+        ic: 'ball', hold: 1700
+      });
+
+      // 发牌动效: 卡堆飞出5张牌背 → 依次翻开数据面
+      S.dealing = true;
       render();
-      await sleep(700);
+      await sleep(2150);
+      guard(gen);
+      S.dealing = false;
+      render();
+      await sleep(350);
 
       // 第一轮: 认领 + 锁定
       for (const mIdx of currentOrder()) {
         guard(gen);
         await takeClaimTurn(gen, mIdx);
+        S.acted.push(mIdx);
+        render();
       }
 
       // 第二/三轮: 未锁定者行动
       for (S.stage = 2; S.stage <= 3; S.stage++) {
         guard(gen);
+        S.acted = [];
         pushLog(`—— ${slotNow().short} ${STAGE_INFO[S.stage - 1].label}: ${STAGE_INFO[S.stage - 1].desc} ——`, 'stage');
-        render();
-        await sleep(800);
+        const lockedCount = S.cards.filter(c => c.locked && c.owner >= 0).length;
+        await announce(gen, S.stage === 2 ? {
+          kicker: `${slotNow().short} · 第 2 / 3 轮`,
+          title: '荣誉轮 · 生涯荣誉揭示',
+          sub: `所有卡追加显示生涯荣誉 → 未锁定的 ${5 - lockedCount} 人可以: 保持 / 换卡 / 截胡 / 金币比价${lockedCount ? ` (已锁定 ${lockedCount} 人跳过)` : ''}`,
+          ic: 'medal', hold: 1700
+        } : {
+          kicker: `${slotNow().short} · 第 3 / 3 轮 (最终轮)`,
+          title: '球队轮 · 效力球队揭示',
+          sub: `所有卡追加显示年份和球队 → 最后的调整机会,本轮结束后全员强制锁定${lockedCount ? ` (已锁定 ${lockedCount} 人跳过)` : ''}`,
+          ic: 'jersey', hold: 1700
+        });
         for (const mIdx of currentOrder()) {
           guard(gen);
           const card = managerCard(mIdx);
-          if (card && card.locked) continue;
+          if (card && card.locked) { S.acted.push(mIdx); continue; }
           await takeActionTurn(gen, mIdx);
+          S.acted.push(mIdx);
+          render();
         }
       }
 
       // 收尾: 全员锁定 + 翻牌
       S.stage = 3;
       S.cards.forEach(card => { card.locked = true; });
+      await announce(gen, {
+        kicker: `${slotNow().short} 位置尘埃落定`,
+        title: '翻牌 · 身份揭晓',
+        sub: '五张卡即将翻开,看看每位经理抢到了谁!',
+        ic: 'star', hold: 1400
+      });
       await revealPosition(gen);
     }
     guard(gen);
+    await announce(gen, {
+      kicker: 'PG · SG · SF · PF · C 全部选完',
+      title: '五支梦之队集结完毕',
+      sub: '接下来: 命运转盘随机决定空降哪个年代的联盟,五队同场竞技 82 场',
+      ic: 'trophy', hold: 1800
+    });
     S.phase = 'era';
     render();
   }
@@ -338,14 +441,16 @@
       pushLog(`你认领了 ${cardLabel(card)}${card.locked ? ' 并【锁定】' : ''}`, 'me');
     } else {
       render();
-      await sleep(650);
+      await sleep(850);
       guard(gen);
       const free = freeCards();
       const best = free.reduce((a, b) => aiCardValue(mgr, b, S.stage) > aiCardValue(mgr, a, S.stage) ? b : a, free[0]);
       best.owner = mIdx;
       best.acquiredBy = 'claim';
       best.locked = aiShouldLock(mgr, best);
-      pushLog(`${mgr.name} 认领了 ${cardLabel(best)}${best.locked ? ' 并【锁定】' : ''}`, 'ai');
+      const text = `认领了 ${cardLabel(best)}${best.locked ? ',并【锁定】' : ',保持灵活'}`;
+      pushLog(`${mgr.name} ${text}`, 'ai');
+      await actionBeat(gen, mIdx, text, best.locked ? 'lock' : 'star');
     }
     S.awaiting = null;
     S.activeIdx = -1;
@@ -372,7 +477,7 @@
       await applyHumanAction(gen, act);
     } else {
       render();
-      await sleep(750);
+      await sleep(850);
       guard(gen);
       await aiAction(gen, mgr);
     }
@@ -437,8 +542,10 @@
       if (mine && aiShouldLock(mgr, mine)) {
         mine.locked = true;
         pushLog(`${mgr.name}【锁定】了 ${cardLabel(mine)}`, 'ai');
+        await actionBeat(gen, mgr.idx, `【锁定】了 ${cardLabel(mine)}`, 'lock');
       } else {
         pushLog(`${mgr.name} 按兵不动,继续观望`, 'ai');
+        await actionBeat(gen, mgr.idx, '按兵不动,继续观望', 'eye', 800);
       }
       return;
     }
@@ -454,15 +561,18 @@
         best.locked = aiShouldLock(mgr, best);
         if (victim >= 0) {
           pushLog(`${mgr.name} 抢走了 ${MANAGERS[victim].name} 的 ${cardLabel(best)}${best.locked ? ' 并【锁定】' : ''}`, 'ai');
+          await actionBeat(gen, mgr.idx, `截胡!抢走 ${MANAGERS[victim].name} 的 ${cardLabel(best)}${best.locked ? ' 并【锁定】' : ''}`, 'bolt', 1200);
           await reclaimFor(gen, victim);
         } else {
           pushLog(`${mgr.name} 换成了无主的 ${cardLabel(best)}${best.locked ? ' 并【锁定】' : ''}`, 'ai');
+          await actionBeat(gen, mgr.idx, `换成了无主的 ${cardLabel(best)}${best.locked ? ' 并【锁定】' : ''}`, 'swap');
         }
         return;
       }
     } else {
       const challengeMargin = mgr.style === 'gambler' ? 1.5 : mgr.style === 'miser' ? 6 : 3;
       if (gain > challengeMargin && S.coins[mgr.idx] >= 1) {
+        await actionBeat(gen, mgr.idx, `盯上了 ${MANAGERS[best.owner].name} 锁定的 ${cardLabel(best)},发起金币比价!`, 'gavel', 1200);
         await runDuel(gen, mgr.idx, best);
         return;
       }
@@ -470,8 +580,10 @@
     if (mine && aiShouldLock(mgr, mine)) {
       mine.locked = true;
       pushLog(`${mgr.name}【锁定】了 ${cardLabel(mine)}`, 'ai');
+      await actionBeat(gen, mgr.idx, `【锁定】了 ${cardLabel(mine)}`, 'lock');
     } else {
       pushLog(`${mgr.name} 保持现状,继续观望`, 'ai');
+      await actionBeat(gen, mgr.idx, '保持现状,继续观望', 'eye', 800);
     }
   }
 
@@ -491,12 +603,13 @@
       pushLog(`你重新认领了 ${cardLabel(card)}`, 'me');
       S.awaiting = null;
     } else {
-      await sleep(500);
+      await sleep(450);
       guard(gen);
       const best = free.reduce((a, b) => aiCardValue(mgr, b, S.stage) > aiCardValue(mgr, a, S.stage) ? b : a, free[0]);
       best.owner = mIdx;
       best.acquiredBy = 'reclaim';
       pushLog(`${mgr.name} 重新认领了 ${cardLabel(best)}`, 'ai');
+      await actionBeat(gen, mIdx, `被抢后重新认领了 ${cardLabel(best)}`, 'swap', 900);
     }
     render();
   }
@@ -995,8 +1108,23 @@
     else if (S.phase === 'era') body = renderEra();
     else if (S.phase === 'sim') body = renderSim();
     else if (S.phase === 'results') body = renderResultsView();
-    root.innerHTML = `<div class="sd-wrap">${renderTopbar()}${body}${renderBidModal()}</div>`;
+    root.innerHTML = `<div class="sd-wrap">${renderTopbar()}${body}${renderBidModal()}${renderAnnounce()}</div>`;
     bindRoot();
+  }
+
+  // 全屏阶段过场层
+  function renderAnnounce() {
+    const a = S.announce;
+    if (!a) return '';
+    return `
+      <div class="sd-announce-bg">
+        <div class="sd-announce">
+          <div class="sd-announce-ic">${icon(a.ic || 'flag')}</div>
+          ${a.kicker ? `<p class="sd-announce-kicker">${a.kicker}</p>` : ''}
+          <h2 class="sd-announce-title">${a.title}</h2>
+          ${a.sub ? `<p class="sd-announce-sub">${a.sub}</p>` : ''}
+        </div>
+      </div>`;
   }
 
   function renderTopbar() {
@@ -1031,115 +1159,259 @@
     return items.slice(0, max).join('') + (items.length > max ? `<span class="sd-honor none">+${items.length - max}</span>` : '');
   }
 
+  // 可交互性判定: 当前玩家回合下这张卡可以点吗? 返回动作提示文案
+  function cardActionHint(card) {
+    const owner = cardOwner(card);
+    if (S.awaiting === 'claim' || S.awaiting === 'reclaim') {
+      return !owner ? { act: 'claim', label: '点击认领', ic: 'star' } : null;
+    }
+    if (S.awaiting === 'action') {
+      if (owner && owner.idx === 0) return null;
+      if (!owner) return { act: 'claim', label: '点击换取', ic: 'swap' };
+      if (card.locked) return S.coins[0] >= 1 ? { act: 'duel', label: '金币比价', ic: 'gavel' } : null;
+      return { act: 'steal', label: '点击截胡', ic: 'bolt' };
+    }
+    return null;
+  }
+
+  function statTone(value, hi, mid) {
+    const v = num(value, 0);
+    return v >= hi ? 'elite' : v >= mid ? 'good' : '';
+  }
+
   function renderCard(card) {
     const st = card.entry.stats || {};
     const owner = cardOwner(card);
-    const mineTurn = S.activeIdx === 0 && MANAGERS[0];
+    const hint = cardActionHint(card);
     const cls = ['sd-card'];
     if (card.locked) cls.push('locked');
     if (owner) cls.push('owned');
     if (card.revealed) cls.push('revealed');
     if (owner && owner.idx === 0) cls.push('is-mine');
-    const stageNow = S.stage;
+    if (S.dealing) cls.push('dealing');
+    if (hint) cls.push('actionable');
+    const stageNow = Math.min(3, Math.max(1, S.stage));
     const front = card.revealed ? `
       <div class="sd-card-front">
         <img class="sd-photo" src="${esc(getPlayerPhotoSrc(card.player))}" alt="" onerror="this.src='${esc(getPlayerPhotoPath(0))}'">
         <div class="sd-front-name">${esc(card.entry.nameCn)}</div>
-        <div class="sd-front-sub">${card.entry.peakYear} · ${esc(card.entry.peakTeamCn)} · OVR ${num(card.player.rating, 0)}</div>
+        <div class="sd-front-sub">${card.entry.peakYear} · ${esc(card.entry.peakTeamCn)}</div>
+        <div class="sd-front-ovr">OVR <b>${num(card.player.rating, 0)}</b></div>
       </div>` : '';
     return `
-      <div class="${cls.join(' ')}" data-card="${card.idx}">
+      <div class="${cls.join(' ')}" data-card="${card.idx}" style="--di:${card.idx}">
+        ${owner ? `<div class="sd-owner-ribbon" style="--mc:${owner.color}">${icon(owner.idx === 0 ? 'user' : 'bot')}${esc(owner.name)}${cardCost(card) ? ` <span class="sd-rib-cost">${icon('coin')}${cardCost(card)}</span>` : ''}</div>`
+        : `<div class="sd-owner-ribbon free">${icon('eye')}无主</div>`}
         <div class="sd-card-inner">
           <div class="sd-card-back">
             <div class="sd-card-head">
-              <span class="sd-card-no">${card.idx + 1}号卡</span>
-              ${card.locked ? '<span class="sd-lock">🔒 已锁定</span>' : ''}
+              <span class="sd-card-no">${icon('ball')}${card.idx + 1}号卡</span>
+              ${card.locked ? `<span class="sd-lock">${icon('lock')}已锁定</span>` : `<span class="sd-lock open">${icon('unlock')}可争夺</span>`}
             </div>
-            <div class="sd-mystery">?</div>
-            <div class="sd-stat-grid">
-              <div><span>得分</span><strong>${fmt1(st.ppg)}</strong></div>
-              <div><span>篮板</span><strong>${fmt1(st.rpg)}</strong></div>
-              <div><span>助攻</span><strong>${fmt1(st.apg)}</strong></div>
-              <div><span>抢断</span><strong>${fmt1(st.spg)}</strong></div>
-              <div><span>盖帽</span><strong>${fmt1(st.bpg)}</strong></div>
-              <div><span>命中%</span><strong>${fmt1(st.fgPct)}</strong></div>
+            <div class="sd-mystery">${icon('silhouette', 'big')}<em>神秘全明星</em></div>
+            <div class="sd-sec">
+              <div class="sd-sec-title on">${icon('chart')}巅峰数据</div>
+              <div class="sd-stat-main">
+                <div class="${statTone(st.ppg, 27, 20)}"><strong>${fmt1(st.ppg)}</strong><span>得分</span></div>
+                <div class="${statTone(st.rpg, 10, 7)}"><strong>${fmt1(st.rpg)}</strong><span>篮板</span></div>
+                <div class="${statTone(st.apg, 8, 5.5)}"><strong>${fmt1(st.apg)}</strong><span>助攻</span></div>
+              </div>
+              <div class="sd-stat-sub">
+                <span>断 <b>${fmt1(st.spg)}</b></span>
+                <span>帽 <b>${fmt1(st.bpg)}</b></span>
+                <span>命中 <b>${fmt1(st.fgPct)}%</b></span>
+                <span>三分 <b>${num(st.tpPct, 0) > 0 ? fmt1(st.tpPct) + '%' : '--'}</b></span>
+              </div>
             </div>
-            ${stageNow >= 2 ? `<div class="sd-honor-row">${honorBadgesHtml(card.entry)}</div>` : '<div class="sd-honor-row dim">荣誉将在下一轮揭示</div>'}
-            ${stageNow >= 3 ? `<div class="sd-team-row">📍 ${card.entry.peakYear} 赛季 · ${esc(card.entry.peakTeamCn)}</div>` : '<div class="sd-team-row dim">球队将在最后一轮揭示</div>'}
-            ${owner ? `<div class="sd-owner-chip" style="--mc:${owner.color}">${owner.idx === 0 ? '🫵 ' : ''}${esc(owner.name)}${cardCost(card) ? ` · 💰${cardCost(card)}` : ''}</div>` : '<div class="sd-owner-chip free">无主</div>'}
+            <div class="sd-sec ${stageNow >= 2 ? (stageNow === 2 ? 'new-info' : '') : 'sealed'}">
+              <div class="sd-sec-title ${stageNow >= 2 ? 'on' : ''}">${icon('medal')}生涯荣誉${stageNow < 2 ? '<em>荣誉轮揭示</em>' : ''}</div>
+              ${stageNow >= 2 ? `<div class="sd-honor-row">${honorBadgesHtml(card.entry)}</div>` : ''}
+            </div>
+            <div class="sd-sec ${stageNow >= 3 ? 'new-info' : 'sealed'}">
+              <div class="sd-sec-title ${stageNow >= 3 ? 'on' : ''}">${icon('jersey')}效力球队${stageNow < 3 ? '<em>球队轮揭示</em>' : ''}</div>
+              ${stageNow >= 3 ? `<div class="sd-team-row">${card.entry.peakYear} 赛季 · ${esc(card.entry.peakTeamCn)}</div>` : ''}
+            </div>
+            ${hint ? `<div class="sd-act-hint">${icon(hint.ic)}${hint.label}</div>` : ''}
           </div>
           ${front}
         </div>
+        <div class="sd-sleeve" aria-hidden="true">
+          <svg viewBox="0 0 200 300" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="slv" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#1c2c4e"/><stop offset="55%" stop-color="#101a30"/><stop offset="100%" stop-color="#0a1120"/>
+              </linearGradient>
+            </defs>
+            <rect width="200" height="300" rx="14" fill="url(#slv)" stroke="#3b5a8a" stroke-width="2"/>
+            <circle cx="100" cy="132" r="52" fill="none" stroke="#fbbf24" stroke-width="2.5" opacity="0.85"/>
+            <path d="M100 80v104M48 132h104M63 95c20 20 54 20 74 0M63 169c20-20 54-20 74 0" fill="none" stroke="#fbbf24" stroke-width="2" opacity="0.7"/>
+            <path d="m100 118 4.6 9.6 10.6 1.2-7.9 7.2 2.2 10.5-9.5-5.4-9.5 5.4 2.2-10.5-7.9-7.2 10.6-1.2Z" fill="#fbbf24"/>
+            <text x="100" y="228" text-anchor="middle" font-size="17" font-weight="900" fill="#e9f2f9" letter-spacing="3">ALL-STAR</text>
+            <text x="100" y="250" text-anchor="middle" font-size="11" fill="#7b93ab" letter-spacing="2">1996 - 2025</text>
+            <rect x="8" y="8" width="184" height="284" rx="10" fill="none" stroke="#fbbf24" stroke-width="1" opacity="0.35" stroke-dasharray="4 5"/>
+          </svg>
+        </div>
       </div>`;
+  }
+
+  // 每位经理在当前轮的状态: 行动中 / 已行动 / 锁定跳过 / 待行动
+  function managerTurnState(idx) {
+    if (S.activeIdx === idx) return { key: 'acting', label: '行动中' };
+    const card = managerCard(idx);
+    if (S.acted.includes(idx)) {
+      return card && card.locked ? { key: 'done', label: '✓ 已锁定' } : { key: 'done', label: '✓ 已行动' };
+    }
+    if (S.stage >= 2 && card && card.locked) return { key: 'skip', label: '锁定 · 跳过' };
+    return { key: 'wait', label: '待行动' };
   }
 
   function renderManagerStrip() {
     const order = currentOrder();
     return `
       <div class="sd-mgr-strip">
-        ${order.map(idx => {
+        ${order.map((idx, oi) => {
           const mgr = MANAGERS[idx];
           const card = managerCard(idx);
-          const active = S.activeIdx === idx;
+          const st = managerTurnState(idx);
           return `
-            <div class="sd-mgr ${active ? 'active' : ''} ${mgr.human ? 'human' : ''}" style="--mc:${mgr.color}">
-              <div class="sd-mgr-name">${esc(mgr.name)}</div>
-              <div class="sd-mgr-team">${esc(mgr.teamName)}</div>
-              <div class="sd-mgr-coins">💰 ${S.coins[idx]}</div>
-              <div class="sd-mgr-hold">${card ? `${card.idx + 1}号卡${card.locked ? ' 🔒' : ''}` : '未持卡'}</div>
+            <div class="sd-mgr ${st.key === 'acting' ? 'active' : ''} st-${st.key} ${mgr.human ? 'human' : ''}" style="--mc:${mgr.color}">
+              <span class="sd-mgr-order">顺位${oi + 1}</span>
+              <div class="sd-mgr-ava">${icon(mgr.human ? 'user' : 'bot')}</div>
+              <div class="sd-mgr-info">
+                <div class="sd-mgr-name">${esc(mgr.name)}</div>
+                <div class="sd-mgr-team">${esc(mgr.teamName)}</div>
+              </div>
+              <div class="sd-mgr-state">
+                ${coinsHtml(S.coins[idx])}
+                <span class="sd-mgr-hold ${card && card.locked ? 'lk' : ''}">${card ? `${icon(card.locked ? 'lock' : 'unlock')}${card.idx + 1}号` : '未持卡'}</span>
+              </div>
+              <div class="sd-mgr-turnchip ${st.key}">${st.label}</div>
             </div>`;
         }).join('')}
       </div>`;
   }
 
+  function turnBanner(title, sub, extraHtml = '') {
+    return `
+      <div class="sd-turn-banner">
+        <div class="sd-turn-badge">${icon('user')}<b>你的回合</b></div>
+        <div class="sd-turn-copy"><strong>${title}</strong><span>${sub}</span></div>
+        ${extraHtml ? `<div class="sd-action-row">${extraHtml}</div>` : ''}
+      </div>`;
+  }
+
+  // 回合行动结果气泡: AI 干了什么,大字展示一拍
+  function renderActionCallout() {
+    const act = S.lastAction;
+    if (!act) return '';
+    const mgr = MANAGERS[act.mgrIdx];
+    return `
+      <div class="sd-callout" style="--mc:${mgr.color}">
+        <div class="sd-callout-ava">${icon(mgr.human ? 'user' : 'bot')}</div>
+        <div class="sd-callout-copy">
+          <b>${esc(mgr.name)}</b>
+          <span>${icon(act.ic)}${act.text}</span>
+        </div>
+      </div>`;
+  }
+
   function renderActionBar() {
+    if (S.lastAction) return renderActionCallout();
+    if (S.dealing) {
+      return `<div class="sd-hint dim">${icon('ball')}正在发牌...</div>`;
+    }
     if (S.awaiting === 'claim') {
-      return '<div class="sd-hint pulse">🫵 你的回合: 点击一张<b>无主卡</b>认领</div>';
+      return turnBanner('认领一张卡', '点击任意一张【无主】卡牌,收入囊中');
     }
     if (S.awaiting === 'lockchoice') {
-      return `
-        <div class="sd-hint">是否锁定这张卡?锁定后本位置不能再更换,但对手要抢只能花金币比价。</div>
-        <div class="sd-action-row">
-          <button class="manager-btn primary" data-sd="lock-yes">🔒 锁定</button>
-          <button class="manager-btn secondary" data-sd="lock-no">保持灵活</button>
-        </div>`;
+      return turnBanner('是否锁定?', '锁定=不能再换,对手抢它必须金币比价;不锁=下一轮还能换,但可能被免费截胡', `
+        <button class="manager-btn primary sd-btn-ic" data-sd="lock-yes">${icon('lock')}锁定这张卡</button>
+        <button class="manager-btn secondary sd-btn-ic" data-sd="lock-no">${icon('unlock')}保持灵活</button>`);
     }
     if (S.awaiting === 'action') {
       const mine = managerCard(0);
-      return `
-        <div class="sd-hint pulse">🫵 你的回合: 点其他卡可<b>换/抢/比价</b>,或直接处理当前持卡</div>
-        <div class="sd-action-row">
-          <button class="manager-btn primary" data-sd="keep-lock">🔒 锁定当前 ${mine ? `${mine.idx + 1}号卡` : ''}</button>
-          <button class="manager-btn secondary" data-sd="keep">保持不锁</button>
-        </div>`;
+      return turnBanner('调整或坚守', '点对手的卡: 未锁定→免费截胡 / 已锁定→金币比价;或处理自己的持卡', `
+        <button class="manager-btn primary sd-btn-ic" data-sd="keep-lock">${icon('lock')}锁定当前 ${mine ? `${mine.idx + 1}号卡` : ''}</button>
+        <button class="manager-btn secondary sd-btn-ic" data-sd="keep">${icon('eye')}保持观望</button>`);
     }
     if (S.awaiting === 'reclaim') {
-      return '<div class="sd-hint pulse">你的卡被夺走了!点击一张<b>无主卡</b>重新认领</div>';
+      return turnBanner('重新认领', '你的卡被夺走了!点击一张【无主】卡牌补选');
     }
     if (S.activeIdx >= 0 && !MANAGERS[S.activeIdx].human) {
-      return `<div class="sd-hint dim">${esc(MANAGERS[S.activeIdx].name)} 正在思考...</div>`;
+      const mgr = MANAGERS[S.activeIdx];
+      return `
+        <div class="sd-callout thinking" style="--mc:${mgr.color}">
+          <div class="sd-callout-ava">${icon('bot')}</div>
+          <div class="sd-callout-copy">
+            <b>轮到 ${esc(mgr.name)}</b>
+            <span class="sd-thinking">正在思考<i>.</i><i>.</i><i>.</i></span>
+          </div>
+        </div>`;
     }
     return '';
   }
 
+  const LOG_ICONS = { me: 'user', ai: 'bot', duel: 'gavel', stage: 'flag', reveal: 'star', info: 'ball' };
   function renderLogFeed() {
     return `
       <div class="sd-log">
-        ${S.log.slice(0, 12).map(item => `<div class="sd-log-line ${item.kind}">${item.text}</div>`).join('')}
+        ${S.log.slice(0, 12).map(item => `<div class="sd-log-line ${item.kind}">${icon(LOG_ICONS[item.kind] || 'ball')}<span>${item.text}</span></div>`).join('')}
       </div>`;
   }
 
+  const STAGE_ICONS = ['chart', 'medal', 'jersey'];
+  // 本位置的 4 个流程步骤(数据轮/荣誉轮/球队轮/揭晓), 用于流程时间轴
+  const FLOW_STEPS = [
+    { key: 1, ic: 'chart', label: '① 数据轮', desc: '看数据 · 认领+锁定' },
+    { key: 2, ic: 'medal', label: '② 荣誉轮', desc: '荣誉揭示 · 可换/抢/比价' },
+    { key: 3, ic: 'jersey', label: '③ 球队轮', desc: '球队揭示 · 最后调整' },
+    { key: 4, ic: 'star', label: '④ 揭晓', desc: '翻牌 · 确认归属' }
+  ];
+
+  function flowStepNow() {
+    if (S.revealing) return 4;
+    return Math.min(3, Math.max(1, S.stage));
+  }
+
   function renderStageRail() {
+    const stepNow = flowStepNow();
     return `
-      <div class="sd-stage-rail">
-        ${SLOTS.map((slot, i) => `
-          <span class="sd-slot-step ${i < S.posIndex ? 'done' : i === S.posIndex ? 'now' : ''}">${slot.short}</span>
-        `).join('<i>›</i>')}
-        <em>|</em>
-        ${STAGE_INFO.map(info => `
-          <span class="sd-info-step ${S.stage > info.no ? 'done' : S.stage === info.no ? 'now' : ''}">${info.label}</span>
-        `).join('<i>›</i>')}
+      <div class="sd-flowbar">
+        <div class="sd-flow-pos">
+          <span class="sd-flow-pos-big">${slotNow() ? slotNow().short : ''}</span>
+          <span class="sd-flow-pos-sub">位置 ${S.posIndex + 1}/5</span>
+          <div class="sd-flow-pos-dots">
+            ${SLOTS.map((slot, i) => `<i class="${i < S.posIndex ? 'done' : i === S.posIndex ? 'now' : ''}" title="${slot.short}"></i>`).join('')}
+          </div>
+        </div>
+        <div class="sd-flow-steps">
+          ${FLOW_STEPS.map(step => {
+            const state = stepNow > step.key ? 'done' : stepNow === step.key ? 'now' : '';
+            return `
+              <div class="sd-flow-step ${state}">
+                <div class="sd-flow-step-head">${icon(step.ic)}${step.label}${state === 'done' ? '<b>✓</b>' : ''}</div>
+                <div class="sd-flow-step-desc">${step.desc}</div>
+              </div>`;
+          }).join('<span class="sd-flow-link"></span>')}
+        </div>
       </div>`;
+  }
+
+  // 卡区上方常驻指令条: 当前轮该干嘛,一句话讲清楚
+  function renderStageHeadline() {
+    if (S.dealing) {
+      return `<div class="sd-headline dealing">${icon('ball')}<b>发牌中</b><span>5 张 ${slotNow().short} 全明星卡正在从卡堆散开...</span></div>`;
+    }
+    if (S.revealing) {
+      return `<div class="sd-headline reveal">${icon('star')}<b>身份揭晓</b><span>翻牌!看看每位经理抢到了谁</span></div>`;
+    }
+    const stage = Math.min(3, Math.max(1, S.stage));
+    const copy = stage === 1
+      ? { b: '第1轮 · 数据轮', s: '只显示巅峰数据 → 按蛇形顺序认领一张卡,并决定是否锁定' }
+      : stage === 2
+        ? { b: '第2轮 · 荣誉轮', s: '生涯荣誉已揭示 → 未锁定者轮流行动: 保持 / 换无主卡 / 截胡未锁卡 / 对锁定卡金币比价' }
+        : { b: '第3轮 · 球队轮(最终轮)', s: '效力球队已揭示 → 最后调整机会,本轮结束后全员强制锁定并翻牌' };
+    return `<div class="sd-headline s${stage}">${icon(STAGE_ICONS[stage - 1])}<b>${copy.b}</b><span>${copy.s}</span></div>`;
   }
 
   function renderDraft() {
@@ -1148,8 +1420,16 @@
         <section class="sd-main">
           ${renderStageRail()}
           ${renderManagerStrip()}
-          <div class="sd-card-grid ${S.revealing ? 'revealing' : ''}">
-            ${S.cards.map(renderCard).join('')}
+          <div class="sd-card-stage">
+            ${renderStageHeadline()}
+            ${S.dealing ? `
+              <div class="sd-deck" aria-hidden="true">
+                <i></i><i></i><i></i>
+                <span class="sd-deck-label">${icon('ball')}${slotNow().short} 卡堆</span>
+              </div>` : ''}
+            <div class="sd-card-grid ${S.revealing ? 'revealing' : ''} ${S.dealing ? 'is-dealing' : ''}">
+              ${S.cards.map(renderCard).join('')}
+            </div>
           </div>
           <div class="sd-action-zone">${renderActionBar()}</div>
         </section>
@@ -1186,38 +1466,44 @@
       const cWin = ctx.cBid > ctx.dBid;
       body = `
         <div class="sd-bid-reveal">
-          <div class="sd-bid-side ${cWin ? 'win' : ''}" style="--mc:${challenger.color}">
-            <span>${esc(challenger.name)}</span><strong>💰 ${ctx.cBid}</strong>
+          <div class="sd-bid-side ${cWin ? 'win' : 'lose'}" style="--mc:${challenger.color}">
+            <i class="sd-bid-role">${icon('gavel')}挑战</i>
+            <span>${esc(challenger.name)}</span>
+            <strong>${icon('coin')}${ctx.cBid}</strong>
+            ${cWin ? `<em class="sd-bid-tag">${icon('trophy')}夺得</em>` : '<em class="sd-bid-tag keep">不消耗</em>'}
           </div>
           <div class="sd-bid-vs">VS</div>
-          <div class="sd-bid-side ${cWin ? '' : 'win'}" style="--mc:${defender.color}">
-            <span>${esc(defender.name)}</span><strong>💰 ${ctx.dBid}</strong>
+          <div class="sd-bid-side ${cWin ? 'lose' : 'win'}" style="--mc:${defender.color}">
+            <i class="sd-bid-role">${icon('shield')}防守</i>
+            <span>${esc(defender.name)}</span>
+            <strong>${icon('coin')}${ctx.dBid}</strong>
+            ${cWin ? '<em class="sd-bid-tag keep">不消耗</em>' : `<em class="sd-bid-tag">${icon('shield')}保住</em>`}
           </div>
         </div>
-        <p class="sd-bid-result">${cWin ? `${esc(challenger.name)} 夺走球员!` : `${esc(defender.name)} 保住球员!`}</p>`;
+        <p class="sd-bid-result">${cWin ? `${esc(challenger.name)} 出价更高,夺走球员!` : `${esc(defender.name)} 守住了球员!`}</p>`;
     } else if (humanSide) {
       const isDefend = humanSide === 'defend';
       const minBid = isDefend ? 0 : 1;
       body = `
         <p class="sd-bid-tip">${isDefend
-          ? `${esc(challenger.name)} 想抢走你锁定的 ${cardLabel(card)}!暗中出价防守(出价高才保得住,赢了要支付金币,输了不花钱)`
-          : `对 ${esc(defender.name)} 锁定的 ${cardLabel(card)} 出价(超过对方暗价才能抢到,赢了支付,输了不花钱)`}</p>
+          ? `<b>${esc(challenger.name)}</b> 想抢走你锁定的 <b>${cardLabel(card)}</b>!暗中出价防守 —— 出价高才保得住;赢了支付金币,输了不花钱`
+          : `对 <b>${esc(defender.name)}</b> 锁定的 <b>${cardLabel(card)}</b> 暗中出价 —— 超过对方才能抢到;赢了支付金币,输了不花钱`}</p>
         <div class="sd-bid-stepper">
-          <button type="button" data-sd="bid-minus">−</button>
-          <span id="sdBidValue" data-min="${minBid}" data-max="${maxCoins}">${minBid}</span>
-          <button type="button" data-sd="bid-plus">+</button>
-          <em>/ 剩余 ${maxCoins} 金币</em>
+          <button type="button" data-sd="bid-minus" aria-label="减少">−</button>
+          <span class="sd-bid-value">${icon('coin')}<b id="sdBidValue" data-min="${minBid}" data-max="${maxCoins}">${minBid}</b></span>
+          <button type="button" data-sd="bid-plus" aria-label="增加">+</button>
+          <em>/ 剩余 ${maxCoins} 枚</em>
         </div>
-        <div class="sd-action-row">
-          <button class="manager-btn primary" data-sd="bid-confirm">确认暗价</button>
+        <div class="sd-action-row center">
+          <button class="manager-btn primary sd-btn-ic" data-sd="bid-confirm">${icon(isDefend ? 'shield' : 'gavel')}确认暗价</button>
         </div>`;
     } else {
-      body = '<p class="sd-bid-tip">双方正在暗中出价...</p>';
+      body = `<p class="sd-bid-tip center">${icon('coin')}双方正在暗中出价...</p>`;
     }
     return `
       <div class="sd-modal-bg">
         <div class="sd-modal">
-          <h3>⚔️ 金币比价 · ${cardLabel(card)}</h3>
+          <h3>${icon('gavel')}金币比价 · ${cardLabel(card)}</h3>
           ${body}
         </div>
       </div>`;
@@ -1227,7 +1513,7 @@
   function renderEra() {
     const rosterRecap = MANAGERS.map(mgr => `
       <div class="sd-recap-team" style="--mc:${mgr.color}">
-        <div class="sd-recap-head">${esc(mgr.name)} · ${esc(mgr.teamName)} <em>剩 💰${S.coins[mgr.idx]}</em></div>
+        <div class="sd-recap-head">${icon(mgr.human ? 'user' : 'bot')}${esc(mgr.name)} · ${esc(mgr.teamName)} <em>剩${coinsHtml(S.coins[mgr.idx])}</em></div>
         <div class="sd-recap-players">
           ${S.rosters[mgr.idx].map((card, i) => card ? `<span><b>${SLOTS[i].short}</b> ${esc(card.entry.nameCn)}</span>` : '').join('')}
         </div>
@@ -1244,7 +1530,7 @@
               <span class="sd-era-desc">${esc(era.desc)}</span>
             </div>`).join('')}
         </div>
-        ${!S.era && !S.eraRolling ? '<button class="manager-btn massive primary" data-sd="roll-era">🎰 启动命运转盘</button>' : ''}
+        ${!S.era && !S.eraRolling ? `<button class="manager-btn massive primary sd-btn-ic" data-sd="roll-era">${icon('bolt')}启动命运转盘</button>` : ''}
         ${S.era ? `<div class="sd-era-go">正在空降 ${S.era.year} 联盟,五队同步开打 82 场...</div>` : ''}
         <div class="sd-recap-grid">${rosterRecap}</div>
       </div>`;
@@ -1252,27 +1538,33 @@
 
   /* ---------- 模拟直播 ---------- */
   function renderSim() {
-    const sorted = [...S.simRows].sort((a, b) => b.w - a.w);
+    const sorted = [...S.simRows].sort((a, b) => b.w - a.w || (b.derbyW || 0) - (a.derbyW || 0));
     const maxW = Math.max(1, ...S.simRows.map(r => r.w));
+    const ranksNow = {};
+    sorted.forEach((row, rank) => { ranksNow[row.idx] = rank + 1; });
+    const prev = S.prevRanks || ranksNow;
+    S.prevRanks = ranksNow;
     return `
       <div class="sd-sim-layout">
         <div class="sd-sim-head">
-          <h2>${S.era.year} ${esc(S.era.label)} · 五队争霸直播</h2>
+          <h2>${icon('ball')}${S.era.year} ${esc(S.era.label)} · 五队争霸直播</h2>
           <span class="sd-sim-round">ROUND ${S.simRound} / 82</span>
           <span class="live-pill">LIVE</span>
         </div>
+        <div class="sd-sim-progress"><i style="width:${(S.simRound / 82 * 100).toFixed(1)}%"></i></div>
         <div class="sd-race">
           ${sorted.map((row, rank) => {
             const mgr = MANAGERS[row.idx];
-            const pct = (row.w / Math.max(1, row.w + row.l)) * 100;
+            const delta = (prev[row.idx] || rank + 1) - (rank + 1);
             return `
-              <div class="sd-race-row ${mgr.human ? 'human' : ''}" style="--mc:${mgr.color}">
-                <span class="sd-race-rank">#${rank + 1}</span>
-                <span class="sd-race-team">${esc(mgr.teamName)}<small>${esc(mgr.name)}</small></span>
+              <div class="sd-race-row ${mgr.human ? 'human' : ''} ${rank === 0 ? 'leader' : ''}" style="--mc:${mgr.color}">
+                <span class="sd-race-rank">${rank === 0 ? icon('crown') : `#${rank + 1}`}
+                  ${delta > 0 ? '<i class="rk-up">▲</i>' : delta < 0 ? '<i class="rk-dn">▼</i>' : ''}</span>
+                <span class="sd-race-team">${esc(mgr.teamName)}<small>${icon(mgr.human ? 'user' : 'bot')}${esc(mgr.name)}</small></span>
                 <div class="sd-race-bar"><i style="width:${(row.w / Math.max(maxW, 1) * 100).toFixed(1)}%"></i></div>
-                <span class="sd-race-rec">${row.w}胜${row.l}负</span>
-                <span class="sd-race-last ${row.last ? (row.last.win ? 'w' : 'l') : ''} ${row.last && row.last.derby ? 'derby' : ''}">${row.last ? `${row.last.derby ? '⚔️' : ''}${row.last.win ? 'W' : 'L'} ${row.last.my}-${row.last.opp} ${row.last.home ? 'vs' : '@'} ${esc(row.last.oppName)}` : '--'}</span>
-                <span class="sd-race-streak">${row.streak > 1 ? `${row.streak}连胜🔥` : row.streak < -1 ? `${-row.streak}连败💧` : ''}</span>
+                <span class="sd-race-rec">${row.w}<em>胜</em>${row.l}<em>负</em></span>
+                <span class="sd-race-last ${row.last ? (row.last.win ? 'w' : 'l') : ''} ${row.last && row.last.derby ? 'derby' : ''}">${row.last ? `${row.last.derby ? icon('gavel') : ''}${row.last.win ? 'W' : 'L'} ${row.last.my}-${row.last.opp} ${row.last.home ? 'vs' : '@'} ${esc(row.last.oppName)}` : '--'}</span>
+                <span class="sd-race-streak">${row.streak > 2 ? `${icon('bolt')}${row.streak}连胜` : row.streak < -2 ? `${-row.streak}连败` : ''}</span>
               </div>`;
           }).join('')}
         </div>
@@ -1304,7 +1596,8 @@
     return `
       <div class="sd-results">
         <section class="sd-champ-hero" style="--mc:${champ.mgr.color}">
-          <div class="sd-champ-trophy">🏆</div>
+          <div class="sd-confetti" aria-hidden="true">${Array.from({ length: 14 }, (_, i) => `<i style="--ci:${i}"></i>`).join('')}</div>
+          <div class="sd-champ-trophy">${icon('trophy', 'huge')}</div>
           <div class="sd-champ-copy">
             <p class="sd-champ-kicker">${res.era.year} ${esc(res.era.label)} · 最强球队</p>
             <h2>${esc(champ.mgr.teamName)}</h2>
@@ -1320,13 +1613,13 @@
         <section class="sd-podium">
           ${res.entries.map(entry => `
             <div class="sd-podium-row ${entry.rank === 1 ? 'first' : ''} ${entry.mgr.human ? 'human' : ''}" style="--mc:${entry.mgr.color}">
-              <span class="sd-podium-rank">${entry.rank === 1 ? '👑' : `#${entry.rank}`}</span>
+              <span class="sd-podium-rank">${entry.rank === 1 ? icon('crown') : `#${entry.rank}`}</span>
               <span class="sd-podium-team">${esc(entry.mgr.teamName)}<small>${esc(entry.mgr.name)}</small></span>
               <span class="sd-podium-rec">${entry.record.w}-${entry.record.l}</span>
               <span class="sd-podium-derby">德比 ${entry.derbyW}-${entry.derbyL}</span>
               <span class="sd-podium-diff">净胜 ${((num(entry.record.pf, 0) - num(entry.record.pa, 0)) / Math.max(1, num(entry.record.gp, 82))).toFixed(1)}</span>
               <span class="sd-podium-rank2">联盟第${entry.leagueRank}</span>
-              <span class="sd-podium-coin">💰剩${entry.coinsLeft}</span>
+              <span class="sd-podium-coin">${coinsHtml(entry.coinsLeft)}</span>
               <span class="sd-podium-grade ${entry.grade.cls}">${entry.grade.letter}</span>
             </div>`).join('')}
         </section>
@@ -1462,7 +1755,7 @@
     return JSON.stringify({
       mode: 'allstar_showdown',
       phase: S.phase,
-      pos: S.phase === 'draft' ? slotNow().short : null,
+      pos: S.phase === 'draft' && slotNow() ? slotNow().short : null,
       stage: S.stage,
       awaiting: S.awaiting,
       activeManager: S.activeIdx >= 0 ? MANAGERS[S.activeIdx].name : null,
