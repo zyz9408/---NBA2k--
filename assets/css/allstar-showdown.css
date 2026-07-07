@@ -9,6 +9,12 @@
   border: 1px solid rgba(251, 191, 36, 0.45) !important;
 }
 .showdown-entry small { opacity: 0.75; font-size: 0.72em; margin-left: 6px; }
+.showdown-online-entry {
+  position: relative;
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.16), rgba(74, 222, 128, 0.13)) !important;
+  border: 1px solid rgba(34, 211, 238, 0.42) !important;
+}
+.showdown-online-entry small { opacity: 0.75; font-size: 0.72em; margin-left: 6px; }
 
 #screenShowdown { padding: 18px clamp(10px, 3vw, 36px) 48px; }
 .sd-wrap { max-width: 1380px; margin: 0 auto; color: #e9f2f9; }
@@ -663,3 +669,125 @@
 
 .sd-results .award-row { display: flex; justify-content: space-between; padding: 6px 2px; font-size: 0.8rem; border-bottom: 1px dashed rgba(123, 147, 171, 0.16); }
 .sd-results .results-footer { display: flex; gap: 12px; justify-content: center; }
+
+/* ---------- 联网争夺战 ---------- */
+.sdo-wrap { max-width: 1380px; margin: 0 auto; color: #e9f2f9; }
+.sdo-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 999px; font-size: 0.74rem; font-weight: 900;
+  border: 1px solid rgba(148, 190, 230, 0.22); background: rgba(123, 147, 171, 0.1);
+  color: #9fb6cb;
+}
+.sdo-chip.ok { color: #4ade80; border-color: rgba(74, 222, 128, 0.45); background: rgba(74, 222, 128, 0.1); }
+.sdo-chip.warn { color: #ffd166; border-color: rgba(251, 191, 36, 0.45); background: rgba(251, 191, 36, 0.1); }
+.sdo-home {
+  display: grid; grid-template-columns: minmax(280px, 0.9fr) minmax(340px, 1.1fr);
+  gap: 16px; align-items: stretch;
+}
+@media (max-width: 920px) { .sdo-home { grid-template-columns: 1fr; } }
+.sdo-panel {
+  background: rgba(11, 17, 27, 0.74); border: 1px solid rgba(148, 190, 230, 0.15);
+  border-radius: 16px; padding: 18px; backdrop-filter: blur(8px);
+}
+.sdo-panel h3 { margin: 0 0 10px; font-size: 1rem; color: #ffd166; letter-spacing: 0.06em; }
+.sdo-panel p { margin: 0; color: #9fb6cb; line-height: 1.65; font-size: 0.86rem; }
+.sdo-form { display: grid; gap: 12px; }
+.sdo-field { display: grid; gap: 6px; }
+.sdo-field label {
+  font-size: 0.72rem; font-weight: 900; color: #7b93ab; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.sdo-field input {
+  width: 100%; min-height: 42px; border-radius: 10px;
+  border: 1px solid rgba(148, 190, 230, 0.22); background: rgba(5, 10, 18, 0.72);
+  color: #e9f2f9; padding: 0 12px; font-weight: 700; outline: none;
+}
+.sdo-field input:focus { border-color: rgba(34, 211, 238, 0.68); box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.1); }
+.sdo-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.sdo-error {
+  padding: 10px 12px; border-radius: 10px; color: #fca5a5;
+  background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.35);
+  font-size: 0.82rem;
+}
+.sdo-note {
+  padding: 10px 12px; border-radius: 10px; color: #ffd166;
+  background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.32);
+  font-size: 0.82rem; line-height: 1.55;
+}
+.sdo-room-code {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 138px;
+  font-size: 1.45rem; font-weight: 900; letter-spacing: 0.16em; color: #67e8f9;
+  padding: 8px 14px; border-radius: 12px; background: rgba(34, 211, 238, 0.11);
+  border: 1px solid rgba(34, 211, 238, 0.42);
+}
+.sdo-lobby-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+@media (max-width: 980px) { .sdo-lobby-grid { grid-template-columns: 1fr; } }
+.sdo-seat-list { display: grid; gap: 10px; }
+.sdo-seat {
+  display: grid; grid-template-columns: 38px 1fr auto; gap: 10px; align-items: center;
+  padding: 12px 14px; border-radius: 12px; background: rgba(13, 20, 32, 0.74);
+  border: 1px solid rgba(148, 190, 230, 0.14); border-left: 4px solid var(--mc, #7b93ab);
+}
+.sdo-seat-num {
+  width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--mc, #7b93ab) 20%, #0d1420); color: var(--mc, #9fb6cb);
+  font-weight: 900; border: 1px solid color-mix(in srgb, var(--mc, #7b93ab) 55%, transparent);
+}
+.sdo-seat-name { font-weight: 850; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sdo-seat-meta { font-size: 0.72rem; color: #7b93ab; }
+.sdo-seat-state { font-size: 0.72rem; font-weight: 900; color: #4ade80; }
+.sdo-seat-state.off { color: #f87171; }
+.sdo-status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+@media (max-width: 760px) { .sdo-status-grid { grid-template-columns: 1fr; } }
+.sdo-stat {
+  padding: 10px 12px; border-radius: 12px; background: rgba(20, 30, 48, 0.62);
+  border: 1px solid rgba(148, 190, 230, 0.12);
+}
+.sdo-stat span { display: block; color: #7b93ab; font-size: 0.68rem; font-weight: 900; letter-spacing: 0.08em; }
+.sdo-stat strong { display: block; margin-top: 2px; color: #e9f2f9; font-size: 0.98rem; }
+.sdo-card .sd-card-back { min-height: 372px; }
+.sdo-card-label {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 0.68rem; font-weight: 900;
+  color: #ffd166; background: rgba(251, 191, 36, 0.12); border: 1px solid rgba(251, 191, 36, 0.34);
+  padding: 3px 8px; border-radius: 999px;
+}
+.sdo-card-title { margin: 10px 0 6px; font-size: 1rem; font-weight: 900; color: #e9f2f9; }
+.sdo-card-sub { color: #7b93ab; font-size: 0.76rem; margin-bottom: 8px; }
+.sdo-honor-row { display: flex; gap: 5px; flex-wrap: wrap; }
+.sdo-honor-row span {
+  font-size: 0.64rem; font-weight: 850; color: #c4b5fd; background: rgba(167, 139, 250, 0.1);
+  border: 1px solid rgba(167, 139, 250, 0.26); padding: 2px 7px; border-radius: 999px;
+}
+.sdo-front {
+  display: grid; align-content: center; justify-items: center; gap: 8px; height: 100%;
+  text-align: center; padding: 22px;
+}
+.sdo-front-name { font-size: 1.28rem; font-weight: 950; color: #ffd166; }
+.sdo-front-peak { color: #c9d9e8; font-size: 0.84rem; }
+.sdo-front-price { color: #67e8f9; font-weight: 900; }
+.sdo-roster-all { display: grid; gap: 12px; }
+.sdo-roster-team {
+  padding: 10px 12px; border-radius: 12px; background: rgba(13, 20, 32, 0.68);
+  border: 1px solid rgba(148, 190, 230, 0.14); border-left: 4px solid var(--mc, #7b93ab);
+}
+.sdo-roster-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.sdo-roster-head b { font-size: 0.82rem; }
+.sdo-roster-head span { color: #ffd166; font-size: 0.76rem; font-weight: 900; }
+.sdo-roster-slots { display: grid; gap: 5px; }
+.sdo-roster-slot {
+  display: grid; grid-template-columns: 34px 1fr; gap: 7px; align-items: center;
+  color: #9fb6cb; font-size: 0.72rem;
+}
+.sdo-roster-slot b { color: #ffd166; }
+.sdo-bid-box { display: grid; gap: 10px; justify-items: center; }
+.sdo-bid-range { color: #9fb6cb; font-size: 0.78rem; }
+.sdo-bid-input {
+  width: 92px; height: 50px; text-align: center; border-radius: 12px;
+  background: rgba(5, 10, 18, 0.72); border: 1px solid rgba(251, 191, 36, 0.48);
+  color: #ffd166; font-size: 1.35rem; font-weight: 900;
+}
+.sdo-result-grid { display: grid; gap: 14px; }
+.sdo-player-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.sdo-player-tags span {
+  font-size: 0.68rem; color: #c9d9e8; background: rgba(123, 147, 171, 0.12);
+  padding: 3px 8px; border-radius: 999px;
+}
