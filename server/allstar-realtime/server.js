@@ -9,8 +9,9 @@ const path = require('node:path');
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 3001);
 const SERVICE = 'allstar-showdown-realtime';
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const START_COINS = 15;
+const TEAM_ID_BASE = 31;
 
 const SLOTS = [
   { id: 1, short: 'PG', name: '控球后卫' },
@@ -29,6 +30,47 @@ const AI_PROFILES = [
   { name: '冠军计算器', teamName: '冠军工坊', abbr: 'CPU', color: '#60a5fa', style: 'balanced', aggr: 0.95, lockMargin: 2.8, noise: 0.10 }
 ];
 
+const ERAS = [
+  { year: 2025, label: '新世代', desc: '小球空间 · 三分狂潮', baseScore: 116, pace: 102, threeRate: 1.15 },
+  { year: 2009, label: '巨星年代', desc: '科比与詹姆斯的巅峰', baseScore: 102, pace: 95, threeRate: 0.74 },
+  { year: 2003, label: '王朝余晖', desc: 'OK组合与石佛的时代', baseScore: 96, pace: 91, threeRate: 0.50 },
+  { year: 1996, label: '乔丹王朝', desc: '公牛72胜的统治力', baseScore: 99, pace: 90, threeRate: 0.40 },
+  { year: 1983, label: '黑白双雄', desc: '魔术师与大鸟的联盟', baseScore: 110, pace: 103, threeRate: 0.16 }
+];
+
+const LEAGUE_TEAMS = [
+  { id: 1, n: 'Celtics', z: '凯尔特人', a: 'BOS', c: 'East', cl: '#007A33', r: 88 },
+  { id: 2, n: 'Nets', z: '篮网', a: 'BKN', c: 'East', cl: '#111827', r: 77 },
+  { id: 3, n: 'Knicks', z: '尼克斯', a: 'NYK', c: 'East', cl: '#f97316', r: 83 },
+  { id: 4, n: '76ers', z: '76人', a: 'PHI', c: 'East', cl: '#2563eb', r: 84 },
+  { id: 5, n: 'Raptors', z: '猛龙', a: 'TOR', c: 'East', cl: '#dc2626', r: 78 },
+  { id: 6, n: 'Bulls', z: '公牛', a: 'CHI', c: 'East', cl: '#dc2626', r: 79 },
+  { id: 7, n: 'Cavaliers', z: '骑士', a: 'CLE', c: 'East', cl: '#7f1d1d', r: 84 },
+  { id: 8, n: 'Pistons', z: '活塞', a: 'DET', c: 'East', cl: '#1d4ed8', r: 76 },
+  { id: 9, n: 'Pacers', z: '步行者', a: 'IND', c: 'East', cl: '#fbbf24', r: 82 },
+  { id: 10, n: 'Bucks', z: '雄鹿', a: 'MIL', c: 'East', cl: '#166534', r: 86 },
+  { id: 11, n: 'Hawks', z: '老鹰', a: 'ATL', c: 'East', cl: '#dc2626', r: 80 },
+  { id: 12, n: 'Hornets', z: '黄蜂', a: 'CHA', c: 'East', cl: '#0891b2', r: 75 },
+  { id: 13, n: 'Heat', z: '热火', a: 'MIA', c: 'East', cl: '#ef4444', r: 82 },
+  { id: 14, n: 'Magic', z: '魔术', a: 'ORL', c: 'East', cl: '#2563eb', r: 81 },
+  { id: 15, n: 'Wizards', z: '奇才', a: 'WAS', c: 'East', cl: '#1d4ed8', r: 75 },
+  { id: 16, n: 'Mavericks', z: '独行侠', a: 'DAL', c: 'West', cl: '#2563eb', r: 84 },
+  { id: 17, n: 'Rockets', z: '火箭', a: 'HOU', c: 'West', cl: '#dc2626', r: 81 },
+  { id: 18, n: 'Grizzlies', z: '灰熊', a: 'MEM', c: 'West', cl: '#60a5fa', r: 80 },
+  { id: 19, n: 'Pelicans', z: '鹈鹕', a: 'NOP', c: 'West', cl: '#b45309', r: 79 },
+  { id: 20, n: 'Spurs', z: '马刺', a: 'SAS', c: 'West', cl: '#94a3b8', r: 78 },
+  { id: 21, n: 'Warriors', z: '勇士', a: 'GSW', c: 'West', cl: '#f59e0b', r: 84 },
+  { id: 22, n: 'Timberwolves', z: '森林狼', a: 'MIN', c: 'West', cl: '#1d4ed8', r: 86 },
+  { id: 23, n: 'Lakers', z: '湖人', a: 'LAL', c: 'West', cl: '#a855f7', r: 84 },
+  { id: 24, n: 'Suns', z: '太阳', a: 'PHX', c: 'West', cl: '#f97316', r: 83 },
+  { id: 25, n: 'Jazz', z: '爵士', a: 'UTA', c: 'West', cl: '#facc15', r: 77 },
+  { id: 26, n: 'Trail Blazers', z: '开拓者', a: 'POR', c: 'West', cl: '#ef4444', r: 76 },
+  { id: 27, n: 'Kings', z: '国王', a: 'SAC', c: 'West', cl: '#7c3aed', r: 81 },
+  { id: 28, n: 'Clippers', z: '快船', a: 'LAC', c: 'West', cl: '#2563eb', r: 82 },
+  { id: 29, n: 'Thunder', z: '雷霆', a: 'OKC', c: 'West', cl: '#38bdf8', r: 87 },
+  { id: 30, n: 'Nuggets', z: '掘金', a: 'DEN', c: 'West', cl: '#fbbf24', r: 86 }
+];
+
 const clients = new Map();
 const rooms = new Map();
 let poolCache = null;
@@ -36,6 +78,26 @@ let poolCache = null;
 function num(v, d = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : d;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, num(value, min)));
+}
+
+function randomFloat() {
+  return crypto.randomInt(0, 1_000_000) / 1_000_000;
+}
+
+function randomRange(min, max) {
+  return min + (max - min) * randomFloat();
+}
+
+function randomNormal(scale = 1) {
+  return (randomFloat() + randomFloat() + randomFloat() + randomFloat() + randomFloat() + randomFloat() - 3) * scale;
+}
+
+function pick(list) {
+  return list[crypto.randomInt(list.length)];
 }
 
 function json(res, code, body) {
@@ -102,6 +164,11 @@ function publicGame(room, client) {
     pos: slot ? slot.short : null,
     posName: slot ? slot.name : null,
     stage: game.stage,
+    era: game.era,
+    simRound: game.simRound || 0,
+    simRows: game.simRows || [],
+    standings: game.standings || [],
+    skipSim: !!game.skipSim,
     awaiting: game.awaiting,
     activeIdx: game.activeIdx,
     activeName: game.activeIdx >= 0 ? room.managers[game.activeIdx]?.name : null,
@@ -111,7 +178,9 @@ function publicGame(room, client) {
       playerId: client.playerId,
       managerIdx: viewerIdx,
       isHost: room.hostId === client.playerId,
-      canAct: viewerIdx >= 0 && viewerIdx === game.activeIdx && !!game.awaiting
+      canAct: viewerIdx >= 0 && viewerIdx === game.activeIdx && !!game.awaiting,
+      canRollEra: room.hostId === client.playerId && game.phase === 'era' && !game.era,
+      canSkipSim: room.hostId === client.playerId && game.phase === 'sim' && (game.simRound || 0) < 82
     },
     managers: room.managers.map((mgr, idx) => ({
       idx,
@@ -398,6 +467,13 @@ function startDraft(room) {
     draftedIds: [],
     duels: [],
     log: [],
+    era: null,
+    simRound: 0,
+    simRows: room.managers.map(m => ({ managerIdx: m.idx, manager: m.name, teamName: m.teamName, color: m.color, w: 0, l: 0, streak: 0, derbyW: 0, derbyL: 0, last: null })),
+    standings: [],
+    season: null,
+    skipSim: false,
+    simTimer: null,
     result: null
   };
   pushLog(room.game, `选秀顺位: ${room.game.baseOrder.map(i => room.managers[i].name).join(' -> ')}`, 'stage');
@@ -681,36 +757,543 @@ function finishPosition(room) {
   game.cards = [];
 }
 
-function finishDraft(room) {
+function managerTeamId(idx) {
+  return TEAM_ID_BASE + idx;
+}
+
+function average(values, fallback = 0) {
+  const list = values.map(value => num(value, NaN)).filter(Number.isFinite);
+  if (!list.length) return fallback;
+  return list.reduce((sum, value) => sum + value, 0) / list.length;
+}
+
+function eraByYear(year) {
+  return ERAS.find(era => era.year === num(year, 0)) || ERAS[0];
+}
+
+function gradeForWins(wins) {
+  const w = num(wins, 0);
+  if (w >= 72) return { letter: 'SSS', cls: 'grade-sss' };
+  if (w >= 65) return { letter: 'S', cls: 'grade-s' };
+  if (w >= 58) return { letter: 'A', cls: 'grade-a' };
+  if (w >= 50) return { letter: 'B', cls: 'grade-b' };
+  if (w >= 42) return { letter: 'C', cls: 'grade-c' };
+  if (w >= 35) return { letter: 'D', cls: 'grade-d' };
+  return { letter: 'F', cls: 'grade-f' };
+}
+
+function profileFromManager(room, idx, era) {
   const game = room.game;
-  game.phase = 'results';
-  room.status = 'results';
-  game.activeIdx = -1;
-  game.awaiting = null;
+  const mgr = room.managers[idx];
+  const cards = game.rosters[idx].filter(Boolean);
+  const ratings = cards.map(hiddenScore);
+  const stats = cards.map(card => card.entry.stats || {});
+  const rows = cards.map(card => card.entry.row || {});
+  const rating = average(ratings, 75);
+  const ppg = average(stats.map(st => st.ppg), 14);
+  const rpg = average(stats.map(st => st.rpg), 5);
+  const apg = average(stats.map(st => st.apg), 3);
+  const spg = average(stats.map(st => st.spg), 0.8);
+  const bpg = average(stats.map(st => st.bpg), 0.6);
+  const fg = average(stats.map(st => st.fgPct), 46);
+  const tp = average(stats.map(st => st.tpPct), 30);
+  const att = average(rows.map(row => row.ATT), rating);
+  const def = average(rows.map(row => row.DEF), rating);
+  const offense = clamp(48 + att * 0.28 + ppg * 0.62 + apg * 0.85 + fg * 0.06 + tp * 0.035 + era.threeRate * 1.4, 76, 99);
+  const defense = clamp(52 + def * 0.32 + rpg * 0.34 + spg * 1.65 + bpg * 1.75, 74, 99);
+  const passing = clamp(55 + apg * 5.2 + average(rows.map(row => row.skillPass), 70) * 0.2, 55, 99);
+  const rebounding = clamp(58 + rpg * 3.2 + average(rows.map(row => row.skillRebound), 75) * 0.22, 55, 99);
+  const pace = clamp(era.pace + average(rows.map(row => row.skillPhysique), 78) * 0.05 + average(rows.map(row => row.skillPass), 70) * 0.04 - 6, 86, 108);
+  const strength = clamp(rating * 0.55 + offense * 0.24 + defense * 0.21, 72, 99);
+  return {
+    id: managerTeamId(idx),
+    kind: 'manager',
+    managerIdx: idx,
+    name: mgr.teamName,
+    abbr: mgr.abbr,
+    color: mgr.color,
+    conference: idx % 2 === 0 ? 'East' : 'West',
+    rating: +rating.toFixed(1),
+    offense: +offense.toFixed(1),
+    defense: +defense.toFixed(1),
+    passing: +passing.toFixed(1),
+    rebounding: +rebounding.toFixed(1),
+    pace: +pace.toFixed(1),
+    strength: +strength.toFixed(1),
+    cards
+  };
+}
+
+function profileFromLeagueTeam(meta, era) {
+  const rating = clamp(meta.r + randomNormal(2.2), 70, 91);
+  const eraDefenseLift = era.year <= 2003 ? 2.4 : era.year >= 2025 ? -0.8 : 0;
+  return {
+    id: meta.id,
+    kind: 'league',
+    name: meta.z,
+    abbr: meta.a,
+    color: meta.cl,
+    conference: meta.c,
+    rating: +rating.toFixed(1),
+    offense: +clamp(56 + rating * 0.35 + randomNormal(2.4) + (era.year >= 2025 ? 2 : 0), 70, 94).toFixed(1),
+    defense: +clamp(58 + rating * 0.34 + randomNormal(2.0) + eraDefenseLift, 70, 95).toFixed(1),
+    passing: +clamp(55 + rating * 0.28 + randomNormal(3), 55, 91).toFixed(1),
+    rebounding: +clamp(54 + rating * 0.30 + randomNormal(3), 54, 92).toFixed(1),
+    pace: +clamp(era.pace + randomNormal(4), 84, 110).toFixed(1),
+    strength: +clamp(rating, 70, 91).toFixed(1)
+  };
+}
+
+function makeSeasonRecord(profile) {
+  return {
+    id: profile.id,
+    kind: profile.kind,
+    managerIdx: profile.managerIdx ?? null,
+    name: profile.name,
+    abbr: profile.abbr,
+    color: profile.color,
+    conference: profile.conference,
+    gp: 0,
+    w: 0,
+    l: 0,
+    pf: 0,
+    pa: 0,
+    pct: 0
+  };
+}
+
+function updateSeasonRecord(season, teamId, pointsFor, pointsAgainst) {
+  const record = season.records[String(teamId)];
+  if (!record) return null;
+  record.gp += 1;
+  record.pf += pointsFor;
+  record.pa += pointsAgainst;
+  if (pointsFor > pointsAgainst) record.w += 1;
+  else record.l += 1;
+  record.pct = record.gp ? +(record.w / record.gp).toFixed(4) : 0;
+  return record;
+}
+
+function buildRoundRobinDerbyRounds(count) {
+  if (count < 2) return [];
+  let teams = Array.from({ length: count }, (_, i) => i);
+  if (teams.length % 2 === 1) teams.push(null);
+  const size = teams.length;
+  const firstCycle = [];
+  for (let round = 0; round < size - 1; round += 1) {
+    const pairs = [];
+    for (let i = 0; i < size / 2; i += 1) {
+      const a = teams[i];
+      const b = teams[size - 1 - i];
+      if (a != null && b != null) {
+        pairs.push(round % 2 === 0 ? { home: a, away: b } : { home: b, away: a });
+      }
+    }
+    firstCycle.push(pairs);
+    teams = [teams[0], teams[size - 1], ...teams.slice(1, size - 1)];
+  }
+  return [
+    ...firstCycle,
+    ...firstCycle.map(pairs => pairs.map(pair => ({ home: pair.away, away: pair.home })))
+  ];
+}
+
+function buildDerbyRoundMap(managerCount) {
+  const derbyRounds = buildRoundRobinDerbyRounds(managerCount);
+  const used = new Set();
+  const map = new Map();
+  derbyRounds.forEach((pairs, i) => {
+    let roundIndex = Math.max(0, Math.min(81, Math.round(((i + 1) * 82) / (derbyRounds.length + 1)) - 1));
+    while (used.has(roundIndex) && roundIndex < 81) roundIndex += 1;
+    while (used.has(roundIndex) && roundIndex > 0) roundIndex -= 1;
+    used.add(roundIndex);
+    map.set(roundIndex, pairs);
+  });
+  return map;
+}
+
+function buildSeasonRounds(room, season) {
+  const managerCount = room.managers.length;
+  const leagueIds = LEAGUE_TEAMS.map(team => team.id);
+  const derbyMap = buildDerbyRoundMap(managerCount);
+  const leagueOrders = room.managers.map(() => shuffleList(leagueIds));
+  const rounds = [];
+  for (let round = 0; round < 82; round += 1) {
+    const pairs = [];
+    const playedManagers = new Set();
+    const usedLeague = new Set();
+    const derbyPairs = derbyMap.get(round) || [];
+    for (const pair of derbyPairs) {
+      playedManagers.add(pair.home);
+      playedManagers.add(pair.away);
+      pairs.push({ homeTeamId: managerTeamId(pair.home), awayTeamId: managerTeamId(pair.away), derby: true });
+    }
+    for (let idx = 0; idx < managerCount; idx += 1) {
+      if (playedManagers.has(idx)) continue;
+      const order = leagueOrders[idx];
+      let opp = order[round % order.length];
+      let hop = 0;
+      while (usedLeague.has(opp) && hop < order.length) {
+        hop += 1;
+        opp = order[(round + hop) % order.length];
+      }
+      usedLeague.add(opp);
+      const managerHome = (round + idx) % 2 === 0;
+      pairs.push({
+        homeTeamId: managerHome ? managerTeamId(idx) : opp,
+        awayTeamId: managerHome ? opp : managerTeamId(idx),
+        derby: false
+      });
+    }
+    const rest = shuffleList(leagueIds.filter(id => !usedLeague.has(id)));
+    for (let i = 0; i + 1 < rest.length; i += 2) {
+      pairs.push({ homeTeamId: rest[i], awayTeamId: rest[i + 1], derby: false, background: true });
+    }
+    rounds.push(pairs.filter(pair => season.profiles[String(pair.homeTeamId)] && season.profiles[String(pair.awayTeamId)]));
+  }
+  return rounds;
+}
+
+function allocateInteger(total, weights) {
+  const sum = weights.reduce((acc, value) => acc + Math.max(0, num(value, 0)), 0);
+  if (sum <= 0) {
+    const base = Math.floor(total / Math.max(1, weights.length));
+    const out = weights.map(() => base);
+    for (let i = 0; i < total - base * weights.length; i += 1) out[i % out.length] += 1;
+    return out;
+  }
+  const raw = weights.map(weight => Math.max(0, weight) / sum * total);
+  const out = raw.map(Math.floor);
+  let diff = total - out.reduce((acc, value) => acc + value, 0);
+  const order = raw.map((value, i) => ({ i, frac: value - Math.floor(value) })).sort((a, b) => b.frac - a.frac);
+  for (let i = 0; diff > 0 && order.length; i = (i + 1) % order.length, diff -= 1) out[order[i].i] += 1;
+  return out;
+}
+
+function emptyPlayerSeasonLine(card, slotIdx) {
+  return {
+    slot: SLOTS[slotIdx].short,
+    name: card.entry.nameCn,
+    peak: `${card.entry.peakYear} ${card.entry.peakTeamCn}`,
+    price: card.price || 0,
+    acquiredBy: card.acquiredBy,
+    gp: 0,
+    mins: 0,
+    pts: 0,
+    reb: 0,
+    ast: 0,
+    stl: 0,
+    blk: 0,
+    tov: 0,
+    fgm: 0,
+    fga: 0,
+    tpm: 0,
+    tpa: 0,
+    ftm: 0,
+    fta: 0
+  };
+}
+
+function addManagerPlayerStats(room, managerIdx, teamScore, opponentScore, win) {
+  const game = room.game;
+  const season = game.season;
+  const era = game.era;
+  const profile = season.profiles[String(managerTeamId(managerIdx))];
+  const cards = game.rosters[managerIdx].filter(Boolean);
+  const stats = cards.map(card => card.entry.stats || {});
+  const rows = cards.map(card => card.entry.row || {});
+  const ptsWeights = cards.map((card, i) => num(card.entry.stats?.ppg, 10) * 1.2 + hiddenScore(card) * 0.12 + (i <= 1 ? 3 : 0));
+  const rebTotal = clamp(Math.round(40 + (profile.rebounding - 76) * 0.32 + randomNormal(4) + (win ? 1 : 0)), 28, 66);
+  const astTotal = clamp(Math.round(teamScore * clamp(0.48 + (profile.passing - 72) / 260, 0.43, 0.72) / 2 + randomNormal(2)), 12, 45);
+  const stlTotal = clamp(Math.round(6 + (profile.defense - 80) * 0.09 + randomNormal(1.4)), 2, 15);
+  const blkTotal = clamp(Math.round(4 + (profile.defense - 80) * 0.08 + randomNormal(1.3)), 1, 13);
+  const tovTotal = clamp(Math.round(14 - (profile.passing - 70) * 0.08 + randomNormal(2)), 5, 21);
+  const pointParts = allocateInteger(teamScore, ptsWeights);
+  const rebParts = allocateInteger(rebTotal, stats.map((st, i) => num(st.rpg, 4) + (i >= 3 ? 2 : 0)));
+  const astParts = allocateInteger(astTotal, stats.map((st, i) => num(st.apg, 2) + (i <= 1 ? 2 : 0)));
+  const stlParts = allocateInteger(stlTotal, stats.map(st => num(st.spg, 0.7) + 0.3));
+  const blkParts = allocateInteger(blkTotal, stats.map((st, i) => num(st.bpg, 0.4) + (i >= 3 ? 0.5 : 0)));
+  const tovParts = allocateInteger(tovTotal, stats.map((st, i) => num(st.ppg, 10) * 0.08 + num(st.apg, 2) * 0.22 + (i <= 1 ? 0.5 : 0)));
+  cards.forEach((card, slotIdx) => {
+    const line = season.playerStats[managerIdx][slotIdx];
+    const st = stats[slotIdx] || {};
+    const row = rows[slotIdx] || {};
+    const pts = pointParts[slotIdx] || 0;
+    const ftPct = clamp(num(st.ftPct, 75) / 100, 0.52, 0.93);
+    const fgPct = clamp(num(st.fgPct, 47) / 100 + randomNormal(0.012), 0.36, 0.68);
+    const threeSkill = num(st.tpPct, 0) > 0 ? clamp(num(st.tpPct, 32) / 100, 0.22, 0.47) : 0;
+    const threeFactor = threeSkill > 0 ? clamp(era.threeRate * (num(row.skillShotExterior, 70) / 80), 0.05, 1.35) : 0;
+    const tpa = clamp(Math.round((pts / 8) * threeFactor + randomRange(0, 2)), 0, Math.max(0, Math.round(pts / 2)));
+    const tpm = clamp(Math.round(tpa * (threeSkill || 0) + randomNormal(0.65)), 0, tpa);
+    const fta = clamp(Math.round(pts * clamp(0.17 + num(row.tendencyFr, 70) / 650, 0.12, 0.34) + randomNormal(1.1)), 0, 18);
+    const ftm = clamp(Math.round(fta * ftPct), 0, fta);
+    const remaining = Math.max(0, pts - ftm - tpm * 3);
+    const twoPm = clamp(Math.ceil(remaining / 2), 0, 28);
+    const fgm = tpm + twoPm;
+    const fga = Math.max(fgm, clamp(Math.round(fgm / fgPct), fgm, 36));
+    line.gp += 1;
+    line.mins += 48;
+    line.pts += pts;
+    line.reb += rebParts[slotIdx] || 0;
+    line.ast += astParts[slotIdx] || 0;
+    line.stl += stlParts[slotIdx] || 0;
+    line.blk += blkParts[slotIdx] || 0;
+    line.tov += tovParts[slotIdx] || 0;
+    line.fgm += fgm;
+    line.fga += fga;
+    line.tpm += tpm;
+    line.tpa += Math.min(tpa, fga);
+    line.ftm += ftm;
+    line.fta += fta;
+    line.last = { pts, reb: rebParts[slotIdx] || 0, ast: astParts[slotIdx] || 0, win, teamScore, opponentScore };
+  });
+}
+
+function simulateSeasonGame(room, pair, roundIndex) {
+  const game = room.game;
+  const season = game.season;
+  const era = game.era;
+  const home = season.profiles[String(pair.homeTeamId)];
+  const away = season.profiles[String(pair.awayTeamId)];
+  if (!home || !away) return null;
+  const base = era.baseScore + ((home.pace + away.pace) / 2 - era.pace) * 0.12;
+  let homeScore = Math.round(base + (home.offense - away.defense) * 0.52 + (home.strength - away.strength) * 0.34 + 2.4 + randomNormal(pair.derby ? 7 : 8.5));
+  let awayScore = Math.round(base + (away.offense - home.defense) * 0.52 + (away.strength - home.strength) * 0.34 + randomNormal(pair.derby ? 7 : 8.5));
+  homeScore = clamp(homeScore, 74, 164);
+  awayScore = clamp(awayScore, 74, 164);
+  if (homeScore === awayScore) {
+    if (home.strength + 1.5 >= away.strength) homeScore += 1;
+    else awayScore += 1;
+  }
+  updateSeasonRecord(season, home.id, homeScore, awayScore);
+  updateSeasonRecord(season, away.id, awayScore, homeScore);
+  const detail = {
+    round: roundIndex + 1,
+    homeTeamId: home.id,
+    awayTeamId: away.id,
+    homeName: home.name,
+    awayName: away.name,
+    homeScore,
+    awayScore,
+    derby: !!pair.derby
+  };
+  [home, away].forEach(profile => {
+    if (profile.kind !== 'manager') return;
+    const isHome = profile.id === home.id;
+    const my = isHome ? homeScore : awayScore;
+    const opp = isHome ? awayScore : homeScore;
+    const win = my > opp;
+    const row = game.simRows[profile.managerIdx];
+    if (win) {
+      row.w += 1;
+      row.streak = Math.max(1, num(row.streak, 0) + 1);
+    } else {
+      row.l += 1;
+      row.streak = Math.min(-1, num(row.streak, 0) - 1);
+    }
+    if (pair.derby) {
+      if (win) row.derbyW += 1;
+      else row.derbyL += 1;
+    }
+    row.last = {
+      my,
+      opp,
+      win,
+      oppName: isHome ? away.name : home.name,
+      home: isHome,
+      derby: !!pair.derby
+    };
+    addManagerPlayerStats(room, profile.managerIdx, my, opp, win);
+  });
+  season.gameDetails.push(detail);
+  return detail;
+}
+
+function playerSeasonAverages(line) {
+  const gp = Math.max(1, num(line.gp, 0));
+  const pct = (made, att) => num(att, 0) > 0 ? +(num(made, 0) / num(att, 1) * 100).toFixed(1) : '--';
+  return {
+    slot: line.slot,
+    name: line.name,
+    peak: line.peak,
+    price: line.price,
+    acquiredBy: line.acquiredBy,
+    gp: line.gp,
+    mpg: +(line.mins / gp).toFixed(1),
+    ppg: +(line.pts / gp).toFixed(1),
+    rpg: +(line.reb / gp).toFixed(1),
+    apg: +(line.ast / gp).toFixed(1),
+    spg: +(line.stl / gp).toFixed(1),
+    bpg: +(line.blk / gp).toFixed(1),
+    fgPct: pct(line.fgm, line.fga),
+    tpPct: pct(line.tpm, line.tpa),
+    ftPct: pct(line.ftm, line.fta)
+  };
+}
+
+function buildSeasonStandings(room) {
+  const season = room.game.season;
+  const rows = Object.values(season.records).map(record => ({
+    ...record,
+    pct: record.gp ? +(record.w / record.gp).toFixed(4) : 0,
+    diff: record.pf - record.pa
+  })).sort((a, b) => b.pct - a.pct || b.w - a.w || b.diff - a.diff || b.pf - a.pf);
+  rows.forEach((row, i) => { row.rank = i + 1; });
+  return rows;
+}
+
+function initSeasonSimulation(room, era) {
+  const game = room.game;
+  const profiles = {};
+  const records = {};
+  const season = {
+    era,
+    profiles,
+    records,
+    rounds: [],
+    gameDetails: [],
+    playerStats: room.managers.map((_, idx) => game.rosters[idx].map((card, slotIdx) => emptyPlayerSeasonLine(card, slotIdx)))
+  };
+  LEAGUE_TEAMS.map(meta => profileFromLeagueTeam(meta, era)).forEach(profile => {
+    profiles[String(profile.id)] = profile;
+    records[String(profile.id)] = makeSeasonRecord(profile);
+  });
+  room.managers.forEach((_, idx) => {
+    const profile = profileFromManager(room, idx, era);
+    profiles[String(profile.id)] = profile;
+    records[String(profile.id)] = makeSeasonRecord(profile);
+  });
+  season.rounds = buildSeasonRounds(room, season);
+  game.season = season;
+  game.simRound = 0;
+  game.skipSim = false;
+  game.simRows = room.managers.map(m => ({
+    managerIdx: m.idx,
+    manager: m.name,
+    teamName: m.teamName,
+    color: m.color,
+    w: 0,
+    l: 0,
+    streak: 0,
+    derbyW: 0,
+    derbyL: 0,
+    last: null
+  }));
+  game.standings = buildSeasonStandings(room).slice(0, 12);
+}
+
+function simulateNextRound(room) {
+  const game = room.game;
+  const season = game.season;
+  if (!season || game.simRound >= 82) return false;
+  const pairs = season.rounds[game.simRound] || [];
+  pairs.forEach(pair => simulateSeasonGame(room, pair, game.simRound));
+  game.simRound += 1;
+  game.standings = buildSeasonStandings(room).slice(0, 12);
+  return true;
+}
+
+function buildFinalSeasonResult(room) {
+  const game = room.game;
+  const standings = buildSeasonStandings(room);
   const entries = room.managers.map((mgr, idx) => {
-    const roster = game.rosters[idx];
-    const rating = roster.reduce((sum, card) => sum + hiddenScore(card), 0);
+    const teamId = managerTeamId(idx);
+    const record = standings.find(row => row.id === teamId) || makeSeasonRecord({ id: teamId, kind: 'manager', name: mgr.teamName, abbr: mgr.abbr, color: mgr.color, conference: 'East' });
+    const simRow = game.simRows[idx] || {};
+    const rating = game.rosters[idx].filter(Boolean).reduce((sum, card) => sum + hiddenScore(card), 0);
     return {
       rank: 0,
       managerIdx: idx,
       manager: mgr.name,
       teamName: mgr.teamName,
       color: mgr.color,
+      teamId,
+      leagueRank: standings.findIndex(row => row.id === teamId) + 1,
+      record,
+      derbyW: num(simRow.derbyW, 0),
+      derbyL: num(simRow.derbyL, 0),
       coinsLeft: game.coins[idx],
       coinsSpent: game.spent[idx],
       rating,
-      players: roster.map((card, slotIdx) => ({
-        slot: SLOTS[slotIdx].short,
-        name: card.entry.nameCn,
-        peak: `${card.entry.peakYear} ${card.entry.peakTeamCn}`,
-        price: card.price || 0,
-        acquiredBy: card.acquiredBy
-      }))
+      strength: game.season.profiles[String(teamId)]?.strength || Math.round(rating / 5),
+      grade: gradeForWins(record.w),
+      players: game.season.playerStats[idx].map(playerSeasonAverages)
     };
-  }).sort((a, b) => b.rating - a.rating || b.coinsLeft - a.coinsLeft);
+  });
+  entries.sort((a, b) =>
+    num(b.record.w, 0) - num(a.record.w, 0)
+    || num(b.derbyW, 0) - num(a.derbyW, 0)
+    || (num(b.record.pf, 0) - num(b.record.pa, 0)) - (num(a.record.pf, 0) - num(a.record.pa, 0))
+    || num(b.coinsLeft, 0) - num(a.coinsLeft, 0));
   entries.forEach((entry, i) => { entry.rank = i + 1; });
-  game.result = { entries, duels: game.duels };
-  pushLog(game, '全明星选牌完成，阵容结算已生成', 'stage');
+  return {
+    entries,
+    standings,
+    era: game.era,
+    duels: game.duels,
+    rounds: 82,
+    gameCount: game.season.gameDetails.length
+  };
+}
+
+function finishSeason(room) {
+  const game = room.game;
+  game.phase = 'results';
+  room.status = 'results';
+  game.activeIdx = -1;
+  game.awaiting = null;
+  game.simRound = 82;
+  game.standings = buildSeasonStandings(room).slice(0, 12);
+  game.result = buildFinalSeasonResult(room);
+  room.updatedAt = new Date().toISOString();
+  pushLog(game, `${game.era.year} ${game.era.label} 82场赛季模拟完成`, 'stage');
+}
+
+function runSeasonLoop(roomCode) {
+  const room = rooms.get(roomCode);
+  if (!room || !room.game || room.game.phase !== 'sim') return;
+  const game = room.game;
+  if (game.simTimer) {
+    clearTimeout(game.simTimer);
+    game.simTimer = null;
+  }
+  const step = () => {
+    const liveRoom = rooms.get(roomCode);
+    if (!liveRoom || !liveRoom.game || liveRoom.game.phase !== 'sim') return;
+    const liveGame = liveRoom.game;
+    if (liveGame.skipSim) {
+      while (liveGame.simRound < 82) simulateNextRound(liveRoom);
+      finishSeason(liveRoom);
+      broadcastRoom(liveRoom);
+      broadcastGame(liveRoom);
+      return;
+    }
+    simulateNextRound(liveRoom);
+    liveRoom.updatedAt = new Date().toISOString();
+    broadcastGame(liveRoom);
+    if (liveGame.simRound >= 82) {
+      finishSeason(liveRoom);
+      broadcastRoom(liveRoom);
+      broadcastGame(liveRoom);
+      return;
+    }
+    liveGame.simTimer = setTimeout(step, liveGame.simRound < 5 ? 260 : 85);
+  };
+  game.simTimer = setTimeout(step, 240);
+}
+
+function finishDraft(room) {
+  const game = room.game;
+  game.phase = 'era';
+  room.status = 'era';
+  game.activeIdx = -1;
+  game.awaiting = null;
+  game.era = null;
+  game.result = null;
+  game.standings = [];
+  room.updatedAt = new Date().toISOString();
+  pushLog(game, '五个位置选牌完成，等待房主启动年代转盘', 'stage');
+  broadcastRoom(room);
 }
 
 function handleCreateRoom(client, msg) {
@@ -950,6 +1533,42 @@ function handleReclaimCard(client, msg) {
   continueDraft(room);
 }
 
+function handleRollEra(client, msg) {
+  const room = requireRoom(client, msg.roomCode || client.roomCode);
+  if (!room || !requireHost(client, room)) return;
+  const game = room.game;
+  if (!game || game.phase !== 'era' || room.status !== 'era') {
+    return sendError(client, 'not_ready_for_era', '当前不能启动年代转盘');
+  }
+  if (game.era) return sendError(client, 'era_already_rolled', '年代已经确定');
+  const era = pick(ERAS);
+  game.era = era;
+  game.phase = 'sim';
+  room.status = 'sim';
+  game.activeIdx = -1;
+  game.awaiting = null;
+  initSeasonSimulation(room, era);
+  pushLog(game, `命运转盘落定: ${era.year} ${era.label}，82场赛季开始`, 'stage');
+  room.updatedAt = new Date().toISOString();
+  broadcastRoom(room);
+  broadcastGame(room);
+  runSeasonLoop(room.code);
+}
+
+function handleSkipSim(client, msg) {
+  const room = requireRoom(client, msg.roomCode || client.roomCode);
+  if (!room || !requireHost(client, room)) return;
+  const game = room.game;
+  if (!game || game.phase !== 'sim') return sendError(client, 'not_simulating', '当前不在赛季模拟阶段');
+  game.skipSim = true;
+  pushLog(game, '房主跳过直播动画，服务端快速完成剩余赛程', 'stage');
+  if (game.simTimer) {
+    clearTimeout(game.simTimer);
+    game.simTimer = null;
+  }
+  runSeasonLoop(room.code);
+}
+
 function handleClientMessage(client, raw) {
   let msg;
   try {
@@ -972,6 +1591,8 @@ function handleClientMessage(client, raw) {
     case 'challenge_card': return handleChallengeCard(client, msg);
     case 'submit_bid': return handleSubmitBid(client, msg);
     case 'reclaim_card': return handleReclaimCard(client, msg);
+    case 'roll_era': return handleRollEra(client, msg);
+    case 'skip_sim': return handleSkipSim(client, msg);
     default: return sendError(client, 'unknown_type', `未知消息类型: ${msg.type || ''}`);
   }
 }

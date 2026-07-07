@@ -24,6 +24,14 @@
     3: '球队轮'
   };
 
+  const ERAS = [
+    { year: 2025, label: '新世代', desc: '小球空间 · 三分狂潮' },
+    { year: 2009, label: '巨星年代', desc: '科比与詹姆斯的巅峰' },
+    { year: 2003, label: '王朝余晖', desc: 'OK组合与石佛的时代' },
+    { year: 1996, label: '乔丹王朝', desc: '公牛72胜的统治力' },
+    { year: 1983, label: '黑白双雄', desc: '魔术师与大鸟的联盟' }
+  ];
+
   const state = {
     mode: 'home',
     ws: null,
@@ -85,7 +93,9 @@
 
   function stageLabel(game = state.game) {
     if (!game) return '大厅';
-    if (game.phase === 'results') return '阵容结算';
+    if (game.phase === 'era') return '命运转盘';
+    if (game.phase === 'sim') return `${game.era?.year || ''} 赛季直播`;
+    if (game.phase === 'results') return '赛季结算';
     return `${game.pos || '--'} · ${STAGE_LABELS[game.stage] || '选牌'}`;
   }
 
@@ -401,6 +411,8 @@
   function renderGame() {
     const game = state.game;
     if (!game) return renderLobby();
+    if (game.phase === 'era') return renderEra();
+    if (game.phase === 'sim') return renderSim();
     if (game.phase === 'results') return renderResults();
     return `
       ${topbar()}
@@ -646,20 +658,106 @@
       </div>`;
   }
 
+  function renderEra() {
+    const game = state.game;
+    const picked = game.era || null;
+    return `
+      ${topbar()}
+      <section class="sd-era-layout">
+        <h2 class="sd-era-title">${picked ? `命运降临 · ${picked.year} ${esc(picked.label)}` : '五支梦之队集结完毕'}</h2>
+        <p class="sd-era-sub">${picked ? esc(picked.desc) : '由房主启动服务端年代转盘，所有玩家看到同一个年代结果'}</p>
+        <div class="sd-era-wheel ${picked ? 'landed' : ''}">
+          ${ERAS.map(era => `
+            <div class="sd-era-card ${picked && picked.year === era.year ? 'final' : ''}">
+              <span class="sd-era-year">${era.year}</span>
+              <span class="sd-era-label">${esc(era.label)}</span>
+              <span class="sd-era-desc">${esc(era.desc)}</span>
+            </div>
+          `).join('')}
+        </div>
+        ${game.you?.canRollEra ? `<button class="manager-btn massive primary" data-sdo="roll-era" type="button">启动命运转盘</button>` : ''}
+        ${!game.you?.canRollEra && !picked ? '<div class="sd-hint dim">等待房主启动年代转盘</div>' : ''}
+        <div class="sd-recap-grid">
+          ${game.rosters.map(roster => `
+            <div class="sd-recap-team" style="--mc:${roster.color}">
+              <div class="sd-recap-head"><b>${esc(roster.teamName)}</b><em>${roster.players.filter(Boolean).length}/5</em></div>
+              <div class="sd-recap-players">
+                ${roster.players.filter(Boolean).map(player => `<span><b>${esc(player.slot)}</b>${esc(player.name)}</span>`).join('')}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        ${renderLog()}
+      </section>`;
+  }
+
+  function renderSim() {
+    const game = state.game;
+    const rows = [...(game.simRows || [])].sort((a, b) => num(b.w, 0) - num(a.w, 0) || num(b.derbyW, 0) - num(a.derbyW, 0));
+    const maxW = Math.max(1, ...rows.map(row => num(row.w, 0)));
+    return `
+      ${topbar()}
+      <section class="sd-sim-layout">
+        <div class="sd-sim-head">
+          <h2>${game.era ? `${game.era.year} ${esc(game.era.label)} · 联网赛季直播` : '服务端赛季模拟'}</h2>
+          <span class="sd-sim-round">ROUND ${num(game.simRound, 0)} / 82</span>
+        </div>
+        <div class="sd-sim-progress"><i style="width:${(num(game.simRound, 0) / 82 * 100).toFixed(1)}%"></i></div>
+        <div class="sd-race">
+          ${rows.map((row, index) => {
+            const pct = (num(row.w, 0) / maxW * 100).toFixed(1);
+            const last = row.last || null;
+            return `
+              <div class="sd-race-row ${index === 0 ? 'leader' : ''}" style="--mc:${row.color}">
+                <span class="sd-race-rank">#${index + 1}</span>
+                <span class="sd-race-team">${esc(row.teamName)}<small>${esc(row.manager)}</small></span>
+                <span class="sd-race-bar"><i style="width:${pct}%"></i></span>
+                <span class="sd-race-rec">${num(row.w, 0)}<em>-</em>${num(row.l, 0)}</span>
+                <span class="sd-race-last ${last?.win ? 'w' : 'l'} ${last?.derby ? 'derby' : ''}">
+                  ${last ? `${last.win ? 'W' : 'L'} ${last.my}-${last.opp} vs ${esc(last.oppName)}` : '等待开赛'}
+                </span>
+                <span class="sd-race-streak">${num(row.derbyW, 0)}-${num(row.derbyL, 0)} 德比</span>
+              </div>`;
+          }).join('')}
+        </div>
+        <div class="sim-actions">
+          ${game.you?.canSkipSim ? `<button class="manager-btn ghost" data-sdo="skip-sim" type="button">${game.skipSim ? '快进中...' : '跳过直播动画'}</button>` : ''}
+        </div>
+        ${renderStandingsPreview()}
+        ${renderLog()}
+      </section>`;
+  }
+
+  function renderStandingsPreview() {
+    const standings = state.game?.standings || [];
+    if (!standings.length) return '';
+    return `
+      <article class="sdo-panel">
+        <h3>联盟实时前十</h3>
+        ${standings.slice(0, 10).map(row => `
+          <div class="award-row ${row.kind === 'manager' ? 'sd-standing-us' : ''}">
+            <span>#${row.rank} ${esc(row.name)}</span>
+            <strong>${num(row.w, 0)}-${num(row.l, 0)}</strong>
+          </div>
+        `).join('')}
+      </article>`;
+  }
+
   function renderResults() {
     const game = state.game;
     const entries = game?.result?.entries || [];
     const champ = entries[0];
+    const era = game?.result?.era || game?.era || {};
     return `
       ${topbar()}
       <section class="sd-results">
         ${champ ? `
           <div class="sd-champ-hero" style="--mc:${champ.color}">
-            <div class="sd-results grade-stamp"><div class="grade-letter">#1</div><div class="grade-sub">WINNER</div></div>
+            <div class="sd-results grade-stamp"><div class="grade-letter">${esc(champ.grade?.letter || '#1')}</div><div class="grade-sub">${num(champ.record?.w, 0)} WINS</div></div>
             <div>
-              <p class="sd-champ-kicker">ONLINE ALL-STAR SHOWDOWN</p>
+              <p class="sd-champ-kicker">${era.year ? `${era.year} ${esc(era.label)}` : 'ONLINE ALL-STAR SHOWDOWN'} · 最强球队</p>
               <h2>${esc(champ.teamName)}</h2>
-              <p class="sd-champ-sub">${esc(champ.manager)} 以 ${num(champ.rating, 0)} 阵容评分夺冠，剩余 ${num(champ.coinsLeft, 0)} 金币。</p>
+              <p class="sd-champ-sub">${esc(champ.manager)} · 战绩 ${num(champ.record?.w, 0)}-${num(champ.record?.l, 0)} · 德比 ${num(champ.derbyW, 0)}-${num(champ.derbyL, 0)} · 联盟第 ${num(champ.leagueRank, 0)}</p>
             </div>
           </div>` : ''}
         <div class="sdo-result-grid">
@@ -667,20 +765,36 @@
             <article class="sdo-panel sd-team-card" style="--mc:${entry.color}">
               <div class="sdo-roster-head">
                 <b>#${entry.rank} ${esc(entry.teamName)}</b>
-                <span>${num(entry.rating, 0)} OVR</span>
+                <span>${num(entry.record?.w, 0)}-${num(entry.record?.l, 0)}</span>
               </div>
-              <p>${esc(entry.manager)} · 剩余 ${num(entry.coinsLeft, 0)} 金币 · 花费 ${num(entry.coinsSpent, 0)} 金币</p>
+              <p>${esc(entry.manager)} · 联盟第 ${num(entry.leagueRank, 0)} · 德比 ${num(entry.derbyW, 0)}-${num(entry.derbyL, 0)} · 强度 ${fmt1(entry.strength)} · 剩余 ${num(entry.coinsLeft, 0)} 金币 · 花费 ${num(entry.coinsSpent, 0)} 金币</p>
               <div class="sdo-player-tags">
-                ${entry.players.map(player => `<span><b>${esc(player.slot)}</b> ${esc(player.name)} · ${esc(player.peak)}${player.price ? ` · ${player.price}金` : ''}</span>`).join('')}
+                ${entry.players.map(player => `<span><b>${esc(player.slot)}</b> ${esc(player.name)} · ${fmt1(player.ppg)}分 ${fmt1(player.rpg)}板 ${fmt1(player.apg)}助 · ${fmt1(player.mpg)}分钟${player.price ? ` · ${player.price}金` : ''}</span>`).join('')}
               </div>
             </article>
           `).join('')}
         </div>
+        ${renderFinalStandings()}
         ${renderDuelRecap()}
         <footer class="results-footer">
           <button class="manager-btn massive secondary" data-sdo="back" type="button">返回主菜单</button>
         </footer>
       </section>`;
+  }
+
+  function renderFinalStandings() {
+    const standings = state.game?.result?.standings || state.game?.standings || [];
+    if (!standings.length) return '';
+    return `
+      <article class="sdo-panel">
+        <h3>联盟格局</h3>
+        ${standings.slice(0, 12).map(row => `
+          <div class="award-row ${row.kind === 'manager' ? 'sd-standing-us' : ''}">
+            <span>#${row.rank} ${esc(row.name)}</span>
+            <strong>${num(row.w, 0)}-${num(row.l, 0)}</strong>
+          </div>
+        `).join('')}
+      </article>`;
   }
 
   function renderDuelRecap() {
@@ -770,6 +884,12 @@
         break;
       case 'start-game':
         send('start_game');
+        break;
+      case 'roll-era':
+        send('roll_era');
+        break;
+      case 'skip-sim':
+        send('skip_sim');
         break;
       case 'lock-yes':
         send('choose_lock', { lock: true });
