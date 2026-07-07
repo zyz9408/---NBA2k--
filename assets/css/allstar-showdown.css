@@ -1,0 +1,350 @@
+/* ============================================================
+ * 全明星争夺战 (All-Star Showdown) 样式
+ * 依附 82-draft-arena.css 的球馆暗色主题
+ * ============================================================ */
+
+.showdown-entry {
+  position: relative;
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.16), rgba(34, 211, 238, 0.14)) !important;
+  border: 1px solid rgba(251, 191, 36, 0.45) !important;
+}
+.showdown-entry small { opacity: 0.75; font-size: 0.72em; margin-left: 6px; }
+
+#screenShowdown { padding: 18px clamp(10px, 3vw, 36px) 48px; }
+.sd-wrap { max-width: 1380px; margin: 0 auto; color: #e9f2f9; }
+
+/* ---------- 顶栏 ---------- */
+.sd-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 18px; margin-bottom: 14px; border-radius: 14px;
+  background: rgba(10, 16, 26, 0.72); border: 1px solid rgba(148, 190, 230, 0.16);
+  backdrop-filter: blur(8px);
+}
+.sd-topbar-left { display: flex; align-items: center; gap: 14px; }
+.sd-topbar h2 { margin: 0; font-size: 1.05rem; letter-spacing: 0.04em; }
+.sd-stage-chip {
+  padding: 5px 14px; border-radius: 999px; font-weight: 800; font-size: 0.82rem;
+  background: rgba(251, 191, 36, 0.14); color: #ffd166; border: 1px solid rgba(251, 191, 36, 0.4);
+}
+
+.sd-error {
+  display: grid; gap: 12px; justify-items: center; padding: 60px 20px;
+  background: rgba(20, 10, 12, 0.7); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 16px;
+}
+.sd-error strong { font-size: 1.2rem; color: #fca5a5; }
+
+/* ---------- 进度轨 ---------- */
+.sd-stage-rail {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  font-size: 0.78rem; margin-bottom: 12px; color: #7b93ab;
+}
+.sd-stage-rail i, .sd-stage-rail em { font-style: normal; opacity: 0.45; }
+.sd-stage-rail em { margin: 0 8px; }
+.sd-slot-step, .sd-info-step {
+  padding: 3px 10px; border-radius: 999px; font-weight: 800;
+  background: rgba(123, 147, 171, 0.12); border: 1px solid transparent;
+}
+.sd-slot-step.done, .sd-info-step.done { color: #4ade80; background: rgba(74, 222, 128, 0.1); }
+.sd-slot-step.now, .sd-info-step.now {
+  color: #ffd166; background: rgba(251, 191, 36, 0.14); border-color: rgba(251, 191, 36, 0.5);
+  animation: sdPulse 1.6s ease-in-out infinite;
+}
+@keyframes sdPulse { 50% { box-shadow: 0 0 12px rgba(251, 191, 36, 0.35); } }
+
+/* ---------- 经理条 ---------- */
+.sd-mgr-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 14px; }
+.sd-mgr {
+  padding: 8px 10px; border-radius: 12px; border: 1px solid rgba(148, 190, 230, 0.14);
+  background: rgba(13, 20, 32, 0.66); position: relative; overflow: hidden;
+  border-top: 3px solid var(--mc, #7b93ab); transition: transform 0.25s, box-shadow 0.25s;
+}
+.sd-mgr.active {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--mc);
+}
+.sd-mgr.active::after {
+  content: '行动中'; position: absolute; top: 6px; right: 8px; font-size: 0.62rem;
+  color: var(--mc); font-weight: 800; animation: sdBlink 1s steps(2) infinite;
+}
+@keyframes sdBlink { 50% { opacity: 0.25; } }
+.sd-mgr-name { font-weight: 800; font-size: 0.82rem; }
+.sd-mgr.human .sd-mgr-name { color: #22d3ee; }
+.sd-mgr-team { font-size: 0.68rem; color: #7b93ab; }
+.sd-mgr-coins { font-size: 0.8rem; color: #ffd166; font-weight: 800; margin-top: 3px; }
+.sd-mgr-hold { font-size: 0.68rem; color: #9fb6cb; }
+
+/* ---------- 布局 ---------- */
+.sd-draft-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+@media (max-width: 1080px) { .sd-draft-layout { grid-template-columns: 1fr; } }
+.sd-side {
+  background: rgba(11, 17, 27, 0.72); border: 1px solid rgba(148, 190, 230, 0.14);
+  border-radius: 16px; padding: 14px 16px; position: sticky; top: 12px;
+}
+.sd-side h3 { margin: 4px 0 10px; font-size: 0.86rem; color: #ffd166; letter-spacing: 0.08em; }
+
+/* ---------- 卡牌 ---------- */
+.sd-card-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+@media (max-width: 1250px) { .sd-card-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 760px) { .sd-card-grid { grid-template-columns: repeat(2, 1fr); } }
+
+.sd-card { perspective: 900px; cursor: pointer; min-height: 320px; }
+.sd-card-inner {
+  position: relative; width: 100%; height: 100%;
+  transform-style: preserve-3d; transition: transform 0.7s cubic-bezier(0.4, 0.1, 0.2, 1);
+}
+.sd-card.revealed .sd-card-inner { transform: rotateY(180deg); }
+.sd-card-back, .sd-card-front {
+  backface-visibility: hidden; border-radius: 14px; min-height: 320px;
+  border: 1px solid rgba(148, 190, 230, 0.2);
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(34, 211, 238, 0.09), transparent 55%),
+    linear-gradient(160deg, #12203a 0%, #0b1322 70%);
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.sd-card-front {
+  position: absolute; inset: 0; transform: rotateY(180deg);
+  align-items: center; justify-content: center; text-align: center;
+  background:
+    radial-gradient(120% 100% at 50% 0%, rgba(251, 191, 36, 0.16), transparent 60%),
+    linear-gradient(160deg, #1d2438 0%, #0d1120 75%);
+  border-color: rgba(251, 191, 36, 0.45);
+}
+.sd-card:hover .sd-card-inner { transform: translateY(-4px); }
+.sd-card.revealed:hover .sd-card-inner { transform: rotateY(180deg) translateY(-4px); }
+.sd-card.locked .sd-card-back { border-color: rgba(251, 191, 36, 0.55); box-shadow: 0 0 18px rgba(251, 191, 36, 0.12); }
+.sd-card.is-mine .sd-card-back { box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.55), 0 10px 26px rgba(0, 0, 0, 0.45); }
+
+.sd-card-head { display: flex; justify-content: space-between; align-items: center; }
+.sd-card-no { font-weight: 900; font-size: 0.8rem; color: #9fb6cb; letter-spacing: 0.1em; }
+.sd-lock { font-size: 0.68rem; font-weight: 800; color: #ffd166; }
+.sd-mystery {
+  font-size: 2.2rem; font-weight: 900; text-align: center; color: rgba(159, 182, 203, 0.35);
+  background: rgba(123, 147, 171, 0.08); border-radius: 10px; padding: 2px 0;
+}
+.sd-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.sd-stat-grid div {
+  background: rgba(20, 30, 48, 0.85); border-radius: 8px; padding: 4px 6px;
+  display: flex; flex-direction: column; align-items: center;
+}
+.sd-stat-grid span { font-size: 0.6rem; color: #7b93ab; }
+.sd-stat-grid strong { font-size: 0.92rem; color: #e9f2f9; }
+
+.sd-honor-row { display: flex; flex-wrap: wrap; gap: 4px; min-height: 40px; align-content: flex-start; }
+.sd-honor-row.dim, .sd-team-row.dim { opacity: 0.35; font-size: 0.66rem; color: #7b93ab; align-items: center; display: flex; }
+.sd-honor {
+  font-size: 0.62rem; font-weight: 800; padding: 2px 7px; border-radius: 999px;
+  background: rgba(123, 147, 171, 0.14); color: #b9cbdc;
+}
+.sd-honor.gold { background: rgba(251, 191, 36, 0.16); color: #ffd166; }
+.sd-honor.cyan { background: rgba(34, 211, 238, 0.14); color: #67e8f9; }
+.sd-honor.pri { background: rgba(96, 165, 250, 0.15); color: #93c5fd; }
+.sd-honor.red { background: rgba(239, 68, 68, 0.16); color: #fca5a5; }
+.sd-honor.none { background: transparent; color: #62788e; }
+.sd-team-row { font-size: 0.74rem; font-weight: 800; color: #67e8f9; }
+
+.sd-owner-chip {
+  margin-top: auto; text-align: center; font-size: 0.72rem; font-weight: 800;
+  padding: 5px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--mc, #62788e) 18%, transparent);
+  color: var(--mc, #9fb6cb); border: 1px solid color-mix(in srgb, var(--mc, #62788e) 45%, transparent);
+}
+.sd-owner-chip.free { --mc: #62788e; opacity: 0.75; }
+
+.sd-photo { width: 92px; height: 92px; border-radius: 50%; object-fit: cover; border: 3px solid rgba(251, 191, 36, 0.6); }
+.sd-front-name { font-size: 1.05rem; font-weight: 900; margin-top: 10px; }
+.sd-front-sub { font-size: 0.74rem; color: #ffd166; margin-top: 4px; }
+.sd-card-grid.revealing .sd-card { animation: sdCardPop 0.5s ease; }
+@keyframes sdCardPop { 40% { transform: scale(1.04); } }
+
+/* ---------- 行动区 ---------- */
+.sd-action-zone { margin-top: 14px; min-height: 66px; }
+.sd-hint {
+  padding: 10px 14px; border-radius: 12px; font-size: 0.86rem;
+  background: rgba(34, 211, 238, 0.08); border: 1px dashed rgba(34, 211, 238, 0.35);
+}
+.sd-hint.pulse { animation: sdPulse 1.6s ease-in-out infinite; }
+.sd-hint.dim { opacity: 0.6; border-style: solid; border-color: rgba(123, 147, 171, 0.25); background: rgba(123, 147, 171, 0.06); }
+.sd-action-row { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+
+/* ---------- 日志 ---------- */
+.sd-log { display: flex; flex-direction: column; gap: 5px; max-height: 300px; overflow-y: auto; }
+.sd-log-line {
+  font-size: 0.72rem; line-height: 1.45; padding: 5px 9px; border-radius: 8px;
+  background: rgba(20, 30, 48, 0.6); color: #9fb6cb; animation: sdSlideIn 0.3s ease;
+}
+.sd-log-line.me { color: #67e8f9; border-left: 2px solid #22d3ee; }
+.sd-log-line.ai { border-left: 2px solid rgba(123, 147, 171, 0.6); }
+.sd-log-line.duel { color: #ffd166; border-left: 2px solid #fbbf24; background: rgba(251, 191, 36, 0.07); }
+.sd-log-line.stage { color: #c4b5fd; font-weight: 700; }
+.sd-log-line.reveal { color: #4ade80; }
+@keyframes sdSlideIn { from { opacity: 0; transform: translateX(-8px); } }
+
+/* ---------- 我的阵容侧栏 ---------- */
+.sd-roster { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.sd-roster-row {
+  display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto;
+  padding: 7px 10px; border-radius: 10px; background: rgba(20, 30, 48, 0.6);
+  border: 1px solid transparent; column-gap: 8px;
+}
+.sd-roster-row.now { border-color: rgba(251, 191, 36, 0.5); }
+.sd-roster-row.filled { border-color: rgba(74, 222, 128, 0.3); }
+.sd-roster-pos { grid-row: span 2; align-self: center; font-weight: 900; color: #ffd166; }
+.sd-roster-name { font-size: 0.82rem; font-weight: 700; }
+.sd-roster-src { font-size: 0.66rem; color: #7b93ab; }
+
+/* ---------- 比价弹窗 ---------- */
+.sd-modal-bg {
+  position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+  background: rgba(4, 8, 14, 0.78); backdrop-filter: blur(4px); animation: sdFadeIn 0.25s ease;
+}
+@keyframes sdFadeIn { from { opacity: 0; } }
+.sd-modal {
+  width: min(480px, 92vw); border-radius: 18px; padding: 20px 22px;
+  background: linear-gradient(165deg, #16233c, #0b1220 75%);
+  border: 1px solid rgba(251, 191, 36, 0.4); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+.sd-modal h3 { margin: 0 0 12px; color: #ffd166; }
+.sd-bid-tip { font-size: 0.84rem; line-height: 1.6; color: #c9d9e8; }
+.sd-bid-stepper { display: flex; align-items: center; gap: 14px; margin: 14px 0; }
+.sd-bid-stepper button {
+  width: 44px; height: 44px; border-radius: 12px; font-size: 1.4rem; font-weight: 900;
+  background: rgba(34, 211, 238, 0.12); color: #67e8f9; border: 1px solid rgba(34, 211, 238, 0.4); cursor: pointer;
+}
+.sd-bid-stepper button:hover { background: rgba(34, 211, 238, 0.22); }
+.sd-bid-stepper span { font-size: 1.9rem; font-weight: 900; color: #ffd166; min-width: 56px; text-align: center; }
+.sd-bid-stepper em { font-style: normal; font-size: 0.74rem; color: #7b93ab; }
+.sd-bid-reveal { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; margin: 14px 0; }
+.sd-bid-side {
+  display: grid; gap: 6px; justify-items: center; padding: 14px 10px; border-radius: 14px;
+  background: color-mix(in srgb, var(--mc, #62788e) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mc, #62788e) 35%, transparent);
+}
+.sd-bid-side span { font-size: 0.76rem; font-weight: 700; color: var(--mc); }
+.sd-bid-side strong { font-size: 1.5rem; animation: sdCoinFlip 0.8s ease; }
+.sd-bid-side.win { box-shadow: 0 0 0 2px var(--mc), 0 0 24px color-mix(in srgb, var(--mc) 40%, transparent); }
+@keyframes sdCoinFlip { 0% { transform: rotateX(90deg); opacity: 0; } 60% { transform: rotateX(-20deg); } }
+.sd-bid-vs { font-weight: 900; color: #7b93ab; }
+.sd-bid-result { text-align: center; font-weight: 800; color: #ffd166; }
+
+/* ---------- 年代转盘 ---------- */
+.sd-era-layout { display: grid; gap: 18px; justify-items: center; padding: 26px 0; }
+.sd-era-title { margin: 0; font-size: 1.6rem; letter-spacing: 0.06em; text-align: center; }
+.sd-era-sub { margin: 0; color: #9fb6cb; }
+.sd-era-wheel { display: grid; grid-template-columns: repeat(5, minmax(120px, 180px)); gap: 12px; }
+@media (max-width: 900px) { .sd-era-wheel { grid-template-columns: repeat(3, 1fr); } }
+.sd-era-card {
+  display: grid; gap: 6px; justify-items: center; text-align: center;
+  padding: 22px 12px; border-radius: 16px;
+  background: linear-gradient(165deg, #13203a, #0a111f 80%);
+  border: 1px solid rgba(148, 190, 230, 0.18); transition: all 0.12s ease;
+}
+.sd-era-card.hot {
+  border-color: #fbbf24; transform: scale(1.06);
+  box-shadow: 0 0 26px rgba(251, 191, 36, 0.35);
+  background: linear-gradient(165deg, #2b2a18, #14120a 80%);
+}
+.sd-era-card.final {
+  border-color: #fbbf24; transform: scale(1.1);
+  box-shadow: 0 0 40px rgba(251, 191, 36, 0.55);
+  animation: sdEraLand 0.7s cubic-bezier(0.2, 1.4, 0.4, 1);
+  background: linear-gradient(165deg, #3a3115, #171208 80%);
+}
+@keyframes sdEraLand { 0% { transform: scale(1.35); } }
+.sd-era-year { font-size: 1.7rem; font-weight: 900; color: #ffd166; }
+.sd-era-label { font-weight: 800; }
+.sd-era-desc { font-size: 0.68rem; color: #7b93ab; }
+.sd-era-go { font-weight: 800; color: #4ade80; animation: sdBlink 1.2s steps(2) infinite; }
+
+.sd-recap-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; width: 100%; max-width: 1200px; }
+.sd-recap-team {
+  padding: 10px 12px; border-radius: 12px; background: rgba(13, 20, 32, 0.66);
+  border: 1px solid rgba(148, 190, 230, 0.14); border-top: 3px solid var(--mc);
+}
+.sd-recap-head { font-size: 0.78rem; font-weight: 800; margin-bottom: 6px; }
+.sd-recap-head em { font-style: normal; color: #ffd166; float: right; }
+.sd-recap-players { display: flex; flex-wrap: wrap; gap: 5px; }
+.sd-recap-players span { font-size: 0.68rem; background: rgba(123, 147, 171, 0.12); padding: 2px 8px; border-radius: 999px; }
+.sd-recap-players b { color: #ffd166; margin-right: 3px; }
+
+/* ---------- 模拟直播 ---------- */
+.sd-sim-layout { display: grid; gap: 16px; padding: 10px 0 30px; }
+.sd-sim-head { display: flex; align-items: center; gap: 14px; }
+.sd-sim-head h2 { margin: 0; font-size: 1.2rem; }
+.sd-sim-round { font-weight: 900; color: #ffd166; letter-spacing: 0.08em; }
+.sd-race { display: grid; gap: 10px; }
+.sd-race-row {
+  display: grid; grid-template-columns: 46px 170px 1fr 90px minmax(150px, 220px) 90px;
+  align-items: center; gap: 12px; padding: 12px 16px; border-radius: 14px;
+  background: rgba(13, 20, 32, 0.7); border: 1px solid rgba(148, 190, 230, 0.13);
+  border-left: 4px solid var(--mc); transition: transform 0.4s ease;
+}
+@media (max-width: 860px) { .sd-race-row { grid-template-columns: 40px 1fr 80px; } .sd-race-bar, .sd-race-last, .sd-race-streak { display: none; } }
+.sd-race-row.human { box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.4); }
+.sd-race-rank { font-size: 1.1rem; font-weight: 900; color: #ffd166; }
+.sd-race-team { font-weight: 800; display: grid; }
+.sd-race-team small { color: #7b93ab; font-weight: 600; }
+.sd-race-bar { height: 10px; border-radius: 999px; background: rgba(123, 147, 171, 0.15); overflow: hidden; }
+.sd-race-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, color-mix(in srgb, var(--mc) 70%, transparent), var(--mc)); transition: width 0.3s ease; }
+.sd-race-rec { font-weight: 900; }
+.sd-race-last { font-size: 0.72rem; color: #9fb6cb; }
+.sd-race-last.w { color: #4ade80; }
+.sd-race-last.l { color: #f87171; }
+.sd-race-streak { font-size: 0.72rem; font-weight: 800; color: #fbbf24; }
+
+/* ---------- 结算 ---------- */
+.sd-results { display: grid; gap: 18px; padding-bottom: 40px; }
+.sd-champ-hero {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 22px; align-items: center;
+  padding: 26px 30px; border-radius: 20px;
+  background:
+    radial-gradient(130% 120% at 20% 0%, color-mix(in srgb, var(--mc) 22%, transparent), transparent 60%),
+    linear-gradient(160deg, #1a2439, #0b1220 78%);
+  border: 1px solid color-mix(in srgb, var(--mc) 50%, transparent);
+  animation: sdHeroIn 0.8s cubic-bezier(0.2, 1.2, 0.4, 1);
+}
+@keyframes sdHeroIn { 0% { opacity: 0; transform: translateY(24px) scale(0.96); } }
+@media (max-width: 760px) { .sd-champ-hero { grid-template-columns: 1fr; text-align: center; justify-items: center; } }
+.sd-champ-trophy { font-size: 3.4rem; filter: drop-shadow(0 0 18px rgba(251, 191, 36, 0.6)); animation: sdTrophy 2.4s ease-in-out infinite; }
+@keyframes sdTrophy { 50% { transform: translateY(-6px); } }
+.sd-champ-kicker { margin: 0; font-size: 0.78rem; letter-spacing: 0.2em; color: #ffd166; font-weight: 800; }
+.sd-champ-hero h2 { margin: 4px 0; font-size: 2rem; }
+.sd-champ-sub { margin: 0; color: #c9d9e8; }
+.sd-champ-motto { margin: 6px 0 0; font-style: italic; color: #7b93ab; font-size: 0.82rem; }
+
+.sd-results .grade-stamp {
+  width: 96px; height: 96px; border-radius: 50%; display: grid; place-items: center; align-content: center;
+  border: 3px solid #ffd166; box-shadow: 0 0 0 5px rgba(251, 191, 36, 0.15);
+  transform: rotate(8deg);
+}
+.sd-results .grade-letter { font-size: 1.6rem; font-weight: 900; color: #ffd166; }
+.sd-results .grade-sub { font-size: 0.6rem; color: #9fb6cb; letter-spacing: 0.12em; }
+
+.sd-podium { display: grid; gap: 8px; }
+.sd-podium-row {
+  display: grid; grid-template-columns: 52px 1fr 90px 92px 100px 92px 84px 50px;
+  align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px;
+  background: rgba(13, 20, 32, 0.7); border: 1px solid rgba(148, 190, 230, 0.13);
+  border-left: 4px solid var(--mc);
+}
+@media (max-width: 860px) { .sd-podium-row { grid-template-columns: 44px 1fr 80px 50px; } .sd-podium-derby, .sd-podium-diff, .sd-podium-rank2, .sd-podium-coin { display: none; } }
+.sd-podium-derby { font-size: 0.76rem; font-weight: 800; color: #fbbf24; }
+.sd-race-last.derby { font-weight: 800; }
+.sd-podium-row.first { background: linear-gradient(90deg, rgba(251, 191, 36, 0.12), rgba(13, 20, 32, 0.7) 60%); border-color: rgba(251, 191, 36, 0.5); }
+.sd-podium-row.human { box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.35); }
+.sd-podium-rank { font-size: 1.2rem; font-weight: 900; color: #ffd166; }
+.sd-podium-team { font-weight: 800; display: grid; }
+.sd-podium-team small { color: #7b93ab; font-weight: 600; }
+.sd-podium-rec { font-weight: 900; font-size: 1.02rem; }
+.sd-podium-diff, .sd-podium-rank2, .sd-podium-coin { font-size: 0.74rem; color: #9fb6cb; }
+.sd-podium-grade { font-weight: 900; color: #ffd166; text-align: center; }
+
+.sd-team-card { border-top: 3px solid var(--mc) !important; }
+.sd-team-card h3 small { color: #7b93ab; font-weight: 600; font-size: 0.72em; }
+.sd-res-name { font-weight: 800; white-space: nowrap; }
+.sd-res-honors { max-width: 260px; }
+.sd-duel-recap { font-size: 0.76rem; color: #9fb6cb; line-height: 1.6; margin: 10px 0 0; }
+.sd-standing-us { background: rgba(34, 211, 238, 0.08); border-radius: 8px; padding-left: 6px; padding-right: 6px; }
+
+/* 通用 award-row(结算复用) */
+.sd-results .award-row { display: flex; justify-content: space-between; padding: 6px 2px; font-size: 0.8rem; border-bottom: 1px dashed rgba(123, 147, 171, 0.16); }
+.sd-results .results-footer { display: flex; gap: 12px; justify-content: center; }

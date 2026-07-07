@@ -12,6 +12,7 @@
     [hidden] { display: none !important; }
   </style>
   <link rel="stylesheet" href="assets/css/82-draft-arena.css?v=20260703perfectmode">
+  <link rel="stylesheet" href="assets/css/allstar-showdown.css?v=20260707showdown2">
 </head>
 
 <body>
@@ -122,6 +123,7 @@
         <div class="menu-actions">
           <button class="manager-btn massive primary" id="startGameBtn" type="button">开始执教 (START CAREER)</button>
           <button class="manager-btn massive secondary perfect-entry" id="perfectModeBtn" type="button">完美模式</button>
+          <button class="manager-btn massive secondary showdown-entry" id="showdownModeBtn" type="button">⭐ 全明星争夺战 <small>vs 4位AI经理</small></button>
         </div>
       </div>
     </section>
@@ -252,6 +254,10 @@
         </footer>
       </div>
     </section>
+    <!-- Screen 4: 全明星争夺战 (JS 全权渲染) -->
+    <section id="screenShowdown" class="screen-view hidden">
+      <div id="showdownRoot"></div>
+    </section>
   </main>
 
   <div class="modal-bg" id="modalBg">
@@ -264,6 +270,7 @@
   <script src="assets/js/text-pools-long.js?v=20260429longtemplates"></script>
   <script src="assets/js/sim.js?v=20260703shotrealism"></script>
   <script src="assets/js/82-draft-challenge.js?v=20260703sourcefix"></script>
+  <script src="assets/js/allstar-showdown.js?v=20260707showdown2"></script>
 </body>
 
 </html>
