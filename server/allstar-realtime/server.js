@@ -9,7 +9,7 @@ const path = require('node:path');
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 3001);
 const SERVICE = 'allstar-showdown-realtime';
-const VERSION = '0.3.0';
+const VERSION = '0.3.1';
 const START_COINS = 15;
 const TEAM_ID_BASE = 31;
 
@@ -276,6 +276,34 @@ function broadcastGame(room, extra = {}) {
     const client = clients.get(seat.playerId);
     if (client) sendJson(client, { type: 'game_state', room: publicRoom(room), game: publicGame(room, client), ...extra });
   }
+}
+
+function cleanupClientRoom(client) {
+  if (client.cleanedUp) return;
+  client.cleanedUp = true;
+  const code = client.roomCode;
+  client.roomCode = null;
+  if (!code || !rooms.has(code)) return;
+  const room = rooms.get(code);
+  room.updatedAt = new Date().toISOString();
+
+  if (room.status === 'lobby') {
+    const oldLength = room.seats.length;
+    room.seats = room.seats.filter(seat => !(seat.kind === 'human' && seat.playerId === client.playerId));
+    if (room.seats.length !== oldLength) {
+      const humans = room.seats.filter(seat => seat.kind === 'human' && seat.playerId);
+      if (!humans.length) {
+        rooms.delete(room.code);
+        return;
+      }
+      if (room.hostId === client.playerId) room.hostId = humans[0].playerId;
+    }
+    broadcastRoom(room);
+    return;
+  }
+
+  broadcastRoom(room);
+  if (room.game) broadcastGame(room);
 }
 
 function roomCode() {
@@ -1679,12 +1707,7 @@ function upgrade(req, socket) {
   socket.on('data', chunk => parseFrames(client, chunk));
   socket.on('close', () => {
     clients.delete(client.playerId);
-    if (client.roomCode && rooms.has(client.roomCode)) {
-      const room = rooms.get(client.roomCode);
-      room.updatedAt = new Date().toISOString();
-      broadcastRoom(room);
-      if (room.game) broadcastGame(room);
-    }
+    cleanupClientRoom(client);
   });
   socket.on('error', () => {});
 }
@@ -1717,6 +1740,7 @@ setInterval(() => {
   for (const client of clients.values()) {
     if (client.socket.destroyed) {
       clients.delete(client.playerId);
+      cleanupClientRoom(client);
       continue;
     }
     sendFrame(client.socket, 0x9, Buffer.from('ping'));
