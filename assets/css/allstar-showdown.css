@@ -810,3 +810,365 @@
   font-size: 0.68rem; color: #c9d9e8; background: rgba(123, 147, 171, 0.12);
   padding: 3px 8px; border-radius: 999px;
 }
+
+/* ---------- 手机抽卡适配: 单机/联网共用 ---------- */
+@media (max-width: 640px) {
+  #screenShowdown {
+    padding: 8px 8px calc(28px + env(safe-area-inset-bottom, 0px));
+    overflow-x: hidden;
+  }
+
+  .sd-wrap,
+  .sdo-wrap {
+    width: 100%;
+    max-width: none;
+  }
+
+  .sd-topbar {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 11px;
+    margin-bottom: 10px;
+    border-radius: 12px;
+  }
+  .sd-topbar-left {
+    min-width: 0;
+    width: 100%;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .sd-topbar h2 {
+    min-width: 0;
+    font-size: 0.95rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sd-topbar-right {
+    display: flex;
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-start;
+  }
+  .sd-stage-chip,
+  .sdo-chip {
+    max-width: 100%;
+    font-size: 0.7rem;
+    padding: 4px 9px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sd-flowbar {
+    gap: 8px;
+    padding: 8px;
+    margin-bottom: 10px;
+    border-radius: 12px;
+  }
+  .sd-flow-pos {
+    grid-template-columns: auto 1fr;
+    column-gap: 8px;
+    padding-bottom: 7px;
+  }
+  .sd-flow-pos-big { font-size: 1.6rem; }
+  .sd-flow-steps {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .sd-flow-link { display: none; }
+  .sd-flow-step {
+    padding: 7px 8px;
+    transform: none !important;
+  }
+  .sd-flow-step-head {
+    font-size: 0.7rem;
+    letter-spacing: 0;
+  }
+  .sd-flow-step-desc {
+    margin-top: 2px;
+    font-size: 0.58rem;
+  }
+
+  .sd-mgr-strip {
+    display: flex !important;
+    grid-template-columns: none !important;
+    gap: 8px;
+    margin: 0 -8px 12px;
+    padding: 2px 8px 8px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+  .sd-mgr-strip::-webkit-scrollbar { display: none; }
+  .sd-mgr {
+    flex: 0 0 min(74vw, 260px);
+    scroll-snap-align: start;
+    padding: 8px 9px 9px 10px;
+  }
+  .sd-mgr.active { transform: none; }
+  .sd-mgr-name { font-size: 0.78rem; }
+  .sd-mgr-state { font-size: 0.72rem; }
+
+  .sd-draft-layout {
+    display: block;
+  }
+  .sd-main,
+  .sd-side {
+    min-width: 0;
+  }
+
+  .sd-headline {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 5px 7px;
+    align-items: center;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+  }
+  .sd-headline span {
+    grid-column: 1 / -1;
+    font-size: 0.68rem;
+    line-height: 1.45;
+  }
+
+  .sd-card-stage { min-width: 0; }
+  .sd-deck {
+    top: 34px;
+    width: 76px;
+    height: 106px;
+  }
+  .sd-deck-label { font-size: 0.64rem; bottom: -22px; }
+  .sd-card-grid {
+    display: flex !important;
+    grid-template-columns: none !important;
+    gap: 10px;
+    margin: 0 -8px;
+    padding: 8px 8px 14px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+  .sd-card-grid::-webkit-scrollbar { display: none; }
+  .sd-card {
+    flex: 0 0 min(86vw, 340px);
+    min-height: 398px;
+    scroll-snap-align: center;
+  }
+  .sd-card-back,
+  .sd-card-front,
+  .sdo-card .sd-card-back {
+    min-height: 398px;
+  }
+  .sd-card-back,
+  .sd-card-front {
+    padding: 11px 10px 10px;
+    gap: 7px;
+  }
+  .sd-card-grid.is-dealing .sd-card {
+    animation-name: sdFlyMobile;
+  }
+  @keyframes sdFlyMobile {
+    from {
+      transform: translateY(-132px) rotate(calc((var(--di) - 2) * 7deg)) scale(0.72);
+      opacity: 0.28;
+    }
+  }
+
+  .sd-card.actionable .sd-act-hint {
+    opacity: 1;
+    transform: none;
+  }
+  .sd-card.actionable:hover .sd-card-inner {
+    transform: none;
+  }
+  .sd-card-head { gap: 6px; }
+  .sd-card-no { font-size: 0.76rem; }
+  .sd-lock { font-size: 0.62rem; padding: 2px 7px; }
+  .sd-mystery {
+    min-height: 46px;
+  }
+  .sd-sec {
+    padding: 6px 8px 7px;
+  }
+  .sd-sec-title {
+    font-size: 0.64rem;
+    letter-spacing: 0.07em;
+  }
+  .sd-stat-main strong { font-size: 1.18rem; }
+  .sd-stat-sub {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 3px 8px;
+    font-size: 0.64rem;
+  }
+  .sd-honor { font-size: 0.6rem; padding: 2px 6px; }
+  .sd-team-row { font-size: 0.74rem; }
+  .sd-photo { width: 92px; height: 92px; }
+  .sd-front-name {
+    max-width: 100%;
+    font-size: 1.02rem;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .sd-action-zone {
+    margin-top: 8px;
+    min-height: 0;
+  }
+  .sd-turn-banner {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 11px 12px;
+    border-radius: 12px;
+  }
+  .sd-turn-badge {
+    width: fit-content;
+    font-size: 0.72rem;
+    padding: 5px 11px;
+  }
+  .sd-turn-copy strong { font-size: 0.88rem; }
+  .sd-turn-copy span { font-size: 0.7rem; }
+  .sd-action-row {
+    width: 100%;
+    gap: 8px;
+  }
+  .sd-action-row .manager-btn,
+  .sdo-actions .manager-btn {
+    flex: 1 1 100%;
+    min-height: 42px;
+  }
+  .sd-callout {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+  .sd-callout-copy span { font-size: 0.82rem; }
+
+  .sd-side {
+    position: static;
+    margin-top: 12px;
+    padding: 11px 12px;
+    border-radius: 13px;
+  }
+  .sd-side h3 {
+    margin: 2px 0 8px;
+    font-size: 0.78rem;
+  }
+  .sd-roster {
+    gap: 5px;
+    margin-bottom: 12px;
+  }
+  .sd-roster-row {
+    grid-template-columns: 34px 1fr;
+    padding: 6px 9px;
+  }
+  .sd-log {
+    max-height: 180px;
+  }
+  .sd-log-line {
+    font-size: 0.68rem;
+    padding: 5px 7px;
+  }
+
+  .sd-modal-bg,
+  .sd-announce-bg {
+    padding: 10px;
+  }
+  .sd-announce {
+    width: min(100%, 360px);
+    padding: 24px 20px;
+    border-radius: 18px;
+  }
+  .sd-announce-title { font-size: 1.35rem; }
+  .sd-announce-sub { font-size: 0.76rem; }
+  .sd-modal {
+    width: min(100%, 372px);
+    padding: 16px 14px;
+  }
+  .sd-modal h3 {
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 1rem;
+  }
+  .sd-price-chip {
+    margin-left: 0;
+  }
+  .sd-bid-stepper {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .sd-bid-stepper button {
+    width: 42px;
+    height: 42px;
+  }
+
+  .sdo-home,
+  .sdo-lobby-grid {
+    display: block;
+  }
+  .sdo-panel {
+    padding: 13px;
+    border-radius: 13px;
+    margin-bottom: 12px;
+  }
+  .sdo-status-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .sdo-stat {
+    padding: 8px 7px;
+  }
+  .sdo-seat {
+    grid-template-columns: 32px 1fr auto;
+    gap: 8px;
+    padding: 10px 11px;
+  }
+  .sdo-seat-num {
+    width: 28px;
+    height: 28px;
+  }
+  .sdo-room-code {
+    width: 100%;
+    min-width: 0;
+    font-size: 1.22rem;
+  }
+
+  .sd-era-layout {
+    gap: 12px;
+    padding: 14px 0;
+  }
+  .sd-era-title { font-size: 1.25rem; }
+  .sd-era-sub { text-align: center; font-size: 0.78rem; }
+  .sd-era-wheel {
+    width: 100%;
+    grid-template-columns: 1fr;
+  }
+  .sd-recap-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 420px) {
+  .sd-card {
+    flex-basis: calc(100vw - 28px);
+    min-height: 386px;
+  }
+  .sd-card-back,
+  .sd-card-front,
+  .sdo-card .sd-card-back {
+    min-height: 386px;
+  }
+  .sd-owner-ribbon {
+    max-width: 90%;
+    font-size: 0.63rem;
+    padding: 3px 9px;
+  }
+  .sd-flow-step-head { font-size: 0.66rem; }
+  .sd-flow-step-desc { display: none; }
+  .sd-mgr {
+    flex-basis: calc(100vw - 54px);
+  }
+}

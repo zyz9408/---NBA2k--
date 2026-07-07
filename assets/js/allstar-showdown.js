@@ -239,6 +239,11 @@
     }
     screenEl.classList.toggle('hidden', !on);
     screenEl.classList.toggle('active', on);
+    if (on) {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    }
   }
 
   function resetState() {
