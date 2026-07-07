@@ -59,10 +59,42 @@
   }
 
   function normalizeWsUrl(url) {
+    url = String(url || '').trim();
     if (window.location.protocol === 'https:' && url === 'ws://143.20.149.27/allstar/ws') {
       return 'wss://mofi1994.xyz/allstar/ws';
     }
     return url;
+  }
+
+  function healthUrlFromWsUrl(url) {
+    try {
+      const endpoint = new URL(url);
+      endpoint.protocol = endpoint.protocol === 'wss:' ? 'https:' : 'http:';
+      endpoint.pathname = endpoint.pathname.replace(/\/ws\/?$/, '/health');
+      endpoint.search = '';
+      endpoint.hash = '';
+      return endpoint.toString();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  async function diagnoseWsFailure(url) {
+    const healthUrl = healthUrlFromWsUrl(url);
+    if (!healthUrl) return '连接失败，请检查 WebSocket 地址格式';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4500);
+    try {
+      const res = await fetch(healthUrl, { cache: 'no-store', signal: controller.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        return `HTTPS 健康检查可达，但 WebSocket 握手失败。请让对方关闭代理/加速器/浏览器插件后重试，或换一个网络。检测地址: ${healthUrl}`;
+      }
+      return `服务器健康检查返回 ${res.status}，请稍后重试。检测地址: ${healthUrl}`;
+    } catch (_) {
+      clearTimeout(timer);
+      return `连接失败。请让对方先打开 ${healthUrl}，如果不是 JSON 或打不开，就是对方 DNS/网络/证书没有连到服务器。`;
+    }
   }
 
   function esc(value) {
@@ -142,7 +174,7 @@
     const wsEl = document.getElementById('sdoWsUrl');
     if (nameEl) state.name = nameEl.value.trim();
     if (roomEl) state.roomCodeInput = roomEl.value.trim().toUpperCase();
-    if (wsEl) state.wsUrl = wsEl.value.trim();
+    if (wsEl) state.wsUrl = normalizeWsUrl(wsEl.value);
     localStorage.setItem('allstarOnlineName', state.name);
     localStorage.setItem('allstarOnlineWsUrl', state.wsUrl);
   }
@@ -179,6 +211,7 @@
 
     return new Promise((resolve, reject) => {
       let settled = false;
+      let failed = false;
       let ws;
       try {
         ws = new WebSocket(state.wsUrl);
@@ -209,10 +242,18 @@
         }
       });
       ws.addEventListener('error', () => {
+        if (failed) return;
+        failed = true;
         state.connected = false;
         state.connecting = false;
-        state.error = '连接失败，请检查服务器地址或防火墙';
+        state.error = '连接失败，正在检测服务器连通性...';
         render();
+        diagnoseWsFailure(state.wsUrl).then(message => {
+          if (state.ws === ws && !state.connected) {
+            state.error = message;
+            render();
+          }
+        });
         if (!settled) {
           settled = true;
           reject(new Error(state.error));
