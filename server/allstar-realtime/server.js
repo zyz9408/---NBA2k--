@@ -9,10 +9,12 @@ const path = require('node:path');
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 3001);
 const SERVICE = 'allstar-showdown-realtime';
-const VERSION = '0.3.3';
+const VERSION = '0.3.5';
 const START_COINS = 15;
 const TEAM_ID_BASE = 31;
 const CARDS_PER_POSITION = 5;
+const REVEAL_HOLD_MS = Math.max(3600, Number(process.env.REVEAL_HOLD_MS || 4200));
+const HEARTBEAT_MS = Math.max(1000, Number(process.env.HEARTBEAT_MS || 30000));
 
 const SLOTS = [
   { id: 1, short: 'PG', name: '控球后卫' },
@@ -170,6 +172,7 @@ function publicGame(room, client) {
     simRows: game.simRows || [],
     standings: game.standings || [],
     skipSim: !!game.skipSim,
+    revealEndsAt: game.revealEndsAt || 0,
     awaiting: game.awaiting,
     activeIdx: game.activeIdx,
     activeName: game.activeIdx >= 0 ? room.managers[game.activeIdx]?.name : null,
@@ -193,6 +196,7 @@ function publicGame(room, client) {
       coins: game.coins[idx],
       spent: game.spent[idx],
       connected: mgr.kind === 'ai' ? true : clients.has(mgr.playerId),
+      autoManaged: mgr.kind === 'human' && !clients.has(mgr.playerId),
       holdingCardIdx: managerCard(game, idx)?.idx ?? null
     })),
     cards: game.cards.map(card => cardView(game, room, card)),
@@ -313,8 +317,26 @@ function cleanupClientRoom(client) {
     return;
   }
 
+  const connectedHumans = room.seats.filter(seat => seat.kind === 'human' && seat.playerId && clients.has(seat.playerId));
+  if (!connectedHumans.length) {
+    clearRoomTimers(room);
+    rooms.delete(room.code);
+    return;
+  }
+  if (room.hostId === client.playerId || !clients.has(room.hostId)) {
+    room.hostId = connectedHumans[0].playerId;
+  }
+  resumeDisconnectedManager(room, client.playerId);
   broadcastRoom(room);
   if (room.game) broadcastGame(room);
+}
+
+function clearRoomTimers(room) {
+  if (!room.game) return;
+  if (room.game.revealTimer) clearTimeout(room.game.revealTimer);
+  if (room.game.simTimer) clearTimeout(room.game.simTimer);
+  room.game.revealTimer = null;
+  room.game.simTimer = null;
 }
 
 function roomCode() {
@@ -359,6 +381,10 @@ function requireHost(client, room) {
 
 function clientManagerIdx(room, client) {
   return room.managers ? room.managers.findIndex(m => m.kind === 'human' && m.playerId === client.playerId) : -1;
+}
+
+function managerNeedsHumanInput(mgr) {
+  return mgr?.kind === 'human' && clients.has(mgr.playerId);
 }
 
 function assertTurn(room, client, awaiting) {
@@ -514,6 +540,7 @@ function startDraft(room) {
     skipSim: false,
     simTimer: null,
     revealTimer: null,
+    revealEndsAt: 0,
     result: null
   };
   pushLog(room.game, `选秀顺位: ${room.game.baseOrder.map(i => room.managers[i].name).join(' -> ')}`, 'stage');
@@ -560,7 +587,7 @@ function continueDraft(room) {
       }
       const idx = order[game.turnIndex];
       const mgr = room.managers[idx];
-      if (mgr.kind === 'human') {
+      if (managerNeedsHumanInput(mgr)) {
         requestHuman(room, idx, 'claim');
         broadcastGame(room);
         return;
@@ -587,7 +614,7 @@ function continueDraft(room) {
         game.turnIndex += 1;
         continue;
       }
-      if (mgr.kind === 'human') {
+      if (managerNeedsHumanInput(mgr)) {
         requestHuman(room, idx, 'action');
         broadcastGame(room);
         return;
@@ -615,6 +642,7 @@ function startPositionReveal(room) {
   game.activeIdx = -1;
   game.pendingCardIdx = -1;
   game.awaiting = 'reveal';
+  game.revealEndsAt = Date.now() + REVEAL_HOLD_MS;
   room.updatedAt = new Date().toISOString();
   pushLog(game, `${slot.short} 身份揭晓`, 'reveal');
   broadcastGame(room);
@@ -623,11 +651,12 @@ function startPositionReveal(room) {
     const liveRoom = rooms.get(room.code);
     if (!liveRoom || liveRoom.game !== game || game.awaiting !== 'reveal') return;
     game.revealTimer = null;
+    game.revealEndsAt = 0;
     clearWait(game);
     finishPosition(liveRoom);
     liveRoom.updatedAt = new Date().toISOString();
     continueDraft(liveRoom);
-  }, 1500);
+  }, REVEAL_HOLD_MS);
 }
 
 function aiClaim(room, idx) {
@@ -700,7 +729,7 @@ function reclaimOrWait(room, victimIdx, pending) {
   const free = freeCards(game);
   if (!free.length) return true;
   const victim = room.managers[victimIdx];
-  if (victim.kind === 'human') {
+  if (managerNeedsHumanInput(victim)) {
     game.pending = pending;
     requestHuman(room, victimIdx, 'reclaim');
     return false;
@@ -738,7 +767,7 @@ function startDuel(room, challengerIdx, cardIdx) {
   const defenderIdx = card.owner;
   game.bidCtx = { cardIdx, challengerIdx, defenderIdx, price, cBid: null, dBid: null, phase: 'attack' };
   pushLog(game, `${room.managers[challengerIdx].name} 挑战 ${room.managers[defenderIdx].name} 的 ${cardLabel(card)}，当前身价 ${price}`, 'duel');
-  if (room.managers[challengerIdx].kind === 'human') {
+  if (managerNeedsHumanInput(room.managers[challengerIdx])) {
     requestHuman(room, challengerIdx, 'bid_attack');
     return false;
   }
@@ -751,7 +780,7 @@ function continueDuelDefender(room) {
   const ctx = game.bidCtx;
   const defender = room.managers[ctx.defenderIdx];
   ctx.phase = 'defend';
-  if (defender.kind === 'human') {
+  if (managerNeedsHumanInput(defender)) {
     requestHuman(room, ctx.defenderIdx, 'bid_defend');
     return false;
   }
@@ -804,6 +833,97 @@ function resolveDuel(room) {
   return true;
 }
 
+function autoReclaimCard(room, idx) {
+  const game = room.game;
+  const mgr = room.managers[idx];
+  const free = freeCards(game);
+  if (!mgr || !free.length) return false;
+  const best = free.reduce((a, b) => aiCardValue(game, mgr, b) > aiCardValue(game, mgr, a) ? b : a, free[0]);
+  best.owner = idx;
+  best.acquiredBy = 'reclaim';
+  pushLog(game, `${mgr.name} 掉线托管后重新认领 ${cardLabel(best)}`, 'ai');
+  return true;
+}
+
+function resumeDisconnectedManager(room, playerId) {
+  const game = room.game;
+  if (!game || game.phase !== 'draft' || !game.awaiting) return false;
+  const idx = room.managers.findIndex(mgr => mgr.kind === 'human' && mgr.playerId === playerId);
+  if (idx < 0 || game.activeIdx !== idx) return false;
+  const mgr = room.managers[idx];
+  const awaiting = game.awaiting;
+  pushLog(game, `${mgr.name} 已掉线，本回合由服务端 AI 托管`, 'ai');
+
+  if (awaiting === 'claim' || awaiting === 'action') {
+    clearWait(game);
+    continueDraft(room);
+    return true;
+  }
+
+  if (awaiting === 'lockchoice') {
+    const card = game.cards[game.pendingCardIdx];
+    if (card && card.owner === idx) card.locked = aiShouldLock(game, mgr, card);
+    clearWait(game);
+    game.turnIndex += 1;
+    continueDraft(room);
+    return true;
+  }
+
+  if (awaiting === 'reclaim') {
+    autoReclaimCard(room, idx);
+    const pending = game.pending;
+    game.pending = null;
+    clearWait(game);
+    if (pending?.kind === 'postTakeLock') {
+      const actor = room.managers[pending.actorIdx];
+      const card = game.cards[pending.cardIdx];
+      if (managerNeedsHumanInput(actor)) {
+        requestHuman(room, pending.actorIdx, 'lockchoice', { pendingCardIdx: pending.cardIdx });
+        broadcastGame(room);
+        return true;
+      }
+      if (card && card.owner === pending.actorIdx) card.locked = aiShouldLock(game, actor, card);
+    }
+    game.turnIndex += 1;
+    continueDraft(room);
+    return true;
+  }
+
+  if (awaiting === 'bid_attack' && game.bidCtx) {
+    const ctx = game.bidCtx;
+    const card = game.cards[ctx.cardIdx];
+    ctx.cBid = clampBid(aiBidAmount(room, mgr, card, false), ctx.price + 1, game.coins[idx]);
+    clearWait(game);
+    const completed = continueDuelDefender(room);
+    if (completed) {
+      game.turnIndex += 1;
+      continueDraft(room);
+    } else {
+      broadcastGame(room);
+    }
+    return true;
+  }
+
+  if (awaiting === 'bid_defend' && game.bidCtx) {
+    const ctx = game.bidCtx;
+    const card = game.cards[ctx.cardIdx];
+    ctx.dBid = clampBid(aiBidAmount(room, mgr, card, true), ctx.price, ctx.price + game.coins[idx]);
+    clearWait(game);
+    const completed = resolveDuel(room);
+    if (completed) {
+      game.turnIndex += 1;
+      continueDraft(room);
+    } else {
+      broadcastGame(room);
+    }
+    return true;
+  }
+
+  clearWait(game);
+  continueDraft(room);
+  return true;
+}
+
 function finishPosition(room) {
   const game = room.game;
   const slotIndex = game.posIndex;
@@ -818,6 +938,7 @@ function finishPosition(room) {
     }
   }
   game.posIndex += 1;
+  game.revealEndsAt = 0;
   game.stage = 1;
   game.turnIndex = 0;
   game.cards = [];
@@ -1376,6 +1497,7 @@ function handleCreateRoom(client, msg) {
       seatId: 0,
       kind: 'human',
       playerId: client.playerId,
+      playerToken: client.playerToken,
       name: cleanName(msg.name)
     }],
     managers: [],
@@ -1404,12 +1526,47 @@ function handleJoinRoom(client, msg) {
   const usedSeats = new Set(room.seats.map(seat => seat.seatId));
   let seatId = 0;
   while (usedSeats.has(seatId)) seatId += 1;
-  room.seats.push({ seatId, kind: 'human', playerId: client.playerId, name: cleanName(msg.name) });
+  room.seats.push({ seatId, kind: 'human', playerId: client.playerId, playerToken: client.playerToken, name: cleanName(msg.name) });
   room.seats.sort((a, b) => a.seatId - b.seatId);
   room.updatedAt = new Date().toISOString();
   client.roomCode = room.code;
   sendJson(client, { type: 'room_joined', room: publicRoom(room), playerToken: client.playerToken });
   broadcastRoom(room);
+}
+
+function handleResumeRoom(client, msg) {
+  const room = requireRoom(client, msg.roomCode);
+  if (!room) return;
+  if (room.status === 'lobby') return sendError(client, 'resume_expired', '大厅席位已经释放，请重新加入房间');
+  const token = String(msg.playerToken || '');
+  const seat = room.seats.find(item => item.kind === 'human' && item.playerToken === token);
+  if (!seat) return sendError(client, 'resume_failed', '恢复凭证无效或席位已经失效');
+
+  const oldPlayerId = seat.playerId;
+  const oldClient = clients.get(oldPlayerId);
+  if (oldClient && oldClient !== client) {
+    oldClient.cleanedUp = true;
+    oldClient.roomCode = null;
+    clients.delete(oldPlayerId);
+    oldClient.socket.destroy();
+  }
+
+  seat.playerId = client.playerId;
+  seat.playerToken = client.playerToken;
+  client.roomCode = room.code;
+  if (room.hostId === oldPlayerId) room.hostId = client.playerId;
+  const manager = room.managers.find(item => item.kind === 'human' && item.playerId === oldPlayerId);
+  if (manager) manager.playerId = client.playerId;
+  room.updatedAt = new Date().toISOString();
+
+  sendJson(client, {
+    type: 'room_resumed',
+    room: publicRoom(room),
+    game: publicGame(room, client),
+    playerToken: client.playerToken
+  });
+  broadcastRoom(room);
+  broadcastGame(room);
 }
 
 function handleAddAi(client, msg) {
@@ -1441,6 +1598,7 @@ function handleRemoveAi(client, msg) {
 function handleStartGame(client, msg) {
   const room = requireRoom(client, msg.roomCode || client.roomCode);
   if (!room || !requireHost(client, room)) return;
+  if (room.status !== 'lobby') return sendError(client, 'room_locked', '游戏已经开始');
   const humanCount = room.seats.filter(seat => seat.kind === 'human').length;
   const totalSeats = room.seats.length;
   if (humanCount < 2) return sendError(client, 'not_enough_players', '至少需要 2 名真人玩家');
@@ -1647,6 +1805,7 @@ function handleClientMessage(client, raw) {
     case 'ping': return sendJson(client, { type: 'pong', t: Date.now() });
     case 'create_room': return handleCreateRoom(client, msg);
     case 'join_room': return handleJoinRoom(client, msg);
+    case 'resume_room': return handleResumeRoom(client, msg);
     case 'add_ai': return handleAddAi(client, msg);
     case 'remove_ai': return handleRemoveAi(client, msg);
     case 'start_game': return handleStartGame(client, msg);
@@ -1782,6 +1941,11 @@ setInterval(() => {
       cleanupClientRoom(client);
       continue;
     }
+    if (!client.alive) {
+      client.socket.destroy();
+      continue;
+    }
+    client.alive = false;
     sendFrame(client.socket, 0x9, Buffer.from('ping'));
   }
-}, 30000).unref();
+}, HEARTBEAT_MS).unref();

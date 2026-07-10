@@ -8,6 +8,7 @@
   const root = document.getElementById('showdownRoot');
   const screenEl = document.getElementById('screenShowdown');
   const entryBtn = document.getElementById('showdownOnlineBtn');
+  const SESSION_KEY = 'allstarOnlineSession';
   if (!root || !screenEl || !entryBtn) return;
 
   const SLOTS = [
@@ -79,6 +80,9 @@
     notice: '',
     bidValue: 0,
     bidKey: '',
+    session: loadSession(),
+    resumeTimer: null,
+    reconnectAttempts: 0,
     fx: {
       announce: null,
       dealingUntil: 0,
@@ -228,9 +232,9 @@
       const wasRevealed = (prevGame?.cards || []).some(card => card.revealed);
       const revealedNow = (nextGame.cards || []).some(card => card.revealed) && !wasRevealed;
       if (revealedNow) {
-        state.fx.revealingUntil = Date.now() + 1800;
+        state.fx.revealingUntil = Math.max(Date.now() + 3600, num(nextGame.revealEndsAt, 0));
         showAnnounce({ kicker: `${nextGame.pos} · 揭晓`, title: '身份揭晓', sub: '翻牌!看看每位经理抢到了谁', ic: 'star' }, 1200);
-        scheduleFxRender(1810);
+        scheduleFxRender(Math.max(3610, state.fx.revealingUntil - Date.now() + 10));
       }
     }
     if (prevGame?.phase !== nextGame.phase) {
@@ -289,6 +293,7 @@
 
   function managerTurnState(mgr) {
     const game = state.game || {};
+    if (!mgr.connected && mgr.autoManaged) return { key: 'skip', label: 'AI 托管' };
     if (game.activeIdx === mgr.idx) return { key: 'acting', label: '行动中' };
     if (!mgr.connected) return { key: 'skip', label: '离线' };
     const card = managerHoldingCard(mgr.idx);
@@ -331,7 +336,13 @@
 
   function exitToMenu() {
     if (state.game && state.game.phase !== 'results' && !confirm('返回主菜单将离开当前联网界面，确定吗?')) return;
-    if (state.ws) state.ws.close(1000, 'leave');
+    if (state.resumeTimer) window.clearTimeout(state.resumeTimer);
+    state.resumeTimer = null;
+    clearSession();
+    if (state.ws) {
+      state.ws.intentionalClose = true;
+      state.ws.close(1000, 'leave');
+    }
     state.ws = null;
     state.connected = false;
     state.connecting = false;
@@ -360,6 +371,38 @@
     localStorage.setItem('allstarOnlineWsUrl', state.wsUrl);
   }
 
+  function loadSession() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+      if (!parsed?.roomCode || !parsed?.playerToken || !parsed?.wsUrl) return null;
+      return parsed;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function saveSession() {
+    if (!state.roomCode || !state.playerToken) return;
+    state.session = { roomCode: state.roomCode, playerToken: state.playerToken, wsUrl: state.wsUrl };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(state.session));
+  }
+
+  function clearSession() {
+    state.session = null;
+    localStorage.removeItem(SESSION_KEY);
+  }
+
+  function scheduleResumeReconnect() {
+    if (state.resumeTimer || !state.session || state.room?.status === 'lobby') return;
+    const delay = Math.min(10000, 1000 * (2 ** Math.min(3, state.reconnectAttempts)));
+    state.reconnectAttempts += 1;
+    state.notice = `${Math.round(delay / 1000)} 秒后自动重连...`;
+    state.resumeTimer = window.setTimeout(() => {
+      state.resumeTimer = null;
+      connectSocket().catch(() => scheduleResumeReconnect());
+    }, delay);
+  }
+
   function cleanName() {
     persistInputs();
     state.name = state.name || `玩家${Math.floor(Math.random() * 90 + 10)}`;
@@ -382,6 +425,7 @@
       return Promise.resolve();
     }
     if (state.ws && state.ws.readyState !== WebSocket.CLOSED) {
+      state.ws.intentionalClose = true;
       state.ws.close(1000, 'switch-url');
     }
 
@@ -420,6 +464,7 @@
           state.connecting = false;
           state.notice = '';
           render();
+          if (!ws.intentionalClose) scheduleResumeReconnect();
         }
       });
       ws.addEventListener('error', () => {
@@ -469,12 +514,31 @@
       state.connected = true;
       state.connecting = false;
       state.notice = `${msg.service || 'server'} ${msg.version || ''}`.trim();
+      const session = state.session;
+      if (session && normalizeWsUrl(session.wsUrl) === state.wsUrl && state.ws?.readyState === WebSocket.OPEN) {
+        state.notice = '正在恢复对局...';
+        state.ws.send(JSON.stringify({ type: 'resume_room', roomCode: session.roomCode, playerToken: session.playerToken }));
+      }
     } else if (msg.type === 'room_created' || msg.type === 'room_joined') {
       state.room = msg.room;
       state.roomCode = msg.room?.code || state.roomCode;
       state.playerToken = msg.playerToken || state.playerToken;
       state.mode = 'lobby';
       state.error = '';
+      saveSession();
+    } else if (msg.type === 'room_resumed') {
+      const prevGame = state.game;
+      state.room = msg.room || state.room;
+      state.game = msg.game || state.game;
+      state.roomCode = state.room?.code || state.roomCode;
+      state.playerToken = msg.playerToken || state.playerToken;
+      state.mode = 'game';
+      state.error = '';
+      state.notice = '已恢复到原座位';
+      state.reconnectAttempts = 0;
+      saveSession();
+      syncBidValue();
+      applyGameFx(prevGame, state.game);
     } else if (msg.type === 'room_state') {
       state.room = msg.room || state.room;
       state.roomCode = state.room?.code || state.roomCode;
@@ -485,10 +549,18 @@
       state.game = msg.game || state.game;
       state.roomCode = state.room?.code || state.roomCode;
       state.mode = 'game';
+      saveSession();
       syncBidValue();
       applyGameFx(prevGame, state.game);
     } else if (msg.type === 'error') {
       state.error = msg.message || msg.code || '服务器拒绝了该操作';
+      if (msg.code === 'resume_failed' || msg.code === 'resume_expired') {
+        clearSession();
+        state.room = null;
+        state.game = null;
+        state.roomCode = '';
+        state.mode = 'home';
+      }
     } else if (msg.type === 'pong') {
       state.notice = 'pong';
     }
@@ -1257,6 +1329,7 @@
         connectSocket().catch(() => {});
         break;
       case 'create':
+        clearSession();
         send('create_room', { name: cleanName() });
         break;
       case 'join': {
@@ -1267,6 +1340,7 @@
           render();
           return;
         }
+        clearSession();
         send('join_room', { roomCode: code, name: cleanName() });
         break;
       }
@@ -1358,5 +1432,10 @@
     switchToShowdown();
     state.mode = state.room ? (state.room.status === 'lobby' ? 'lobby' : 'game') : 'home';
     render();
+    const session = state.session;
+    if (!state.room && session && normalizeWsUrl(session.wsUrl) === state.wsUrl) {
+      state.roomCode = session.roomCode;
+      connectSocket().catch(() => scheduleResumeReconnect());
+    }
   });
 })();

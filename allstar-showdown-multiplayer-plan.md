@@ -140,10 +140,12 @@
 - 服务器: `143.20.149.27`
 - SSH: `codexdeploy@143.20.149.27 -p 59227`
 - Node: 宝塔自带 `/www/server/nodejs/v22.19.0/bin/node`
-- 服务目录: `/opt/allstar-showdown-server`
+- 服务目录: `/opt/allstar-showdown-server`（当前服务版本 `0.3.5`）
 - systemd: `allstar-showdown.service`
 - 本地监听: `127.0.0.1:3001`
 - nginx 代理路径: `/allstar/`
+- HTTPS/WSS: 系统 nginx 读取 `/etc/nginx/conf.d/mofi1994-allstar.conf`，监听 80/443 并使用宝塔证书目录。
+- 注意: 宝塔 nginx 当前未运行；`node_SillyTavern.conf` 的入口和后端都占用 8000，直接启动会端口冲突。全明星代理独立配置在系统 nginx，未改动 SillyTavern 进程。
 
 ## 后续上线前必须确认
 
