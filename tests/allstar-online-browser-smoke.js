@@ -100,7 +100,7 @@ async function driveCurrentTurn(page) {
   }
 }
 
-async function waitForPlayablePage(pages, timeoutMs = 8000) {
+async function waitForPlayablePage(pages, timeoutMs = 18000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     for (const page of pages) {
@@ -230,6 +230,31 @@ async function runSequentialDuelBrowserScenario(browser, pageUrl, wsUrl, errors)
     await challenger.click('[data-sdo="join"]');
     await defender.waitForFunction(() => JSON.parse(window.render_game_to_text()).room?.seats?.length === 2);
     await defender.click('[data-sdo="start-game"]');
+
+    const pacingSamples = await defender.evaluate(async () => {
+      const startedAt = performance.now();
+      const samples = [];
+      while (performance.now() - startedAt < 5000) {
+        const text = JSON.parse(window.render_game_to_text());
+        samples.push({
+          t: Math.round(performance.now() - startedAt),
+          announce: !!document.querySelector('.sd-announce-bg'),
+          dealing: !!document.querySelector('.sd-card-grid.is-dealing'),
+          transition: text.game?.transition?.kind || null,
+          awaiting: text.game?.awaiting || null
+        });
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      return samples;
+    });
+    const announceSamples = pacingSamples.filter(sample => sample.announce);
+    const dealSamples = pacingSamples.filter(sample => sample.dealing);
+    assert.ok(announceSamples.length >= 12, '位置全屏过场应完整停留');
+    assert.ok(announceSamples.every(sample => !sample.dealing),
+      '联机位置过场应先单独播完，不能把发牌动画盖在弹层下');
+    assert.ok(dealSamples.length >= 20, `发牌动画未完整播放: ${JSON.stringify(pacingSamples)}`);
+    assert.ok(dealSamples.every(sample => !sample.announce),
+      '发牌动画必须在位置过场结束后单独播放');
 
     const acted = new Set();
     const deadline = Date.now() + 30000;

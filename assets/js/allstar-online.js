@@ -84,6 +84,12 @@
     session: loadSession(),
     resumeTimer: null,
     reconnectAttempts: 0,
+    playback: {
+      queue: [],
+      timer: null,
+      until: 0,
+      key: ''
+    },
     fx: {
       announce: null,
       dealingUntil: 0,
@@ -92,6 +98,18 @@
       renderTimer: null
     }
   };
+
+  const LOCAL_PLAYBACK_HOLDS = {
+    position_intro: 1700,
+    deal: 2500,
+    stage: 1700,
+    ai_thinking: 850,
+    ai_action: 1100,
+    human_action: 500,
+    pre_reveal: 1400,
+    duel_reveal: 1600
+  };
+  const LOCAL_REVEAL_HOLD_MS = 4200;
 
   function defaultWsUrl() {
     const host = window.location.hostname;
@@ -205,15 +223,8 @@
   }
 
   function startDealingFx(game) {
-    const pos = game?.pos || '';
     const serverEndsAt = game?.transition?.kind === 'deal' ? num(game.transition.endsAt, 0) : 0;
-    state.fx.dealingUntil = Math.max(Date.now() + 2250, serverEndsAt);
-    showAnnounce({
-      kicker: `位置 ${num(game?.posIndex, 0) + 1}/5`,
-      title: `${pos} 开始选牌`,
-      sub: `5 张 ${pos} 全明星卡正在从卡堆散开`,
-      ic: 'ball'
-    }, 1500);
+    state.fx.dealingUntil = Math.max(Date.now() + LOCAL_PLAYBACK_HOLDS.deal, serverEndsAt);
     scheduleFxRender(state.fx.dealingUntil - Date.now() + 10);
   }
 
@@ -230,10 +241,19 @@
         || prevGame.phase !== 'draft'
         || prevGame.posIndex !== nextGame.posIndex
         || !(prevGame.cards || []).length;
-      if (hasCards && newPosition && nextGame.stage === 1) startDealingFx(nextGame);
       const stageChanged = prevGame?.phase === 'draft'
         && prevGame.posIndex === nextGame.posIndex
         && prevGame.stage !== nextGame.stage;
+      if (transitionChanged && transition.kind === 'position_intro') {
+        showAnnounce({
+          kicker: `第 ${num(nextGame.posIndex, 0) + 1} / 5 个位置`,
+          title: `${nextGame.pos} · ${nextGame.posName}`,
+          sub: '发 5 张全明星卡 → 第1轮只看【巅峰数据】,按顺序认领并决定是否锁定',
+          ic: 'ball'
+        }, Math.max(LOCAL_PLAYBACK_HOLDS.position_intro, transitionHold));
+      }
+      if (transitionChanged && transition.kind === 'deal') startDealingFx(nextGame);
+      if (!transition && hasCards && newPosition && nextGame.stage === 1) startDealingFx(nextGame);
       if ((transitionChanged && transition.kind === 'stage') || (!transition && stageChanged)) {
         if (nextGame.stage === 2) {
           showAnnounce({ kicker: `${nextGame.pos} · 第2轮`, title: '荣誉轮开启', sub: '生涯荣誉揭示,未锁定者可以换卡/截胡/比价', ic: 'medal' }, Math.max(1450, transitionHold));
@@ -247,9 +267,9 @@
       const wasRevealed = (prevGame?.cards || []).some(card => card.revealed);
       const revealedNow = (nextGame.cards || []).some(card => card.revealed) && !wasRevealed;
       if (revealedNow) {
-        state.fx.revealingUntil = Math.max(Date.now() + 3600, num(nextGame.revealEndsAt, 0));
+        state.fx.revealingUntil = Math.max(Date.now() + LOCAL_REVEAL_HOLD_MS, num(nextGame.revealEndsAt, 0));
         showAnnounce({ kicker: `${nextGame.pos} · 揭晓`, title: '身份揭晓', sub: '翻牌!看看每位经理抢到了谁', ic: 'star' }, 1200);
-        scheduleFxRender(Math.max(3610, state.fx.revealingUntil - Date.now() + 10));
+        scheduleFxRender(state.fx.revealingUntil - Date.now() + 10);
       }
     }
     if (prevGame?.phase !== nextGame.phase) {
@@ -351,6 +371,7 @@
 
   function exitToMenu() {
     if (state.game && state.game.phase !== 'results' && !confirm('返回主菜单将离开当前联网界面，确定吗?')) return;
+    clearPlayback();
     if (state.resumeTimer) window.clearTimeout(state.resumeTimer);
     state.resumeTimer = null;
     clearSession();
@@ -516,6 +537,75 @@
     }
   }
 
+  function playbackKey(game) {
+    const transition = game?.transition;
+    if (transition) return `transition:${transition.kind}:${transition.startedAt}`;
+    if (game?.awaiting === 'reveal' && game.revealEndsAt) return `reveal:${game.posIndex}:${game.revealEndsAt}`;
+    return `state:${game?.phase || ''}:${game?.posIndex ?? ''}:${game?.stage ?? ''}:${game?.awaiting || ''}:${game?.activeIdx ?? ''}:${game?.bid?.phase || ''}`;
+  }
+
+  function localPlaybackHold(game) {
+    if (game?.transition?.kind) return num(LOCAL_PLAYBACK_HOLDS[game.transition.kind], 0);
+    if (game?.awaiting === 'reveal' && (game.cards || []).some(card => card.revealed)) return LOCAL_REVEAL_HOLD_MS;
+    return 0;
+  }
+
+  function clearPlayback() {
+    if (state.playback.timer) window.clearTimeout(state.playback.timer);
+    state.playback.queue = [];
+    state.playback.timer = null;
+    state.playback.until = 0;
+    state.playback.key = '';
+  }
+
+  function applyGameStateMessage(msg) {
+    const prevGame = state.game;
+    state.room = msg.room || state.room;
+    state.game = msg.game || state.game;
+    state.roomCode = state.room?.code || state.roomCode;
+    state.mode = 'game';
+    state.bidSubmitting = false;
+    saveSession();
+    syncBidValue();
+    applyGameFx(prevGame, state.game);
+
+    const hold = localPlaybackHold(state.game);
+    state.playback.key = playbackKey(state.game);
+    state.playback.until = hold > 0 ? Date.now() + hold : 0;
+    if (hold > 0) {
+      state.playback.timer = window.setTimeout(drainGameStateQueue, hold);
+    } else if (state.playback.queue.length) {
+      state.playback.timer = window.setTimeout(drainGameStateQueue, 0);
+    }
+    render();
+  }
+
+  function drainGameStateQueue() {
+    state.playback.timer = null;
+    state.playback.until = 0;
+    state.playback.key = '';
+    const next = state.playback.queue.shift();
+    if (next) applyGameStateMessage(next);
+  }
+
+  function enqueueGameStateMessage(msg) {
+    state.room = msg.room || state.room;
+    state.roomCode = state.room?.code || state.roomCode;
+    const key = playbackKey(msg.game);
+    if (state.playback.timer || Date.now() < state.playback.until) {
+      if (key === state.playback.key) {
+        render();
+        return;
+      }
+      const existing = state.playback.queue.findIndex(item => playbackKey(item.game) === key);
+      if (existing >= 0) state.playback.queue[existing] = msg;
+      else state.playback.queue.push(msg);
+      render();
+      return;
+    }
+    applyGameStateMessage(msg);
+  }
+
   function handleServerMessage(raw) {
     let msg;
     try {
@@ -535,6 +625,7 @@
         state.ws.send(JSON.stringify({ type: 'resume_room', roomCode: session.roomCode, playerToken: session.playerToken }));
       }
     } else if (msg.type === 'room_created' || msg.type === 'room_joined') {
+      clearPlayback();
       state.room = msg.room;
       state.roomCode = msg.room?.code || state.roomCode;
       state.playerToken = msg.playerToken || state.playerToken;
@@ -542,37 +633,25 @@
       state.error = '';
       saveSession();
     } else if (msg.type === 'room_resumed') {
-      const prevGame = state.game;
-      state.room = msg.room || state.room;
-      state.game = msg.game || state.game;
-      state.roomCode = state.room?.code || state.roomCode;
+      clearPlayback();
       state.playerToken = msg.playerToken || state.playerToken;
-      state.mode = 'game';
       state.error = '';
       state.notice = '已恢复到原座位';
       state.reconnectAttempts = 0;
-      state.bidSubmitting = false;
-      saveSession();
-      syncBidValue();
-      applyGameFx(prevGame, state.game);
+      applyGameStateMessage(msg);
+      return;
     } else if (msg.type === 'room_state') {
       state.room = msg.room || state.room;
       state.roomCode = state.room?.code || state.roomCode;
       state.mode = state.room?.status === 'lobby' ? 'lobby' : 'game';
     } else if (msg.type === 'game_state') {
-      const prevGame = state.game;
-      state.room = msg.room || state.room;
-      state.game = msg.game || state.game;
-      state.roomCode = state.room?.code || state.roomCode;
-      state.mode = 'game';
-      state.bidSubmitting = false;
-      saveSession();
-      syncBidValue();
-      applyGameFx(prevGame, state.game);
+      enqueueGameStateMessage(msg);
+      return;
     } else if (msg.type === 'error') {
       state.bidSubmitting = false;
       state.error = msg.message || msg.code || '服务器拒绝了该操作';
       if (msg.code === 'resume_failed' || msg.code === 'resume_expired') {
+        clearPlayback();
         clearSession();
         state.room = null;
         state.game = null;
@@ -842,6 +921,20 @@
   function renderActionBar() {
     const game = state.game;
     const transition = game.transition || null;
+    if (transition?.kind === 'position_intro') {
+      return `<div class="sd-hint dim">${icon('ball')}${game.pos} 位置准备中...</div>`;
+    }
+    if (transition?.kind === 'ai_thinking') {
+      const mgr = managerByIdx(transition.managerIdx) || {};
+      return `
+        <div class="sd-callout thinking" style="--mc:${esc(mgr.color || '#22d3ee')}">
+          <div class="sd-callout-ava">${icon('bot')}</div>
+          <div class="sd-callout-copy">
+            <b>轮到 ${esc(mgr.name || 'AI经理')}</b>
+            <span class="sd-thinking">正在观察牌面<i>.</i><i>.</i><i>.</i></span>
+          </div>
+        </div>`;
+    }
     if (isDealing()) {
       return `<div class="sd-hint dim">${icon('ball')}正在发牌...</div>`;
     }

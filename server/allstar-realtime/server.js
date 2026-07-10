@@ -9,13 +9,15 @@ const path = require('node:path');
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 3001);
 const SERVICE = 'allstar-showdown-realtime';
-const VERSION = '0.3.6';
+const VERSION = '0.3.7';
 const START_COINS = 15;
 const TEAM_ID_BASE = 31;
 const CARDS_PER_POSITION = 5;
-const DEAL_HOLD_MS = Math.max(2200, Number(process.env.DEAL_HOLD_MS || 2300));
+const POSITION_INTRO_HOLD_MS = Math.max(1600, Number(process.env.POSITION_INTRO_HOLD_MS || 1700));
+const DEAL_HOLD_MS = Math.max(2400, Number(process.env.DEAL_HOLD_MS || 2500));
 const STAGE_HOLD_MS = Math.max(1400, Number(process.env.STAGE_HOLD_MS || 1750));
-const AI_ACTION_HOLD_MS = Math.max(500, Number(process.env.AI_ACTION_HOLD_MS || 850));
+const AI_THINK_HOLD_MS = Math.max(700, Number(process.env.AI_THINK_HOLD_MS || 850));
+const AI_ACTION_HOLD_MS = Math.max(800, Number(process.env.AI_ACTION_HOLD_MS || 1100));
 const HUMAN_ACTION_HOLD_MS = Math.max(350, Number(process.env.HUMAN_ACTION_HOLD_MS || 500));
 const PRE_REVEAL_HOLD_MS = Math.max(1200, Number(process.env.PRE_REVEAL_HOLD_MS || 1400));
 const DUEL_REVEAL_HOLD_MS = Math.max(1300, Number(process.env.DUEL_REVEAL_HOLD_MS || 1600));
@@ -613,7 +615,15 @@ function continueDraft(room) {
       game.stage = 1;
       game.turnIndex = 0;
       dealCards(room);
-      startTransition(room, 'deal', DEAL_HOLD_MS, { posIndex: game.posIndex, stage: 1 });
+      startTransition(room, 'position_intro', POSITION_INTRO_HOLD_MS, {
+        posIndex: game.posIndex,
+        stage: 1
+      }, liveRoom => {
+        startTransition(liveRoom, 'deal', DEAL_HOLD_MS, {
+          posIndex: liveRoom.game.posIndex,
+          stage: 1
+        });
+      });
       return;
     }
     const order = currentOrder(game);
@@ -632,11 +642,14 @@ function continueDraft(room) {
         broadcastGame(room);
         return;
       }
-      aiClaim(room, idx);
-      game.turnIndex += 1;
-      startTransition(room, 'ai_action', AI_ACTION_HOLD_MS, {
-        managerIdx: idx,
-        action: game.log[0]?.text || ''
+      startTransition(room, 'ai_thinking', AI_THINK_HOLD_MS, { managerIdx: idx }, liveRoom => {
+        const liveGame = liveRoom.game;
+        aiClaim(liveRoom, idx);
+        liveGame.turnIndex += 1;
+        startTransition(liveRoom, 'ai_action', AI_ACTION_HOLD_MS, {
+          managerIdx: idx,
+          action: liveGame.log[0]?.text || ''
+        });
       });
       return;
     }
@@ -667,21 +680,25 @@ function continueDraft(room) {
         broadcastGame(room);
         return;
       }
-      const completed = aiAction(room, idx);
-      if (completed) game.turnIndex += 1;
-      if (game.transition) return;
-      if (game.awaiting) {
-        broadcastGame(room);
-        return;
-      }
-      if (completed) {
-        startTransition(room, 'ai_action', AI_ACTION_HOLD_MS, {
-          managerIdx: idx,
-          action: game.log[0]?.text || ''
-        });
-        return;
-      }
-      continue;
+      startTransition(room, 'ai_thinking', AI_THINK_HOLD_MS, { managerIdx: idx }, liveRoom => {
+        const liveGame = liveRoom.game;
+        const completed = aiAction(liveRoom, idx);
+        if (completed) liveGame.turnIndex += 1;
+        if (liveGame.transition) return;
+        if (liveGame.awaiting) {
+          broadcastGame(liveRoom);
+          return;
+        }
+        if (completed) {
+          startTransition(liveRoom, 'ai_action', AI_ACTION_HOLD_MS, {
+            managerIdx: idx,
+            action: liveGame.log[0]?.text || ''
+          });
+          return;
+        }
+        continueDraft(liveRoom);
+      });
+      return;
     }
   }
   throw new Error('draft_state_loop_guard');

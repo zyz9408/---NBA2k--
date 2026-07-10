@@ -8,9 +8,12 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const MIN_REVEAL_HOLD_MS = 3600;
-const MIN_DEAL_HOLD_MS = 2000;
+const MIN_POSITION_INTRO_MS = 1600;
+const MIN_DEAL_HOLD_MS = 2400;
 const MIN_STAGE_HOLD_MS = 1400;
 const MIN_DUEL_REVEAL_MS = 1300;
+const MIN_AI_THINK_MS = 700;
+const MIN_AI_ACTION_MS = 800;
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -161,7 +164,15 @@ async function testAuthoritativeAnimationPacing(port) {
   const { host, guest, roomCode } = await createTwoPlayerRoom(port, '动画');
   try {
     host.send('start_game', { roomCode });
-    const deal = await host.waitFor(msg => msg.type === 'game_state' && msg.game.phase === 'draft');
+    const intro = await host.waitFor(msg => msg.type === 'game_state' && msg.game.phase === 'draft');
+    const introStartedAt = Date.now();
+    assert.equal(intro.game.transition?.kind, 'position_intro', '位置过场必须在发牌前单独播放');
+    assert.equal(intro.game.you.canAct, false, '位置过场结束前不能操作');
+    assert.ok(intro.game.transition.endsAt - Date.now() >= MIN_POSITION_INTRO_MS - 150,
+      '位置过场 transition 必须覆盖完整全屏动画');
+    const deal = await host.waitFor(msg => msg.type === 'game_state' && msg.game.transition?.kind === 'deal', 5000);
+    assert.ok(Date.now() - introStartedAt >= MIN_POSITION_INTRO_MS,
+      '位置过场未结束时不能启动发牌');
     const dealStartedAt = Date.now();
     assert.equal(deal.game.transition?.kind, 'deal', '发牌期间服务端必须发布 deal transition');
     assert.equal(deal.game.you.canAct, false, '发牌动画结束前不能开始玩家回合');
@@ -171,6 +182,42 @@ async function testAuthoritativeAnimationPacing(port) {
     assert.ok(Date.now() - dealStartedAt >= MIN_DEAL_HOLD_MS,
       '发牌动画未结束时服务端不能推进到认领');
   } finally {
+    host.close();
+    guest.close();
+  }
+}
+
+async function testAiAnimationPacing(port) {
+  const { host, guest, roomCode } = await createTwoPlayerRoom(port, '动画AI');
+  const stopHost = installAutoDriver(host);
+  const stopGuest = installAutoDriver(guest);
+  try {
+    host.send('add_ai', { roomCode });
+    await host.waitFor(msg => msg.type === 'room_state' && msg.room.seats.length === 3);
+    host.send('start_game', { roomCode });
+    const thinkingMessage = await host.waitFor(msg => msg.type === 'game_state'
+      && msg.game.transition?.kind === 'ai_thinking', 15000);
+    const thinking = thinkingMessage.game;
+    const managerIdx = thinking.transition.managerIdx;
+    const thinkStartedAt = Date.now();
+    assert.equal(thinking.you.canAct, false, 'AI 思考动画期间不能提前进入下一回合');
+    assert.ok(thinking.transition.endsAt - Date.now() >= MIN_AI_THINK_MS - 150,
+      'AI 思考 transition 太短');
+    const action = await host.waitFor(msg => msg.type === 'game_state'
+      && msg.game.transition?.kind === 'ai_action'
+      && msg.game.transition.managerIdx === managerIdx, 4000);
+    assert.ok(Date.now() - thinkStartedAt >= MIN_AI_THINK_MS, 'AI 还没思考完就公布了行动');
+    const actionStartedAt = Date.now();
+    const actionMessageIndex = host.messages.lastIndexOf(action);
+    assert.ok(action.game.transition.endsAt - Date.now() >= MIN_AI_ACTION_MS - 150,
+      'AI 行动结果 transition 太短');
+    await waitUntil(() => host.messages.slice(actionMessageIndex + 1)
+      .find(msg => msg.type === 'game_state'
+        && (msg.game.transition?.startedAt !== action.game.transition.startedAt)), 4000);
+    assert.ok(Date.now() - actionStartedAt >= MIN_AI_ACTION_MS, 'AI 行动结果没播完就进入下一状态');
+  } finally {
+    stopHost();
+    stopGuest();
     host.close();
     guest.close();
   }
@@ -431,6 +478,7 @@ async function main() {
   try {
     const cases = [
       ['authoritative animation pacing', () => testAuthoritativeAnimationPacing(server.port)],
+      ['AI animation pacing', () => testAiAnimationPacing(server.port)],
       ['sequential human duel', () => testSequentialHumanDuel(server.port)],
       ['reveal hold', () => testRevealHold(server.port)],
       ['duplicate start', () => testDuplicateStartRejected(server.port)],
@@ -439,8 +487,13 @@ async function main() {
       ['heartbeat cleanup', () => testHeartbeatCleanup(server.port)],
       ['reconnect restores seat', () => testReconnectRestoresSeat(server.port)]
     ];
+    const caseFilter = String(process.argv[2] || '').trim().toLowerCase();
+    const selectedCases = caseFilter
+      ? cases.filter(([name]) => name.toLowerCase().includes(caseFilter))
+      : cases;
+    if (!selectedCases.length) throw new Error(`No regression case matches: ${process.argv[2]}`);
     const failures = [];
-    for (const [name, run] of cases) {
+    for (const [name, run] of selectedCases) {
       try {
         const detail = await run();
         console.log(`PASS ${name}${detail ? ` (${detail}ms)` : ''}`);
