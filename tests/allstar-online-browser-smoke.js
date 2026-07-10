@@ -169,6 +169,25 @@ function assertMobileLayout(metrics) {
   assert.ok(metrics.minTouchHeight >= 40, `主要触控目标过小: ${metrics.minTouchHeight}px`);
 }
 
+async function assertActionButtonsVisible(page, label) {
+  const metrics = await page.evaluate(() => {
+    const action = document.querySelector('.sd-action-zone')?.getBoundingClientRect();
+    const buttons = [...document.querySelectorAll('.sd-action-zone .sd-action-row .manager-btn')]
+      .map(button => button.getBoundingClientRect())
+      .filter(rect => rect.width > 0 && rect.height > 0);
+    return { action, buttons };
+  });
+  assert.ok(metrics.action, `${label} 缺少操作区`);
+  assert.ok(metrics.buttons.length >= 2, `${label} 应显示两个选择按钮`);
+  metrics.buttons.forEach((button, index) => {
+    assert.ok(button.top >= metrics.action.top - 1, `${label} 按钮 ${index + 1} 超出操作框顶部`);
+    assert.ok(button.bottom <= metrics.action.bottom + 1, `${label} 按钮 ${index + 1} 超出操作框底部`);
+    assert.ok(button.left >= metrics.action.left - 1, `${label} 按钮 ${index + 1} 超出操作框左侧`);
+    assert.ok(button.right <= metrics.action.right + 1, `${label} 按钮 ${index + 1} 超出操作框右侧`);
+    assert.ok(button.height >= 40, `${label} 按钮 ${index + 1} 触控高度过小: ${button.height}px`);
+  });
+}
+
 async function assertScrollableMode(page, label) {
   const metrics = await page.evaluate(() => {
     const screen = document.getElementById('screenShowdown');
@@ -243,6 +262,7 @@ async function main() {
     assertMobileLayout(layoutMetrics);
 
     let stageTwoChecked = false;
+    let lockChoiceChecked = false;
     const deadline = Date.now() + 25000;
     while (Date.now() < deadline) {
       const beforeDrive = await gameState(host);
@@ -254,6 +274,17 @@ async function main() {
         assertMobileLayout(stageTwoMetrics);
         stageTwoChecked = true;
       }
+      if (!lockChoiceChecked) {
+        for (const page of [host, guest]) {
+          const lockState = await gameState(page);
+          if (lockState.game?.awaiting !== 'lockchoice' || !lockState.game.you?.canAct) continue;
+          if (await page.locator('.sd-announce-bg, .sd-card-grid.is-dealing').count()) continue;
+          await assertActionButtonsVisible(page, '是否锁定');
+          await page.screenshot({ path: path.join(outputDir, `lockchoice-${viewport.width}x${viewport.height}.png`) });
+          lockChoiceChecked = true;
+          break;
+        }
+      }
       await driveCurrentTurn(host);
       await driveCurrentTurn(guest);
       const state = await gameState(host);
@@ -262,6 +293,7 @@ async function main() {
     }
     const revealed = await gameState(host);
     assert.equal(revealed.game.awaiting, 'reveal', '应进入身份揭晓阶段');
+    assert.equal(lockChoiceChecked, true, '应检查是否锁定按钮布局');
     if (process.env.MOBILE_KEEP_FLEXIBLE === '1') assert.equal(stageTwoChecked, true, '灵活选牌场景应检查荣誉轮布局');
     assert.equal(revealed.game.cards.length, 5, '揭晓时必须保留 5 张卡');
     await host.waitForFunction(() => !document.querySelector('.sd-announce-bg'));

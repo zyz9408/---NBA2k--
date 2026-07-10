@@ -3553,6 +3553,34 @@
     height: 100%;
     padding-block: 6px;
   }
+  .sd-draft-screen .sd-turn-banner {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: 1fr;
+    gap: 10px;
+    padding-inline: 10px;
+  }
+  .sd-draft-screen .sd-turn-copy { min-width: 0; }
+  .sd-draft-screen .sd-turn-copy span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sd-draft-screen .sd-turn-banner .sd-action-row {
+    grid-column: 3;
+    grid-row: 1;
+    align-items: center;
+    width: auto;
+    margin: 0;
+    gap: 7px;
+    flex-wrap: nowrap;
+  }
+  .sd-draft-screen .sd-turn-banner .sd-action-row .manager-btn {
+    flex: 0 0 auto;
+    min-width: 118px;
+    min-height: 44px;
+    padding: 7px 11px;
+    white-space: nowrap;
+  }
 
   .sd-draft-screen .sd-side {
     position: static;
