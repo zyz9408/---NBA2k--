@@ -12,6 +12,12 @@ const http = require('node:http');
 
 const root = path.resolve(__dirname, '..');
 const outputDir = path.join(root, 'output', 'allstar-showdown-smoke');
+const viewport = {
+  width: Number(process.env.TEST_VIEWPORT_WIDTH || 1440),
+  height: Number(process.env.TEST_VIEWPORT_HEIGHT || 940)
+};
+const deviceScaleFactor = Number(process.env.TEST_DEVICE_SCALE_FACTOR || 1);
+const shotSuffix = process.env.TEST_VIEWPORT_WIDTH ? `-${viewport.width}x${viewport.height}@${deviceScaleFactor}x` : '';
 fs.mkdirSync(outputDir, { recursive: true });
 
 function loadPlaywright() {
@@ -80,7 +86,30 @@ async function stateOf(page) {
 }
 
 async function shot(page, name) {
-  await page.screenshot({ path: path.join(outputDir, `${name}.png`), fullPage: false });
+  await page.screenshot({ path: path.join(outputDir, `${name}${shotSuffix}.png`), fullPage: false });
+}
+
+async function assertScrollablePhase(page, label) {
+  const metrics = await page.evaluate(() => {
+    const screen = document.getElementById('screenShowdown');
+    return {
+      scrollClass: screen?.classList.contains('sd-scroll-screen'),
+      overflowY: screen ? getComputedStyle(screen).overflowY : '',
+      documentOverflowX: document.documentElement.scrollWidth > innerWidth + 1,
+      nestedTableOverflow: [...document.querySelectorAll('.sd-result-table')]
+        .filter(table => table.scrollWidth > table.clientWidth + 1 || table.parentElement.scrollWidth > table.parentElement.clientWidth + 1)
+        .map(table => ({ scrollWidth: table.scrollWidth, clientWidth: table.clientWidth })),
+      documentHeight: document.documentElement.scrollHeight,
+      viewportHeight: innerHeight,
+      scrollY: window.scrollY
+    };
+  });
+  assert.equal(metrics.scrollClass, true, `${label} 必须启用滚动布局`);
+  assert.notEqual(metrics.overflowY, 'hidden', `${label} 不能裁掉纵向内容`);
+  assert.equal(metrics.documentOverflowX, false, `${label} 不能横向溢出`);
+  assert.deepEqual(metrics.nestedTableOverflow, [], `${label} 阵容数据不能依赖横向滚动`);
+  assert.ok(metrics.documentHeight >= metrics.viewportHeight, `${label} 页面高度异常`);
+  assert.ok(metrics.scrollY <= 1, `${label} 切换后必须从顶部开始`);
 }
 
 async function main() {
@@ -90,7 +119,7 @@ async function main() {
   const port = server.address().port;
   const chromePath = findChrome();
   const browser = await chromium.launch({ headless: !headed, executablePath: chromePath || undefined });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 940 } });
+  const page = await browser.newPage({ viewport, deviceScaleFactor });
   const consoleErrors = [];
   page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
   page.on('pageerror', err => consoleErrors.push(String(err && err.message || err)));
@@ -171,6 +200,7 @@ async function main() {
     await shot(page, '04-era-ready');
     let st = await stateOf(page);
     assert.equal(st.phase, 'era', '应进入年代转盘阶段');
+    await assertScrollablePhase(page, '年代转盘');
     assert.ok(st.rosters.every(r => r.players.length === 5), '五队都应集齐 5 名球员');
     const allNames = st.rosters.flatMap(r => r.players);
     assert.equal(new Set(allNames).size, 25, '25 名球员不应重复');
@@ -196,8 +226,12 @@ async function main() {
     }, { timeout: 240000 });
 
     // ---- 结算 ----
-    await sleep(800);
+    await sleep(1200);
+    const topbarCopy = await page.locator('.sd-topbar-left').innerText();
+    assert.match(topbarCopy, /返回主菜单/);
+    assert.match(topbarCopy, /全明星争夺战/);
     await shot(page, '07-results-top');
+    await assertScrollablePhase(page, '赛季结算');
     await page.evaluate(() => window.scrollTo(0, 900));
     await shot(page, '08-results-teams');
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));

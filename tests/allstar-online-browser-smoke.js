@@ -9,6 +9,11 @@ const { spawn } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
 const outputDir = path.join(root, 'output', 'allstar-online-reveal');
+const viewport = {
+  width: Number(process.env.MOBILE_WIDTH || 430),
+  height: Number(process.env.MOBILE_HEIGHT || 760)
+};
+const deviceScaleFactor = Number(process.env.MOBILE_DPR || 1);
 fs.mkdirSync(outputDir, { recursive: true });
 
 function loadPlaywright() {
@@ -84,7 +89,8 @@ async function driveCurrentTurn(page) {
   if ((game.awaiting === 'claim' || game.awaiting === 'reclaim') && free) {
     await page.locator(`[data-card="${free.idx}"]`).click();
   } else if (game.awaiting === 'lockchoice') {
-    await page.locator('[data-sdo="lock-yes"]').click();
+    const keepFlexible = process.env.MOBILE_KEEP_FLEXIBLE === '1' && game.stage === 1;
+    await page.locator(keepFlexible ? '[data-sdo="lock-no"]' : '[data-sdo="lock-yes"]').click();
   } else if (game.awaiting === 'action') {
     await page.locator('[data-sdo="keep-lock"]').click();
   } else if (game.awaiting === 'bid_attack' || game.awaiting === 'bid_defend') {
@@ -92,6 +98,92 @@ async function driveCurrentTurn(page) {
     await page.locator('#sdoBidInput').fill(String(bid));
     await page.locator('[data-sdo="submit-bid"]').click();
   }
+}
+
+async function waitForPlayablePage(pages, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    for (const page of pages) {
+      const state = await gameState(page);
+      if (!state.game?.you?.canAct) continue;
+      if (await page.locator('.sd-card-grid.is-dealing, .sd-announce-bg').count()) continue;
+      return page;
+    }
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  throw new Error('No playable mobile draft state appeared');
+}
+
+async function mobileLayoutMetrics(page) {
+  return page.evaluate(() => {
+    const rect = selector => document.querySelector(selector)?.getBoundingClientRect() || null;
+    const cards = [...document.querySelectorAll('.sd-card')].map(node => node.getBoundingClientRect());
+    const cardBacks = [...document.querySelectorAll('.sd-card-back')];
+    const visibleButtons = [...document.querySelectorAll('.sd-action-zone button, .manager-back-link')]
+      .filter(node => {
+        const box = node.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
+      });
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      documentOverflowX: document.documentElement.scrollWidth > innerWidth + 1,
+      documentOverflowY: document.documentElement.scrollHeight > innerHeight + 1,
+      topbar: rect('.sd-topbar'),
+      flowbar: rect('.sd-flowbar'),
+      managers: rect('.sd-mgr-strip'),
+      headline: rect('.sd-headline'),
+      grid: rect('.sd-card-grid'),
+      action: rect('.sd-action-zone'),
+      cards,
+      clippedCardCount: cardBacks.filter(node => node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1).length,
+      clippedCards: cardBacks.map((node, index) => ({
+        index,
+        scrollHeight: node.scrollHeight,
+        clientHeight: node.clientHeight,
+        scrollWidth: node.scrollWidth,
+        clientWidth: node.clientWidth,
+        offenders: [...node.querySelectorAll('*')]
+          .map(child => ({
+            className: child.className,
+            text: child.textContent?.trim().replace(/\s+/g, ' ').slice(0, 80),
+            scrollWidth: child.scrollWidth,
+            clientWidth: child.clientWidth
+          }))
+          .filter(child => child.scrollWidth > child.clientWidth + 1)
+          .slice(0, 5)
+      }))
+        .filter(card => card.scrollHeight > card.clientHeight + 1 || card.scrollWidth > card.clientWidth + 1),
+      minTouchHeight: visibleButtons.length ? Math.min(...visibleButtons.map(node => node.getBoundingClientRect().height)) : 999
+    };
+  });
+}
+
+function assertMobileLayout(metrics) {
+  assert.equal(metrics.documentOverflowX, false, '手机端不能横向溢出');
+  assert.equal(metrics.documentOverflowY, false, '选牌必须保持一屏且不能纵向溢出');
+  assert.equal(metrics.cards.length, 5, '手机端必须完整展示 5 张卡');
+  assert.equal(metrics.clippedCardCount, 0, `卡面内容不能被卡片自身裁掉: ${JSON.stringify(metrics.clippedCards)}`);
+  assert.ok(metrics.headline.bottom <= Math.min(...metrics.cards.map(card => card.top)) + 1, '指令条不能压住卡牌');
+  assert.ok(Math.max(...metrics.cards.map(card => card.bottom)) <= metrics.action.top + 1, '卡牌不能被操作区遮挡');
+  assert.ok(metrics.action.bottom <= metrics.viewport.height + 1, '操作区必须完整留在视口内');
+  assert.ok(metrics.minTouchHeight >= 40, `主要触控目标过小: ${metrics.minTouchHeight}px`);
+}
+
+async function assertScrollableMode(page, label) {
+  const metrics = await page.evaluate(() => {
+    const screen = document.getElementById('screenShowdown');
+    const lastPanel = [...document.querySelectorAll('.sdo-panel, .sd-results > *')].at(-1);
+    return {
+      scrollClass: screen?.classList.contains('sd-scroll-screen'),
+      overflowY: screen ? getComputedStyle(screen).overflowY : '',
+      documentHeight: document.documentElement.scrollHeight,
+      viewportHeight: innerHeight,
+      lastBottom: lastPanel?.getBoundingClientRect().bottom || 0
+    };
+  });
+  assert.equal(metrics.scrollClass, true, `${label} 必须启用自然滚动模式`);
+  assert.notEqual(metrics.overflowY, 'hidden', `${label} 不能隐藏纵向内容`);
+  assert.ok(metrics.documentHeight >= Math.min(metrics.lastBottom, metrics.viewportHeight), `${label} 文档高度必须覆盖最后一个面板`);
 }
 
 async function main() {
@@ -107,8 +199,8 @@ async function main() {
     await waitForHealth(realtimePort);
     const { chromium } = loadPlaywright();
     browser = await chromium.launch({ headless: true, executablePath: findChrome() });
-    const host = await browser.newPage({ viewport: { width: 430, height: 760 }, deviceScaleFactor: 1 });
-    const guest = await browser.newPage({ viewport: { width: 430, height: 760 }, deviceScaleFactor: 1 });
+    const host = await browser.newPage({ viewport, deviceScaleFactor });
+    const guest = await browser.newPage({ viewport, deviceScaleFactor });
     const errors = [];
     for (const page of [host, guest]) {
       page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
@@ -133,6 +225,8 @@ async function main() {
     await guest.locator('#sdoRoomCode').fill(roomCode);
     await guest.click('[data-sdo="join"]');
     await host.waitForFunction(() => JSON.parse(window.render_game_to_text()).room?.seats?.length === 2);
+    await host.screenshot({ path: path.join(outputDir, `lobby-${viewport.width}x${viewport.height}.png`), fullPage: true });
+    await assertScrollableMode(host, '联网大厅');
     for (let i = 0; i < 3; i += 1) {
       await host.click('[data-sdo="add-ai"]');
       await host.waitForFunction(count => JSON.parse(window.render_game_to_text()).room?.seats?.length === count, i + 3);
@@ -143,8 +237,23 @@ async function main() {
     await guest.click('#showdownOnlineBtn');
     await guest.waitForFunction(() => JSON.parse(window.render_game_to_text()).game?.phase === 'draft', null, { timeout: 5000 });
 
-    const deadline = Date.now() + 20000;
+    const playablePage = await waitForPlayablePage([host, guest]);
+    const layoutMetrics = await mobileLayoutMetrics(playablePage);
+    await playablePage.screenshot({ path: path.join(outputDir, `draft-${viewport.width}x${viewport.height}.png`) });
+    assertMobileLayout(layoutMetrics);
+
+    let stageTwoChecked = false;
+    const deadline = Date.now() + 25000;
     while (Date.now() < deadline) {
+      const beforeDrive = await gameState(host);
+      if (!stageTwoChecked && beforeDrive.game?.stage === 2 && beforeDrive.game.cards?.some(card => card.honors)
+        && !(await host.locator('.sd-announce-bg, .sd-card-grid.is-dealing').count())) {
+        await host.waitForTimeout(450);
+        const stageTwoMetrics = await mobileLayoutMetrics(host);
+        await host.screenshot({ path: path.join(outputDir, `honors-${viewport.width}x${viewport.height}.png`) });
+        assertMobileLayout(stageTwoMetrics);
+        stageTwoChecked = true;
+      }
       await driveCurrentTurn(host);
       await driveCurrentTurn(guest);
       const state = await gameState(host);
@@ -153,6 +262,7 @@ async function main() {
     }
     const revealed = await gameState(host);
     assert.equal(revealed.game.awaiting, 'reveal', '应进入身份揭晓阶段');
+    if (process.env.MOBILE_KEEP_FLEXIBLE === '1') assert.equal(stageTwoChecked, true, '灵活选牌场景应检查荣誉轮布局');
     assert.equal(revealed.game.cards.length, 5, '揭晓时必须保留 5 张卡');
     await host.waitForFunction(() => !document.querySelector('.sd-announce-bg'));
     await host.waitForTimeout(500);
@@ -165,6 +275,21 @@ async function main() {
     assert.equal(heldState.game.posIndex, 0, '阅读时间内不能提前切到下一个位置');
     assert.ok(heldState.game.cards.every(card => card.revealed && card.name), '阅读时间内球员身份必须持续可见');
     await host.screenshot({ path: path.join(outputDir, 'reveal-readable-held.png') });
+
+    const solo = await browser.newPage({ viewport, deviceScaleFactor });
+    solo.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+    solo.on('pageerror', err => errors.push(err.message));
+    await solo.goto(pageUrl);
+    await solo.click('#showdownModeBtn');
+    await solo.waitForFunction(() => {
+      const state = JSON.parse(window.render_game_to_text());
+      return state.mode === 'allstar_showdown' && state.phase === 'draft' && state.cards?.length === 5;
+    }, null, { timeout: 15000 });
+    await solo.waitForFunction(() => !document.querySelector('.sd-announce-bg, .sd-card-grid.is-dealing'), null, { timeout: 10000 });
+    const soloMetrics = await mobileLayoutMetrics(solo);
+    await solo.screenshot({ path: path.join(outputDir, `solo-draft-${viewport.width}x${viewport.height}.png`) });
+    assertMobileLayout(soloMetrics);
+
     const fatalErrors = errors.filter(text => !/favicon|404.*headshot|ERR_FAILED.*headshot/i.test(text));
     assert.deepEqual(fatalErrors, [], `浏览器不应出现致命错误: ${fatalErrors.slice(0, 3).join(' | ')}`);
     console.log(`PASS allstar-online-browser-smoke: ${heldState.game.cards.map(card => card.name).join(' / ')}`);

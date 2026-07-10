@@ -1116,16 +1116,32 @@
   /* ============================================================
    * 渲染
    * ============================================================ */
+  function resetScrollForPhase(phase) {
+    const phaseKey = `solo:${phase}`;
+    if (screenEl.dataset.sdRenderedPhase === phaseKey) return;
+    screenEl.dataset.sdRenderedPhase = phaseKey;
+    window.requestAnimationFrame(() => {
+      if (screenEl.dataset.sdRenderedPhase !== phaseKey) return;
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    });
+  }
+
   function render() {
     if (!S.active) return;
+    const phaseClass = `sd-phase-${S.phase || 'idle'}`;
+    screenEl.classList.toggle('sd-draft-screen', S.phase === 'draft');
+    screenEl.classList.toggle('sd-scroll-screen', S.phase !== 'draft');
     if (S.poolError) {
       root.innerHTML = `
-        <div class="sd-wrap">
+        <div class="sd-wrap sd-phase-error">
           ${renderTopbar()}
           <div class="sd-error"><strong>出错了</strong><span>${esc(S.poolError)}</span>
             <button class="manager-btn secondary" data-sd="back">返回主菜单</button></div>
         </div>`;
       bindRoot();
+      resetScrollForPhase('error');
       return;
     }
     let body = '';
@@ -1133,8 +1149,9 @@
     else if (S.phase === 'era') body = renderEra();
     else if (S.phase === 'sim') body = renderSim();
     else if (S.phase === 'results') body = renderResultsView();
-    root.innerHTML = `<div class="sd-wrap">${renderTopbar()}${body}${renderBidModal()}${renderAnnounce()}</div>`;
+    root.innerHTML = `<div class="sd-wrap ${phaseClass}">${renderTopbar()}${body}${renderBidModal()}${renderAnnounce()}</div>`;
     bindRoot();
+    resetScrollForPhase(S.phase || 'idle');
   }
 
   // 全屏阶段过场层
@@ -1161,7 +1178,10 @@
       <header class="sd-topbar glass-panel">
         <div class="sd-topbar-left">
           <button class="manager-back-link" data-sd="back" type="button">返回主菜单</button>
-          <h2>⭐ 全明星争夺战</h2>
+          <div class="sd-brand">
+            <span class="sd-brand-kicker">ALL-STAR DRAFT NIGHT</span>
+            <h2>全明星争夺战</h2>
+          </div>
         </div>
         <div class="sd-topbar-right"><span class="sd-stage-chip">${esc(stageText)}</span></div>
       </header>`;
@@ -1221,6 +1241,7 @@
     const stageNow = Math.min(3, Math.max(1, S.stage));
     const front = card.revealed ? `
       <div class="sd-card-front">
+        <span class="sd-front-kicker">ALL-STAR SELECT</span>
         <img class="sd-photo" src="${esc(getPlayerPhotoSrc(card.player))}" alt="" onerror="this.src='${esc(getPlayerPhotoPath(0))}'">
         <div class="sd-front-name">${esc(card.entry.nameCn)}</div>
         <div class="sd-front-sub">${card.entry.peakYear} · ${esc(card.entry.peakTeamCn)}</div>
@@ -1406,6 +1427,7 @@
     return `
       <div class="sd-flowbar">
         <div class="sd-flow-pos">
+          <span class="sd-flow-pos-kicker">ON CLOCK</span>
           <span class="sd-flow-pos-big">${slotNow() ? slotNow().short : ''}</span>
           <span class="sd-flow-pos-sub">位置 ${S.posIndex + 1}/5</span>
           <div class="sd-flow-pos-dots">
@@ -1657,7 +1679,7 @@
         ${res.entries.map(entry => `
           <article class="result-card full sd-team-card ${entry.mgr.human ? 'human' : ''}" style="--mc:${entry.mgr.color}">
             <h3>${entry.rank === 1 ? '🏆 ' : `#${entry.rank} `}${esc(entry.mgr.teamName)} <small>· ${esc(entry.mgr.name)} · ${entry.record.w}-${entry.record.l} · 花费💰${entry.coinsSpent}</small></h3>
-            <div class="tbl"><table>
+            <div class="tbl"><table class="sd-result-table solo">
               <thead><tr><th>位置</th><th>球员</th><th>巅峰来源</th><th>获得方式</th><th>GP</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>FG%</th><th>3P%</th><th>生涯荣誉</th></tr></thead>
               <tbody>
                 ${entry.stats.map((item, i) => {

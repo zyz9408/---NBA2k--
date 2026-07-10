@@ -596,7 +596,10 @@
       <header class="sd-topbar glass-panel">
         <div class="sd-topbar-left">
           <button class="manager-back-link" data-sdo="back" type="button">返回主菜单</button>
-          <h2>联网争夺战</h2>
+          <div class="sd-brand">
+            <span class="sd-brand-kicker">LIVE ALL-STAR DRAFT</span>
+            <h2>联网争夺战</h2>
+          </div>
         </div>
         <div class="sd-topbar-right">
           <span class="sdo-chip ${chipClass}">${esc(chipText)}</span>
@@ -754,6 +757,7 @@
     return `
       <div class="sd-flowbar">
         <div class="sd-flow-pos">
+          <span class="sd-flow-pos-kicker">ON CLOCK</span>
           <span class="sd-flow-pos-big">${esc(game.pos || '--')}</span>
           <span class="sd-flow-pos-sub">位置 ${num(game.posIndex, 0) + 1}/5</span>
           <div class="sd-flow-pos-dots">
@@ -996,6 +1000,7 @@
           </div>
           ${card.revealed ? `
             <div class="sd-card-front">
+              <span class="sd-front-kicker">ALL-STAR SELECT</span>
               <img class="sd-photo" src="${esc(photoSrc)}" alt="" onerror="this.src='${esc(fallbackPhoto)}'">
               <div class="sd-front-name">${esc(card.name || '全明星')}</div>
               <div class="sd-front-sub">${esc(card.peak || '')}</div>
@@ -1181,7 +1186,7 @@
         ${entries.map(entry => `
           <article class="result-card full sd-team-card ${entry.managerIdx === game.you?.managerIdx ? 'human' : ''}" style="--mc:${entry.color}">
             <h3>${entry.rank === 1 ? '🏆 ' : `#${entry.rank} `}${esc(entry.teamName)} <small>· ${esc(entry.manager)} · ${num(entry.record?.w, 0)}-${num(entry.record?.l, 0)} · 花费💰${num(entry.coinsSpent, 0)}</small></h3>
-            <div class="tbl"><table>
+            <div class="tbl"><table class="sd-result-table online">
               <thead><tr><th>位置</th><th>球员</th><th>巅峰来源</th><th>获得方式</th><th>GP</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>FG%</th><th>3P%</th></tr></thead>
               <tbody>
                 ${(entry.players || []).map(player => `
@@ -1285,15 +1290,39 @@
       </div>`;
   }
 
+  function resetScrollForPhase(phase) {
+    const phaseKey = `online:${phase}`;
+    if (screenEl.dataset.sdRenderedPhase === phaseKey) return;
+    screenEl.dataset.sdRenderedPhase = phaseKey;
+    window.requestAnimationFrame(() => {
+      if (screenEl.dataset.sdRenderedPhase !== phaseKey) return;
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    });
+  }
+
   function render() {
+    let renderedPhase;
     if (state.mode === 'home') {
-      root.innerHTML = `<div class="sdo-wrap">${renderHome()}</div>`;
+      screenEl.classList.remove('sd-draft-screen');
+      screenEl.classList.add('sd-scroll-screen');
+      root.innerHTML = `<div class="sdo-wrap sd-phase-home">${renderHome()}</div>`;
+      renderedPhase = 'home';
     } else if (state.mode === 'lobby') {
-      root.innerHTML = `<div class="sdo-wrap">${renderLobby()}</div>`;
+      screenEl.classList.remove('sd-draft-screen');
+      screenEl.classList.add('sd-scroll-screen');
+      root.innerHTML = `<div class="sdo-wrap sd-phase-lobby">${renderLobby()}</div>`;
+      renderedPhase = 'lobby';
     } else {
-      root.innerHTML = `<div class="sd-wrap">${renderGame()}${renderBidModal()}${renderAnnounce()}</div>`;
+      const phase = state.game?.phase || 'game';
+      screenEl.classList.toggle('sd-draft-screen', phase === 'draft');
+      screenEl.classList.toggle('sd-scroll-screen', phase !== 'draft');
+      root.innerHTML = `<div class="sd-wrap sd-phase-${esc(phase)}">${renderGame()}${renderBidModal()}${renderAnnounce()}</div>`;
+      renderedPhase = phase;
     }
     bindEvents();
+    resetScrollForPhase(renderedPhase || 'idle');
   }
 
   function bindEvents() {
