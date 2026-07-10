@@ -80,6 +80,7 @@
     notice: '',
     bidValue: 0,
     bidKey: '',
+    bidSubmitting: false,
     session: loadSession(),
     resumeTimer: null,
     reconnectAttempts: 0,
@@ -172,7 +173,9 @@
   }
 
   function isDealing() {
-    return Date.now() < num(state.fx.dealingUntil, 0);
+    const transition = state.game?.transition;
+    return (transition?.kind === 'deal' && Date.now() < num(transition.endsAt, 0))
+      || Date.now() < num(state.fx.dealingUntil, 0);
   }
 
   function isRevealing() {
@@ -203,18 +206,24 @@
 
   function startDealingFx(game) {
     const pos = game?.pos || '';
-    state.fx.dealingUntil = Date.now() + 2150;
+    const serverEndsAt = game?.transition?.kind === 'deal' ? num(game.transition.endsAt, 0) : 0;
+    state.fx.dealingUntil = Math.max(Date.now() + 2250, serverEndsAt);
     showAnnounce({
       kicker: `位置 ${num(game?.posIndex, 0) + 1}/5`,
       title: `${pos} 开始选牌`,
       sub: `5 张 ${pos} 全明星卡正在从卡堆散开`,
       ic: 'ball'
     }, 1500);
-    scheduleFxRender(2160);
+    scheduleFxRender(state.fx.dealingUntil - Date.now() + 10);
   }
 
   function applyGameFx(prevGame, nextGame) {
     if (!nextGame) return;
+    const transition = nextGame.transition || null;
+    const transitionChanged = !!transition && (!prevGame?.transition
+      || prevGame.transition.kind !== transition.kind
+      || prevGame.transition.startedAt !== transition.startedAt);
+    const transitionHold = transition ? Math.max(0, num(transition.endsAt, 0) - Date.now()) : 0;
     if (nextGame.phase === 'draft') {
       const hasCards = (nextGame.cards || []).length > 0;
       const newPosition = !prevGame
@@ -222,12 +231,18 @@
         || prevGame.posIndex !== nextGame.posIndex
         || !(prevGame.cards || []).length;
       if (hasCards && newPosition && nextGame.stage === 1) startDealingFx(nextGame);
-      if (prevGame?.phase === 'draft' && prevGame.posIndex === nextGame.posIndex && prevGame.stage !== nextGame.stage) {
+      const stageChanged = prevGame?.phase === 'draft'
+        && prevGame.posIndex === nextGame.posIndex
+        && prevGame.stage !== nextGame.stage;
+      if ((transitionChanged && transition.kind === 'stage') || (!transition && stageChanged)) {
         if (nextGame.stage === 2) {
-          showAnnounce({ kicker: `${nextGame.pos} · 第2轮`, title: '荣誉轮开启', sub: '生涯荣誉揭示,未锁定者可以换卡/截胡/比价', ic: 'medal' }, 1450);
+          showAnnounce({ kicker: `${nextGame.pos} · 第2轮`, title: '荣誉轮开启', sub: '生涯荣誉揭示,未锁定者可以换卡/截胡/比价', ic: 'medal' }, Math.max(1450, transitionHold));
         } else if (nextGame.stage === 3) {
-          showAnnounce({ kicker: `${nextGame.pos} · 第3轮`, title: '球队轮开启', sub: '效力球队揭示,这是本位置最后调整机会', ic: 'jersey' }, 1450);
+          showAnnounce({ kicker: `${nextGame.pos} · 第3轮`, title: '球队轮开启', sub: '效力球队揭示,这是本位置最后调整机会', ic: 'jersey' }, Math.max(1450, transitionHold));
         }
+      }
+      if (transitionChanged && transition.kind === 'pre_reveal') {
+        showAnnounce({ kicker: `${nextGame.pos} · 位置尘埃落定`, title: '翻牌 · 身份揭晓', sub: '五张卡即将翻开,看看每位经理抢到了谁', ic: 'star' }, Math.max(1200, transitionHold));
       }
       const wasRevealed = (prevGame?.cards || []).some(card => card.revealed);
       const revealedNow = (nextGame.cards || []).some(card => card.revealed) && !wasRevealed;
@@ -536,6 +551,7 @@
       state.error = '';
       state.notice = '已恢复到原座位';
       state.reconnectAttempts = 0;
+      state.bidSubmitting = false;
       saveSession();
       syncBidValue();
       applyGameFx(prevGame, state.game);
@@ -549,10 +565,12 @@
       state.game = msg.game || state.game;
       state.roomCode = state.room?.code || state.roomCode;
       state.mode = 'game';
+      state.bidSubmitting = false;
       saveSession();
       syncBidValue();
       applyGameFx(prevGame, state.game);
     } else if (msg.type === 'error') {
+      state.bidSubmitting = false;
       state.error = msg.message || msg.code || '服务器拒绝了该操作';
       if (msg.code === 'resume_failed' || msg.code === 'resume_expired') {
         clearSession();
@@ -823,14 +841,35 @@
 
   function renderActionBar() {
     const game = state.game;
+    const transition = game.transition || null;
     if (isDealing()) {
       return `<div class="sd-hint dim">${icon('ball')}正在发牌...</div>`;
     }
     if (isRevealing() || game.awaiting === 'reveal') {
       return `<div class="sd-hint dim">${icon('star')}身份揭晓中...</div>`;
     }
+    if (transition?.kind === 'ai_action' || transition?.kind === 'human_action') {
+      const mgr = managerByIdx(transition.managerIdx) || {};
+      return `
+        <div class="sd-callout" style="--mc:${esc(mgr.color || '#22d3ee')}">
+          <div class="sd-callout-ava">${icon(transition.kind === 'ai_action' ? 'bot' : 'user')}</div>
+          <div class="sd-callout-copy">
+            <b>${esc(mgr.name || '经理')} 完成行动</b>
+            <span>${esc(transition.action || '等待动画完成...')}</span>
+          </div>
+        </div>`;
+    }
+    if (transition?.kind === 'pre_reveal') {
+      return `<div class="sd-hint dim">${icon('star')}准备翻牌...</div>`;
+    }
+    if (transition?.kind === 'stage') {
+      return `<div class="sd-hint dim">${icon('flag')}新一轮信息揭示中...</div>`;
+    }
+    if (transition?.kind === 'duel_reveal') {
+      return `<div class="sd-hint dim">${icon('gavel')}双方金币揭晓中...</div>`;
+    }
     if (game.awaiting === 'bid_attack' || game.awaiting === 'bid_defend') {
-      return `<div class="sd-hint dim">${icon('gavel')}金币比价进行中...</div>`;
+      return `<div class="sd-hint dim">${icon('gavel')}${game.you?.canAct ? '请在弹窗中提交出价' : `等待 ${esc(game.activeName || '对手')} 提交出价`}</div>`;
     }
     if (!game.you?.canAct) {
       const active = game.activeName ? `等待 ${game.activeName} 操作` : '等待服务端推进';
@@ -876,59 +915,58 @@
       </div>`;
   }
 
-  function renderBidBar() {
-    const game = state.game;
-    const bid = game.bid || {};
-    const isDefend = game.awaiting === 'bid_defend';
-    const card = game.cards.find(c => c.idx === bid.cardIdx);
-    const limits = bidLimits();
-    state.bidValue = clamp(num(state.bidValue, limits.min), limits.min, limits.max);
-    return `
-      <div class="sd-turn-banner">
-        <div class="sd-turn-badge">${isDefend ? '守价' : '挑战'}</div>
-        <div class="sd-turn-copy">
-          <strong>${isDefend ? '提交防守总承诺' : '提交挑战出价'}</strong>
-          <span>${esc(card ? `${card.no}号卡` : '目标卡')} 当前身价 ${num(bid.price, 0)}，可出 ${limits.min} 到 ${limits.max}</span>
-        </div>
-        <div class="sd-action-row">
-          <div class="sdo-bid-box">
-            <div class="sd-bid-stepper">
-              <button data-sdo="bid-minus" type="button">-</button>
-              <input class="sdo-bid-input" id="sdoBidInput" type="number" min="${limits.min}" max="${limits.max}" value="${state.bidValue}">
-              <button data-sdo="bid-plus" type="button">+</button>
-            </div>
-            <div class="sdo-bid-range">${isDefend ? '守方只在超过当前身价时补差价' : '挑战者必须高于当前身价'}</div>
-            <button class="manager-btn primary" data-sdo="submit-bid" type="button">确认出价</button>
-          </div>
-        </div>
-      </div>`;
-  }
-
   function renderBidModal() {
     const game = state.game;
     const bid = game?.bid;
-    if (!bid || !['bid_attack', 'bid_defend'].includes(game.awaiting)) return '';
+    if (!bid) return '';
     const card = game.cards.find(c => c.idx === bid.cardIdx);
     const challenger = managerByIdx(bid.challengerIdx) || {};
     const defender = managerByIdx(bid.defenderIdx) || {};
+    if (bid.phase === 'reveal') {
+      const challengerWins = num(bid.cBid, 0) > num(bid.dBid, 0);
+      return `
+        <div class="sd-modal-bg">
+          <div class="sd-modal" data-bid-mode="reveal">
+            <h3>${icon('gavel')}金币揭价 · ${card ? `${card.no}号卡` : '目标卡'} <span class="sd-price-chip">原身价 ${num(bid.price, 0)}</span></h3>
+            <div class="sd-bid-reveal">
+              <div class="sd-bid-side ${challengerWins ? 'win' : 'lose'}" style="--mc:${esc(challenger.color || '#22d3ee')}">
+                <i class="sd-bid-role">${icon('gavel')}挑战</i>
+                <span>${esc(challenger.name || '挑战者')}</span>
+                <strong>${icon('coin')}${num(bid.cBid, 0)}</strong>
+                ${challengerWins ? `<em class="sd-bid-tag">${icon('trophy')}夺得</em>` : '<em class="sd-bid-tag keep">不消耗</em>'}
+              </div>
+              <div class="sd-bid-vs">VS</div>
+              <div class="sd-bid-side ${challengerWins ? 'lose' : 'win'}" style="--mc:${esc(defender.color || '#f59e0b')}">
+                <i class="sd-bid-role">${icon('shield')}防守</i>
+                <span>${esc(defender.name || '守方')}</span>
+                <strong>${icon('coin')}${num(bid.dBid, 0)}</strong>
+                ${challengerWins ? '<em class="sd-bid-tag keep">退回身价</em>' : `<em class="sd-bid-tag">${icon('shield')}保住</em>`}
+              </div>
+            </div>
+            <p class="sd-bid-result">${challengerWins ? `${esc(challenger.name || '挑战者')} 出价更高,夺走这张卡!` : `${esc(defender.name || '守方')} 守住了这张卡!`}</p>
+          </div>
+        </div>`;
+    }
+    if (!['bid_attack', 'bid_defend'].includes(game.awaiting) || !game.you?.canAct) return '';
     const isDefend = game.awaiting === 'bid_defend';
     const limits = bidLimits();
     state.bidValue = clamp(num(state.bidValue, limits.min), limits.min, limits.max);
+    const disabled = state.bidSubmitting ? 'disabled' : '';
     return `
       <div class="sd-modal-bg">
-        <div class="sd-modal">
+        <div class="sd-modal" data-bid-mode="${isDefend ? 'defend' : 'attack'}">
           <h3>${icon('gavel')}金币比价 · ${card ? `${card.no}号卡` : '目标卡'} <span class="sd-price-chip">${icon('coin')}身价 ${num(bid.price, 0)}</span></h3>
           <p class="sd-bid-tip">${isDefend
             ? `<b>${esc(challenger.name)}</b> 想抢走你锁定的卡。你已押 <b>${num(bid.price, 0)}</b> 金币在这张卡上,这里决定总承诺(只补差价)。`
             : `对 <b>${esc(defender.name)}</b> 锁定的卡出价。当前身价 <b>${num(bid.price, 0)}</b>,总出价必须超过身价且高于守方总承诺才能抢到。`}</p>
           <div class="sd-bid-stepper">
-            <button data-sdo="bid-minus" type="button" aria-label="减少">-</button>
-            <span class="sd-bid-value">${icon('coin')}<input class="sdo-bid-input" id="sdoBidInput" type="number" min="${limits.min}" max="${limits.max}" value="${state.bidValue}"></span>
-            <button data-sdo="bid-plus" type="button" aria-label="增加">+</button>
+            <button data-sdo="bid-minus" type="button" aria-label="减少" ${disabled}>-</button>
+            <span class="sd-bid-value">${icon('coin')}<input class="sdo-bid-input" id="sdoBidInput" type="number" min="${limits.min}" max="${limits.max}" value="${state.bidValue}" ${disabled}></span>
+            <button data-sdo="bid-plus" type="button" aria-label="增加" ${disabled}>+</button>
             <em>${isDefend ? `总承诺(范围 ${limits.min}-${limits.max})` : `/ 手上 ${num(myManager()?.coins, 0)} 枚`}</em>
           </div>
           <div class="sd-action-row center">
-            <button class="manager-btn primary sd-btn-ic" data-sdo="submit-bid" type="button">${icon(isDefend ? 'shield' : 'gavel')}确认暗价</button>
+            <button class="manager-btn primary sd-btn-ic" data-sdo="submit-bid" type="button" ${disabled}>${icon(isDefend ? 'shield' : 'gavel')}${state.bidSubmitting ? '提交中...' : '确认暗价'}</button>
           </div>
         </div>
       </div>`;
@@ -1417,9 +1455,12 @@
         break;
       }
       case 'submit-bid': {
+        if (state.bidSubmitting || !state.game?.you?.canAct) break;
         const input = document.getElementById('sdoBidInput');
         const limits = bidLimits();
         state.bidValue = clamp(num(input?.value, state.bidValue), limits.min, limits.max);
+        state.bidSubmitting = true;
+        render();
         send('submit_bid', { bid: state.bidValue });
         break;
       }

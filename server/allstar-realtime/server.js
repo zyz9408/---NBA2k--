@@ -9,10 +9,16 @@ const path = require('node:path');
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 3001);
 const SERVICE = 'allstar-showdown-realtime';
-const VERSION = '0.3.5';
+const VERSION = '0.3.6';
 const START_COINS = 15;
 const TEAM_ID_BASE = 31;
 const CARDS_PER_POSITION = 5;
+const DEAL_HOLD_MS = Math.max(2200, Number(process.env.DEAL_HOLD_MS || 2300));
+const STAGE_HOLD_MS = Math.max(1400, Number(process.env.STAGE_HOLD_MS || 1750));
+const AI_ACTION_HOLD_MS = Math.max(500, Number(process.env.AI_ACTION_HOLD_MS || 850));
+const HUMAN_ACTION_HOLD_MS = Math.max(350, Number(process.env.HUMAN_ACTION_HOLD_MS || 500));
+const PRE_REVEAL_HOLD_MS = Math.max(1200, Number(process.env.PRE_REVEAL_HOLD_MS || 1400));
+const DUEL_REVEAL_HOLD_MS = Math.max(1300, Number(process.env.DUEL_REVEAL_HOLD_MS || 1600));
 const REVEAL_HOLD_MS = Math.max(3600, Number(process.env.REVEAL_HOLD_MS || 4200));
 const HEARTBEAT_MS = Math.max(1000, Number(process.env.HEARTBEAT_MS || 30000));
 
@@ -173,6 +179,7 @@ function publicGame(room, client) {
     standings: game.standings || [],
     skipSim: !!game.skipSim,
     revealEndsAt: game.revealEndsAt || 0,
+    transition: game.transition ? { ...game.transition } : null,
     awaiting: game.awaiting,
     activeIdx: game.activeIdx,
     activeName: game.activeIdx >= 0 ? room.managers[game.activeIdx]?.name : null,
@@ -182,7 +189,7 @@ function publicGame(room, client) {
       playerId: client.playerId,
       managerIdx: viewerIdx,
       isHost: room.hostId === client.playerId,
-      canAct: viewerIdx >= 0 && viewerIdx === game.activeIdx && !!game.awaiting,
+      canAct: !game.transition && viewerIdx >= 0 && viewerIdx === game.activeIdx && !!game.awaiting,
       canRollEra: room.hostId === client.playerId && game.phase === 'era' && !game.era,
       canSkipSim: room.hostId === client.playerId && game.phase === 'sim' && (game.simRound || 0) < 82
     },
@@ -335,8 +342,11 @@ function clearRoomTimers(room) {
   if (!room.game) return;
   if (room.game.revealTimer) clearTimeout(room.game.revealTimer);
   if (room.game.simTimer) clearTimeout(room.game.simTimer);
+  if (room.game.advanceTimer) clearTimeout(room.game.advanceTimer);
   room.game.revealTimer = null;
   room.game.simTimer = null;
+  room.game.advanceTimer = null;
+  room.game.transition = null;
 }
 
 function roomCode() {
@@ -541,6 +551,8 @@ function startDraft(room) {
     simTimer: null,
     revealTimer: null,
     revealEndsAt: 0,
+    advanceTimer: null,
+    transition: null,
     result: null
   };
   pushLog(room.game, `选秀顺位: ${room.game.baseOrder.map(i => room.managers[i].name).join(' -> ')}`, 'stage');
@@ -560,8 +572,33 @@ function clearWait(game) {
   game.pendingCardIdx = -1;
 }
 
+function startTransition(room, kind, holdMs, detail = {}, resume = continueDraft) {
+  const game = room.game;
+  if (!game) return;
+  if (game.advanceTimer) clearTimeout(game.advanceTimer);
+  clearWait(game);
+  const transition = {
+    kind,
+    startedAt: Date.now(),
+    endsAt: Date.now() + holdMs,
+    ...detail
+  };
+  game.transition = transition;
+  room.updatedAt = new Date().toISOString();
+  broadcastGame(room);
+  game.advanceTimer = setTimeout(() => {
+    const liveRoom = rooms.get(room.code);
+    if (!liveRoom || liveRoom.game !== game || game.transition !== transition) return;
+    game.advanceTimer = null;
+    game.transition = null;
+    liveRoom.updatedAt = new Date().toISOString();
+    resume(liveRoom);
+  }, holdMs);
+}
+
 function continueDraft(room) {
   const game = room.game;
+  if (game.transition) return;
   for (let guard = 0; guard < 500; guard += 1) {
     if (game.awaiting) {
       broadcastGame(room);
@@ -576,6 +613,8 @@ function continueDraft(room) {
       game.stage = 1;
       game.turnIndex = 0;
       dealCards(room);
+      startTransition(room, 'deal', DEAL_HOLD_MS, { posIndex: game.posIndex, stage: 1 });
+      return;
     }
     const order = currentOrder(game);
     if (game.stage === 1) {
@@ -583,7 +622,8 @@ function continueDraft(room) {
         game.stage = 2;
         game.turnIndex = 0;
         pushLog(game, `${SLOTS[game.posIndex].short} 进入荣誉轮`, 'stage');
-        continue;
+        startTransition(room, 'stage', STAGE_HOLD_MS, { posIndex: game.posIndex, stage: 2 });
+        return;
       }
       const idx = order[game.turnIndex];
       const mgr = room.managers[idx];
@@ -594,7 +634,11 @@ function continueDraft(room) {
       }
       aiClaim(room, idx);
       game.turnIndex += 1;
-      continue;
+      startTransition(room, 'ai_action', AI_ACTION_HOLD_MS, {
+        managerIdx: idx,
+        action: game.log[0]?.text || ''
+      });
+      return;
     }
     if (game.stage <= 3) {
       if (game.turnIndex >= order.length) {
@@ -602,10 +646,14 @@ function continueDraft(room) {
           game.stage += 1;
           game.turnIndex = 0;
           pushLog(game, `${SLOTS[game.posIndex].short} 进入${game.stage === 2 ? '荣誉轮' : '球队轮'}`, 'stage');
-          continue;
+          startTransition(room, 'stage', STAGE_HOLD_MS, { posIndex: game.posIndex, stage: game.stage });
+          return;
         }
-        startPositionReveal(room);
-        continue;
+        startTransition(room, 'pre_reveal', PRE_REVEAL_HOLD_MS, {
+          posIndex: game.posIndex,
+          stage: game.stage
+        }, startPositionReveal);
+        return;
       }
       const idx = order[game.turnIndex];
       const mgr = room.managers[idx];
@@ -621,8 +669,16 @@ function continueDraft(room) {
       }
       const completed = aiAction(room, idx);
       if (completed) game.turnIndex += 1;
+      if (game.transition) return;
       if (game.awaiting) {
         broadcastGame(room);
+        return;
+      }
+      if (completed) {
+        startTransition(room, 'ai_action', AI_ACTION_HOLD_MS, {
+          managerIdx: idx,
+          action: game.log[0]?.text || ''
+        });
         return;
       }
       continue;
@@ -785,11 +841,32 @@ function continueDuelDefender(room) {
     return false;
   }
   ctx.dBid = clampBid(aiBidAmount(room, defender, game.cards[ctx.cardIdx], true), ctx.price, ctx.price + game.coins[ctx.defenderIdx]);
-  return resolveDuel(room);
+  return beginDuelReveal(room);
 }
 
 function clampBid(value, min, max) {
   return Math.max(min, Math.min(max, num(value, min)));
+}
+
+function beginDuelReveal(room) {
+  const game = room.game;
+  const ctx = game.bidCtx;
+  if (!ctx || ctx.cBid == null || ctx.dBid == null) return true;
+  ctx.phase = 'reveal';
+  startTransition(room, 'duel_reveal', DUEL_REVEAL_HOLD_MS, {
+    cardIdx: ctx.cardIdx,
+    challengerIdx: ctx.challengerIdx,
+    defenderIdx: ctx.defenderIdx
+  }, liveRoom => {
+    const completed = resolveDuel(liveRoom);
+    if (completed) {
+      liveRoom.game.turnIndex += 1;
+      continueDraft(liveRoom);
+    } else {
+      broadcastGame(liveRoom);
+    }
+  });
+  return false;
 }
 
 function resolveDuel(room) {
@@ -909,13 +986,7 @@ function resumeDisconnectedManager(room, playerId) {
     const card = game.cards[ctx.cardIdx];
     ctx.dBid = clampBid(aiBidAmount(room, mgr, card, true), ctx.price, ctx.price + game.coins[idx]);
     clearWait(game);
-    const completed = resolveDuel(room);
-    if (completed) {
-      game.turnIndex += 1;
-      continueDraft(room);
-    } else {
-      broadcastGame(room);
-    }
+    beginDuelReveal(room);
     return true;
   }
 
@@ -1643,7 +1714,10 @@ function handleChooseLock(client, msg) {
   }
   clearWait(game);
   game.turnIndex += 1;
-  continueDraft(room);
+  startTransition(room, 'human_action', HUMAN_ACTION_HOLD_MS, {
+    managerIdx: turn.idx,
+    action: game.log[0]?.text || ''
+  });
 }
 
 function handleKeep(client, msg, lock) {
@@ -1657,7 +1731,10 @@ function handleKeep(client, msg, lock) {
   pushLog(game, `${room.managers[turn.idx].name} ${lock ? '锁定当前卡' : '保持观望'}`, 'me');
   clearWait(game);
   game.turnIndex += 1;
-  continueDraft(room);
+  startTransition(room, 'human_action', HUMAN_ACTION_HOLD_MS, {
+    managerIdx: turn.idx,
+    action: game.log[0]?.text || ''
+  });
 }
 
 function handleTakeCard(client, msg) {
@@ -1726,13 +1803,7 @@ function handleSubmitBid(client, msg) {
   }
   ctx.dBid = clampBid(bid, ctx.price, ctx.price + game.coins[ctx.defenderIdx]);
   clearWait(game);
-  const completed = resolveDuel(room);
-  if (completed) {
-    game.turnIndex += 1;
-    continueDraft(room);
-  } else {
-    broadcastGame(room);
-  }
+  beginDuelReveal(room);
 }
 
 function handleReclaimCard(client, msg) {
@@ -1755,7 +1826,10 @@ function handleReclaimCard(client, msg) {
     return;
   }
   game.turnIndex += 1;
-  continueDraft(room);
+  startTransition(room, 'human_action', HUMAN_ACTION_HOLD_MS, {
+    managerIdx: turn.idx,
+    action: game.log[0]?.text || ''
+  });
 }
 
 function handleRollEra(client, msg) {

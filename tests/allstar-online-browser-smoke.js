@@ -205,6 +205,106 @@ async function assertScrollableMode(page, label) {
   assert.ok(metrics.documentHeight >= Math.min(metrics.lastBottom, metrics.viewportHeight), `${label} 文档高度必须覆盖最后一个面板`);
 }
 
+async function runSequentialDuelBrowserScenario(browser, pageUrl, wsUrl, errors) {
+  const defender = await browser.newPage({ viewport, deviceScaleFactor });
+  const challenger = await browser.newPage({ viewport, deviceScaleFactor });
+  for (const page of [defender, challenger]) {
+    page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+    page.on('pageerror', err => errors.push(err.message));
+  }
+  try {
+    await defender.addInitScript(({ wsUrl }) => {
+      localStorage.setItem('allstarOnlineWsUrl', wsUrl);
+      localStorage.setItem('allstarOnlineName', '锁卡守方');
+    }, { wsUrl });
+    await challenger.addInitScript(({ wsUrl }) => {
+      localStorage.setItem('allstarOnlineWsUrl', wsUrl);
+      localStorage.setItem('allstarOnlineName', '顺序挑战者');
+    }, { wsUrl });
+    await Promise.all([defender.goto(pageUrl), challenger.goto(pageUrl)]);
+    await Promise.all([defender.click('#showdownOnlineBtn'), challenger.click('#showdownOnlineBtn')]);
+    await defender.click('[data-sdo="create"]');
+    await defender.waitForFunction(() => JSON.parse(window.render_game_to_text()).room?.status === 'lobby');
+    const roomCode = (await gameState(defender)).room.code;
+    await challenger.locator('#sdoRoomCode').fill(roomCode);
+    await challenger.click('[data-sdo="join"]');
+    await defender.waitForFunction(() => JSON.parse(window.render_game_to_text()).room?.seats?.length === 2);
+    await defender.click('[data-sdo="start-game"]');
+
+    const acted = new Set();
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+      const challengerState = await gameState(challenger);
+      if (challengerState.game?.stage === 2 && challengerState.game.awaiting === 'action' && challengerState.game.you?.canAct
+        && !(await challenger.locator('.sd-announce-bg').count())) break;
+      for (const [page, lock, role] of [[defender, true, 'defender'], [challenger, false, 'challenger']]) {
+        const state = await gameState(page);
+        const game = state.game;
+        if (game?.stage !== 1 || !game.you?.canAct) continue;
+        if (await page.locator('.sd-card-grid.is-dealing, .sd-announce-bg').count()) continue;
+        const signature = `${role}:${game.awaiting}:${game.activeIdx}:${game.pendingCardIdx}`;
+        if (acted.has(signature)) continue;
+        acted.add(signature);
+        if (game.awaiting === 'claim') {
+          const free = game.cards.find(card => card.ownerIdx < 0);
+          await page.locator(`[data-card="${free.idx}"]`).click();
+        } else if (game.awaiting === 'lockchoice') {
+          await page.locator(lock ? '[data-sdo="lock-yes"]' : '[data-sdo="lock-no"]').click();
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    const actionState = await gameState(challenger);
+    assert.equal(actionState.game?.awaiting, 'action', '挑战者应在荣誉轮获得行动回合');
+    assert.equal(actionState.game?.you?.canAct, true, '挑战者应可选择锁卡目标');
+    const defenderIdx = (await gameState(defender)).game.you.managerIdx;
+    const target = actionState.game.cards.find(card => card.ownerIdx === defenderIdx && card.locked);
+    assert.ok(target, '浏览器比价用例需要守方锁定卡');
+    await challenger.locator(`[data-card="${target.idx}"]`).click();
+
+    await Promise.all([
+      challenger.waitForFunction(() => JSON.parse(window.render_game_to_text()).game?.awaiting === 'bid_attack'),
+      defender.waitForFunction(() => JSON.parse(window.render_game_to_text()).game?.awaiting === 'bid_attack')
+    ]);
+    await challenger.waitForTimeout(380);
+    assert.equal(await challenger.locator('.sd-modal[data-bid-mode="attack"]').count(), 1, '挑战者应看到挑战出价框');
+    assert.equal(await defender.locator('.sd-modal-bg').count(), 0, '守方不能与挑战者同时看到出价框');
+    await challenger.screenshot({ path: path.join(outputDir, `bid-attack-${viewport.width}x${viewport.height}.png`) });
+    const attack = await gameState(challenger);
+    await challenger.locator('#sdoBidInput').fill(String(attack.game.bid.price + 1));
+    await challenger.click('[data-sdo="submit-bid"]');
+
+    await Promise.all([
+      defender.waitForFunction(() => JSON.parse(window.render_game_to_text()).game?.awaiting === 'bid_defend'),
+      challenger.waitForFunction(() => JSON.parse(window.render_game_to_text()).game?.awaiting === 'bid_defend')
+    ]);
+    await defender.waitForTimeout(380);
+    assert.equal(await defender.locator('.sd-modal[data-bid-mode="defend"]').count(), 1, '挑战者提交后应只轮到守方出价');
+    assert.equal(await challenger.locator('.sd-modal-bg').count(), 0, '挑战者提交后不能再次看到可输入出价框');
+    await defender.screenshot({ path: path.join(outputDir, `bid-defend-${viewport.width}x${viewport.height}.png`) });
+    const defend = await gameState(defender);
+    await defender.locator('#sdoBidInput').fill(String(defend.game.bid.price));
+    await defender.click('[data-sdo="submit-bid"]');
+
+    await Promise.all([
+      defender.waitForFunction(() => JSON.parse(window.render_game_to_text()).game?.bid?.phase === 'reveal'),
+      challenger.waitForFunction(() => JSON.parse(window.render_game_to_text()).game?.bid?.phase === 'reveal')
+    ]);
+    await challenger.waitForTimeout(380);
+    for (const page of [defender, challenger]) {
+      assert.equal(await page.locator('.sd-modal[data-bid-mode="reveal"]').count(), 1, '双方都应看到金币揭价结果');
+      assert.equal(await page.locator('.sd-modal input').count(), 0, '揭价阶段不能继续输入金币');
+      assert.equal(await page.locator('.sd-bid-side strong').count(), 2, '揭价阶段必须同时展示双方出价');
+    }
+    await challenger.screenshot({ path: path.join(outputDir, `bid-reveal-${viewport.width}x${viewport.height}.png`) });
+    await challenger.waitForFunction(() => !document.querySelector('.sd-modal-bg'), null, { timeout: 5000 });
+  } finally {
+    await defender.close().catch(() => {});
+    await challenger.close().catch(() => {});
+  }
+}
+
 async function main() {
   const staticServer = await startStaticServer();
   const realtimePort = await freePort();
@@ -263,7 +363,7 @@ async function main() {
 
     let stageTwoChecked = false;
     let lockChoiceChecked = false;
-    const deadline = Date.now() + 25000;
+    const deadline = Date.now() + 45000;
     while (Date.now() < deadline) {
       const beforeDrive = await gameState(host);
       if (!stageTwoChecked && beforeDrive.game?.stage === 2 && beforeDrive.game.cards?.some(card => card.honors)
@@ -321,6 +421,8 @@ async function main() {
     const soloMetrics = await mobileLayoutMetrics(solo);
     await solo.screenshot({ path: path.join(outputDir, `solo-draft-${viewport.width}x${viewport.height}.png`) });
     assertMobileLayout(soloMetrics);
+
+    await runSequentialDuelBrowserScenario(browser, pageUrl, wsUrl, errors);
 
     const fatalErrors = errors.filter(text => !/favicon|404.*headshot|ERR_FAILED.*headshot/i.test(text));
     assert.deepEqual(fatalErrors, [], `浏览器不应出现致命错误: ${fatalErrors.slice(0, 3).join(' | ')}`);

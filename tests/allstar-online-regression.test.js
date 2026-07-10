@@ -8,6 +8,9 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const MIN_REVEAL_HOLD_MS = 3600;
+const MIN_DEAL_HOLD_MS = 2000;
+const MIN_STAGE_HOLD_MS = 1400;
+const MIN_DUEL_REVEAL_MS = 1300;
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -140,6 +143,122 @@ function installAutoDriver(client) {
   return () => client.ws.removeEventListener('message', listener);
 }
 
+function latestGame(client) {
+  return client.messages.findLast(msg => msg.type === 'game_state') || null;
+}
+
+async function waitUntil(predicate, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = await predicate();
+    if (value) return value;
+    await delay(20);
+  }
+  throw new Error('timed out waiting for deterministic test state');
+}
+
+async function testAuthoritativeAnimationPacing(port) {
+  const { host, guest, roomCode } = await createTwoPlayerRoom(port, '动画');
+  try {
+    host.send('start_game', { roomCode });
+    const deal = await host.waitFor(msg => msg.type === 'game_state' && msg.game.phase === 'draft');
+    const dealStartedAt = Date.now();
+    assert.equal(deal.game.transition?.kind, 'deal', '发牌期间服务端必须发布 deal transition');
+    assert.equal(deal.game.you.canAct, false, '发牌动画结束前不能开始玩家回合');
+    assert.ok(deal.game.transition.endsAt - Date.now() >= MIN_DEAL_HOLD_MS - 150,
+      '发牌 transition 必须覆盖最后一张牌套动画');
+    await host.waitFor(msg => msg.type === 'game_state' && msg.game.awaiting === 'claim', 6000);
+    assert.ok(Date.now() - dealStartedAt >= MIN_DEAL_HOLD_MS,
+      '发牌动画未结束时服务端不能推进到认领');
+  } finally {
+    host.close();
+    guest.close();
+  }
+}
+
+async function testSequentialHumanDuel(port) {
+  const { host, guest, roomCode } = await createTwoPlayerRoom(port, '比价');
+  try {
+    host.send('start_game', { roomCode });
+    const firstHost = await host.waitFor(msg => msg.type === 'game_state' && msg.game.phase === 'draft');
+    const firstGuest = await guest.waitFor(msg => msg.type === 'game_state' && msg.game.phase === 'draft');
+    const hostIdx = firstHost.game.you.managerIdx;
+    const guestIdx = firstGuest.game.you.managerIdx;
+    const acted = new Set();
+
+    await waitUntil(async () => {
+      for (const [client, lock] of [[host, true], [guest, false]]) {
+        const message = latestGame(client);
+        const game = message?.game;
+        if (!game?.you?.canAct || game.stage !== 1) continue;
+        const signature = `${game.awaiting}:${game.activeIdx}:${game.pendingCardIdx}`;
+        if (acted.has(signature)) continue;
+        acted.add(signature);
+        if (game.awaiting === 'claim') {
+          const free = game.cards.find(card => card.ownerIdx < 0);
+          client.send('claim_card', { roomCode, cardIdx: free.idx });
+        } else if (game.awaiting === 'lockchoice') {
+          client.send('choose_lock', { roomCode, lock });
+        }
+      }
+      const stage = latestGame(host)?.game;
+      return stage?.stage === 2 && stage.transition?.kind === 'stage' ? stage : null;
+    }, 12000);
+
+    const stageTransition = latestGame(host).game;
+    const stageStartedAt = Date.now();
+    assert.equal(stageTransition.you.canAct, false, '荣誉轮揭示动画结束前不能操作');
+    assert.ok(stageTransition.transition.endsAt - Date.now() >= MIN_STAGE_HOLD_MS - 150,
+      '荣誉轮 transition 必须覆盖揭示动画');
+
+    const guestAction = await guest.waitFor(msg => msg.type === 'game_state'
+      && msg.game.stage === 2
+      && msg.game.awaiting === 'action'
+      && msg.game.you.canAct, 6000);
+    assert.ok(Date.now() - stageStartedAt >= MIN_STAGE_HOLD_MS,
+      '荣誉轮动画未结束时不能推进到玩家行动');
+    const lockedTarget = guestAction.game.cards.find(card => card.ownerIdx === hostIdx && card.locked);
+    assert.ok(lockedTarget, '测试需要房主持有一张锁定卡');
+    guest.send('challenge_card', { roomCode, cardIdx: lockedTarget.idx });
+
+    const attackGuest = await guest.waitFor(msg => msg.type === 'game_state'
+      && msg.game.awaiting === 'bid_attack' && msg.game.bid?.phase === 'attack', 3000);
+    const attackHost = await host.waitFor(msg => msg.type === 'game_state'
+      && msg.game.awaiting === 'bid_attack' && msg.game.bid?.phase === 'attack', 3000);
+    assert.equal(attackGuest.game.you.canAct, true, '挑战阶段只允许挑战者出价');
+    assert.equal(attackHost.game.you.canAct, false, '挑战阶段守方不能同时出价');
+    assert.equal(attackGuest.game.activeIdx, guestIdx);
+    guest.send('submit_bid', { roomCode, bid: attackGuest.game.bid.price + 1 });
+
+    const defendHost = await host.waitFor(msg => msg.type === 'game_state'
+      && msg.game.awaiting === 'bid_defend' && msg.game.bid?.phase === 'defend', 3000);
+    const defendGuest = await guest.waitFor(msg => msg.type === 'game_state'
+      && msg.game.awaiting === 'bid_defend' && msg.game.bid?.phase === 'defend', 3000);
+    assert.equal(defendHost.game.you.canAct, true, '守价阶段只允许守方出价');
+    assert.equal(defendGuest.game.you.canAct, false, '挑战者提交后不能再次看到可操作出价阶段');
+    assert.equal(defendHost.game.activeIdx, hostIdx);
+    host.send('submit_bid', { roomCode, bid: defendHost.game.bid.price });
+
+    const reveal = await host.waitFor(msg => msg.type === 'game_state'
+      && msg.game.bid?.phase === 'reveal'
+      && msg.game.transition?.kind === 'duel_reveal', 3000);
+    const revealStartedAt = Date.now();
+    const revealMessageIndex = host.messages.lastIndexOf(reveal);
+    assert.equal(reveal.game.you.canAct, false, '双方揭价动画期间不能继续操作');
+    assert.notEqual(reveal.game.bid.cBid, null, '揭价阶段必须展示挑战出价');
+    assert.notEqual(reveal.game.bid.dBid, null, '揭价阶段必须展示守方出价');
+    assert.ok(reveal.game.transition.endsAt - Date.now() >= MIN_DUEL_REVEAL_MS - 150,
+      '服务端揭价 transition 必须覆盖金币翻转动画');
+    await waitUntil(() => host.messages.slice(revealMessageIndex + 1)
+      .find(msg => msg.type === 'game_state' && !msg.game.bid), 5000);
+    assert.ok(Date.now() - revealStartedAt >= MIN_DUEL_REVEAL_MS,
+      '双方金币揭价动画未播完就进入了下一状态');
+  } finally {
+    host.close();
+    guest.close();
+  }
+}
+
 async function testRevealHold(port) {
   const { host, guest, roomCode } = await createTwoPlayerRoom(port, '翻牌');
   const stopHost = installAutoDriver(host);
@@ -152,7 +271,7 @@ async function testRevealHold(port) {
       && msg.game.posIndex === 0
       && msg.game.awaiting === 'reveal'
       && msg.game.cards.length === 5
-      && msg.game.cards.every(card => card.revealed), 15000);
+      && msg.game.cards.every(card => card.revealed), 30000);
     const revealStartedAt = Date.now();
     assert.equal(reveal.game.cards.length, 5, '联网每个位置必须始终展示 5 张卡');
     await host.waitFor(msg => msg.type === 'game_state' && msg.game.posIndex === 1, 10000);
@@ -208,7 +327,7 @@ async function testDisconnectAutopilotAndHostTransfer(port) {
     const advanced = await guest.waitFor(msg => msg.type === 'game_state'
       && msg.room.hostId === guest.playerId
       && msg.game.managers.some(mgr => mgr.playerId !== guest.playerId || !mgr.connected)
-      && (msg.game.you.canAct || msg.game.awaiting === 'reveal' || msg.game.posIndex > 0), 2500);
+      && (msg.game.transition || msg.game.you.canAct || msg.game.awaiting === 'reveal' || msg.game.posIndex > 0), 6000);
     assert.equal(advanced.room.hostId, guest.playerId, '房主掉线后应转移给仍在线的真人');
     assert.notEqual(advanced.game.activeIdx, hostTurn.game.you.managerIdx,
       '掉线玩家的待操作回合必须由服务端托管并继续');
@@ -226,7 +345,7 @@ async function testFullOnlineMatch(port) {
     for (let i = 0; i < 3; i += 1) host.send('add_ai', { roomCode });
     await host.waitFor(msg => msg.type === 'room_state' && msg.room.seats.length === 5);
     host.send('start_game', { roomCode });
-    const eraState = await host.waitFor(msg => msg.type === 'game_state' && msg.game.phase === 'era', 35000);
+    const eraState = await host.waitFor(msg => msg.type === 'game_state' && msg.game.phase === 'era', 150000);
     assert.equal(eraState.game.rosters.length, 5, '结集阶段应有 5 支球队');
     const drafted = eraState.game.rosters.flatMap(roster => roster.players.filter(Boolean));
     assert.equal(drafted.length, 25, '5 支球队都应选满 5 个位置');
@@ -311,6 +430,8 @@ async function main() {
   const server = await startRealtimeServer();
   try {
     const cases = [
+      ['authoritative animation pacing', () => testAuthoritativeAnimationPacing(server.port)],
+      ['sequential human duel', () => testSequentialHumanDuel(server.port)],
       ['reveal hold', () => testRevealHold(server.port)],
       ['duplicate start', () => testDuplicateStartRejected(server.port)],
       ['disconnect recovery', () => testDisconnectAutopilotAndHostTransfer(server.port)],
